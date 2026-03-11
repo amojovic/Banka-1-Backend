@@ -37,27 +37,27 @@ services:
     networks:
       - notification-network
 
-#  notification-service:
-#    build:
-#      context: ..
-#      dockerfile: notification-service/Dockerfile
-#    container_name: notification-service
-#    restart: unless-stopped
-#    env_file:
-#      - .env
-#    environment:
-#      NOTIFICATION_SERVICE_HOST: 0.0.0.0
-#      POSTGRES_HOST: postgres
-#      RABBITMQ_HOST: rabbitmq
-#    depends_on:
-#      postgres:
-#        condition: service_healthy
-#      rabbitmq:
-#        condition: service_healthy
-#    ports:
-#      - "${NOTIFICATION_SERVICE_PORT}:${NOTIFICATION_SERVICE_PORT}"
-#    networks:
-#      - notification-network
+  notification-service:
+    build:
+      context: ..
+      dockerfile: notification-service/Dockerfile
+    container_name: notification-service
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NOTIFICATION_SERVICE_HOST: 0.0.0.0
+      POSTGRES_HOST: postgres
+      RABBITMQ_HOST: rabbitmq
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "${NOTIFICATION_SERVICE_PORT}:${NOTIFICATION_SERVICE_PORT}"
+    networks:
+      - notification-network
 
 networks:
   notification-network:
