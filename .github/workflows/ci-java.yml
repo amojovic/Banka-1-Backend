@@ -215,6 +215,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4.2.2
 
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14'
+
+      - name: Generate Gradle wrapper
+        run: gradle wrapper --gradle-version=8.14
+
       - name: Check for Dockerfile
         id: check
         run: |
@@ -227,9 +235,9 @@ jobs:
 
       - name: Validate Docker build
         if: steps.check.outputs.exists == 'true'
-        working-directory: ${{ matrix.service }}
-        run: docker build .
-
+        # Build from repo root and point to the Dockerfile inside the service folder
+        run: docker build -f ${{ matrix.service }}/Dockerfile .
+        
   # ── TODO: Docker Build & Push to Registry ────────────────────────────────
   # Configure once a container registry is available.
 
