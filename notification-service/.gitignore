@@ -5,7 +5,7 @@ gradle/
 gradlew
 gradlew.bat
 build/
-.env
+.env2
 .env.*
 !.env.example
 *.log

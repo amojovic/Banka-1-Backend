@@ -1,0 +1,130 @@
+services:
+  # Postgres for Notification Service
+  postgres_notification:
+    image: postgres:16
+    container_name: postgres_notification_db
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-notification_db}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres-notification-data:/var/lib/postgresql/data
+    networks:
+      - banka-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-notification_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Postgres for User Service
+  postgres_user:
+    image: postgres:16
+    container_name: postgres_user_db
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${DB_NAME:-banka}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    ports:
+      - "${USER_EX_PORT:-5434}:5432"
+    volumes:
+      - postgres-user-data:/var/lib/postgresql/data
+    networks:
+      - banka-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-banka}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # RabbitMQ (shared)
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: banka_rabbitmq
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    networks:
+      - banka-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Notification Service
+  notification-service:
+    build:
+      context: ..
+      dockerfile: notification-service/Dockerfile
+    container_name: notification-service
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NOTIFICATION_SERVICE_HOST: ${NOTIFICATION_SERVICE_HOST:-0.0.0.0}
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-notification_db}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+    depends_on:
+      postgres_notification:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "${NOTIFICATION_SERVICE_PORT:-8006}:${NOTIFICATION_SERVICE_PORT:-8006}"
+    networks:
+      - banka-network
+
+  # User Service
+  user-service:
+    build:
+      context: ..
+      dockerfile: user-service/Dockerfile
+    container_name: banka_user_service
+    restart: on-failure
+    env_file:
+      - .env
+    environment:
+      DB_HOST: ${DB_HOST:-postgres_user}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-banka}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      RABBIT_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBIT_PORT: ${RABBITMQ_PORT:-5672}
+      SERVER_PORT: ${SERVER_PORT:-8081}
+    depends_on:
+      postgres_user:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "${DOCKER_PORT:-8082}:${SERVER_PORT:-8081}"
+    networks:
+      - banka-network
+
+networks:
+  banka-network:
+    driver: bridge
+
+volumes:
+  postgres-notification-data:
+  postgres-user-data:

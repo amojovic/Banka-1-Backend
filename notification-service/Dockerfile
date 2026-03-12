@@ -1,22 +1,29 @@
-FROM eclipse-temurin:21-jdk AS build
-WORKDIR /workspace
+# ===== Build Stage =====
+FROM gradle:8.14.3-jdk21-alpine AS builder
 
-COPY gradle gradle
-COPY gradlew gradlew
-COPY gradlew.bat gradlew.bat
-COPY settings.gradle ./
-COPY company-observability-starter/build.gradle company-observability-starter/build.gradle
-COPY company-observability-starter/src company-observability-starter/src
-COPY notification-service/build.gradle notification-service/build.gradle
-COPY notification-service/src notification-service/src
-
-RUN chmod +x gradlew && ./gradlew --no-daemon :notification-service:clean :notification-service:bootJar
-
-FROM eclipse-temurin:21-jre
+# Set working directory
 WORKDIR /app
 
-COPY --from=build /workspace/notification-service/build/libs/*.jar app.jar
+# Copy only the notification-service and any dependencies it needs
+COPY notification-service ./notification-service
+COPY company-observability-starter ./company-observability-starter
 
+# Move into the notification-service folder
+WORKDIR /app/notification-service
+
+# Build the project
+RUN gradle build --no-daemon -x test
+
+# ===== Runtime Stage =====
+FROM eclipse-temurin:21-jre-alpine
+
+WORKDIR /app
+
+# Copy the built JAR from the builder stage
+COPY --from=builder /app/notification-service/build/libs/*.jar app.jar
+
+# Expose the service port
 EXPOSE 8006
 
-ENTRYPOINT ["java", "-jar", "app.jar"]
+# Run the application
+ENTRYPOINT ["java","-jar","app.jar"]

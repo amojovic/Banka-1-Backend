@@ -25,13 +25,6 @@ final class NotificationContentResolver {
     private static final String USER_EMAIL_REQUIRED =
             "userEmail is required";
 
-    /** Error message when user email format is invalid. */
-    private static final String USER_EMAIL_INVALID =
-            "userEmail is not a valid email address";
-
-    /** Minimal email format pattern: local@domain.tld */
-    private static final java.util.regex.Pattern EMAIL_PATTERN =
-            java.util.regex.Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
 
     /** Template variable key for username. */
     private static final String USERNAME_KEY = "username";
@@ -166,8 +159,6 @@ final class NotificationContentResolver {
         if (request.getUserEmail() == null || request.getUserEmail().isBlank()) {
             throw new IllegalArgumentException(USER_EMAIL_REQUIRED);
         }
-        if (!EMAIL_PATTERN.matcher(request.getUserEmail()).matches()) {
-            throw new IllegalArgumentException(USER_EMAIL_INVALID);
-        }
+
     }
 }

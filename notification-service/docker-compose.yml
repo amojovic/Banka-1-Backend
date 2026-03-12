@@ -44,7 +44,7 @@ services:
     container_name: notification-service
     restart: unless-stopped
     env_file:
-      - .env
+      - .env2
     environment:
       NOTIFICATION_SERVICE_HOST: 0.0.0.0
       POSTGRES_HOST: postgres

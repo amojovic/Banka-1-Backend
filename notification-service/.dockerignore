@@ -1,6 +1,6 @@
 .git
 .gitignore
-.env
+.env2
 .env.*
 !.env.example
 .gradle

@@ -202,9 +202,10 @@ jobs:
           echo "✅ OpenAPI spec is valid."
 
   # ── Docker Build Validation ───────────────────────────────────────────────
+  # ── Docker Build & Run Validation ─────────────────────────────────────────
   docker-validate:
-    name: Docker Validate (${{ matrix.service }})
-    needs: [detect-changes, build-and-test, validate-docs]
+    name: Docker Build & Run Validation (${{ matrix.service }})
+    needs: [ detect-changes, build-and-test, validate-docs ]
     if: ${{ needs.detect-changes.outputs.services != '[]' && needs.detect-changes.outputs.services != '' }}
     runs-on: ubuntu-latest
     strategy:
@@ -215,14 +216,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4.2.2
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.14'
-
-      - name: Generate Gradle wrapper
-        run: gradle wrapper --gradle-version=8.14
-
+      # ── Check if Dockerfile exists in the service folder
       - name: Check for Dockerfile
         id: check
         run: |
@@ -231,12 +225,21 @@ jobs:
           else
             echo "exists=false" >> $GITHUB_OUTPUT
             echo "No Dockerfile found in ${{ matrix.service }}, skipping Docker validation."
-          fi
 
-      - name: Validate Docker build
+      # ── Build Docker image from repo root
+      - name: Build Docker image
         if: steps.check.outputs.exists == 'true'
-        # Build from repo root and point to the Dockerfile inside the service folder
-        run: docker build -f ${{ matrix.service }}/Dockerfile .
+        run: |
+          echo "Building Docker image for ${{ matrix.service }}"
+          docker build -f ${{ matrix.service }}/Dockerfile . \
+            -t ci-test/${{ matrix.service }}:latest
+
+      # ── Test Docker image starts successfully
+      - name: Test Docker image runs
+        if: steps.check.outputs.exists == 'true'
+        run: |
+          echo "Running container test for ${{ matrix.service }}"
+          docker run --rm ci-test/${{ matrix.service }}:latest echo "✅ Docker image for ${{ matrix.service }} runs!"
         
   # ── TODO: Docker Build & Push to Registry ────────────────────────────────
   # Configure once a container registry is available.

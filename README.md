@@ -24,6 +24,20 @@ This configures Git to use the hooks in `.github/githooks/`.
 
 > **This step is required.** Without it, pre-push checks will not run.
 
+### Running the Main Infrastructure
+
+To start the shared infrastructure services (PostgreSQL, RabbitMQ, notification-service, and user-service), run from the root folder:
+
+```bash
+docker compose -f .\setup\docker-compose.yml up -d
+```
+
+This will start:
+- **PostgreSQL** — the main database
+- **RabbitMQ** — the message broker with management UI
+- **Notification Service** — for handling notifications
+- **User Service** — for managing user accounts and authentication
+
 ---
 
 ## Pre-push Hooks
