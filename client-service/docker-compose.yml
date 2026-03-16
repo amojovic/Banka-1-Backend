@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: banka_clients_postgres_db
+    ports:
+      - "${DB_PORT:-5433}:5432"
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - clients_postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  client-service:
+    build:
+      context: ..
+      dockerfile: client-service/Dockerfile
+    container_name: banka_client_service
+    ports:
+      - "${DOCKER_PORT:-8084}:${SERVER_PORT:-8083}"
+    env_file:
+      - .env
+    environment:
+      DB_HOST: postgres
+    depends_on:
+      - postgres
+    restart: on-failure
+
+volumes:
+  clients_postgres_data:
