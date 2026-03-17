@@ -3,6 +3,7 @@ plugins {
 	id 'org.springframework.boot' version '4.0.3'
 	id 'io.spring.dependency-management' version '1.1.7'
 	id 'maven-publish'
+	id 'checkstyle'
 }
 
 group = 'com.library'
@@ -43,6 +44,14 @@ bootJar {
 
 jar {
 	enabled = true
+}
+
+checkstyle {
+	configFile = rootProject.file('checkstyle.xml')
+}
+
+tasks.withType(Checkstyle).configureEach {
+	ignoreFailures = true
 }
 
 publishing {

@@ -4,6 +4,7 @@ plugins {
     id("org.springframework.boot") version "4.0.3"
     id("io.spring.dependency-management") version "1.1.7"
     id("org.springdoc.openapi-gradle-plugin") version "1.9.0"
+    checkstyle
 }
 
 group = "com.banka1"
@@ -28,8 +29,12 @@ repositories {
 }
 
 dependencies {
-    implementation("com.banka1:security-lib:0.0.1-SNAPSHOT")
+//    implementation(project(":security-lib"))
     implementation("com.library:company-observability-starter:0.0.1-SNAPSHOT")
+
+//    implementation(project(":company-observability-starter"))
+    implementation("com.banka1:security-lib:0.0.1-SNAPSHOT")
+
 //	implementation("tools.jackson.core:jackson-core:2.21.1")
 //	implementation("tools.jackson.core:jackson-databind:2.21.1")
 //	implementation("tools.jackson.core:jackson-annotations:2.21.1")
@@ -82,5 +87,13 @@ openApi {
     outputDir.set(file("docs"))
     outputFileName.set("openapi.yml")
     waitTimeInSeconds.set(30)
+}
+
+checkstyle {
+    configFile = rootProject.file("checkstyle.xml")
+}
+
+tasks.withType<org.gradle.api.plugins.quality.Checkstyle>().configureEach {
+    ignoreFailures = true
 }
 

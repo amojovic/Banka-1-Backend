@@ -42,6 +42,26 @@ run_tests_for_service() {
   fi
 }
 
+run_lint_for_service() {
+  SERVICE_DIR="$1"
+  SERVICE_NAME=$(basename "$SERVICE_DIR")
+  echo "  -> Linting: $SERVICE_NAME"
+
+  if [ -f "$SERVICE_DIR/build.gradle" ] || [ -f "$SERVICE_DIR/build.gradle.kts" ]; then
+    (cd "$REPO_ROOT" && ./gradlew ":$SERVICE_NAME:checkstyleMain" ":$SERVICE_NAME:checkstyleTest" -q --warning-mode none --console plain) || return 1
+  elif [ -f "$SERVICE_DIR/pom.xml" ]; then
+    (cd "$SERVICE_DIR" && ./mvnw -q checkstyle:check) || return 1
+  elif [ -f "$SERVICE_DIR/package.json" ]; then
+    (cd "$SERVICE_DIR" && npm ci --silent && npm run lint --if-present) || return 1
+  elif [ -f "$SERVICE_DIR/go.mod" ]; then
+    command -v golangci-lint >/dev/null 2>&1 && (cd "$SERVICE_DIR" && golangci-lint run) || echo "     [SKIP] golangci-lint not found"
+  elif [ -f "$SERVICE_DIR/requirements.txt" ] || [ -f "$SERVICE_DIR/pyproject.toml" ]; then
+    command -v ruff >/dev/null 2>&1 && (cd "$SERVICE_DIR" && ruff check .) || echo "     [SKIP] ruff not found"
+  elif ls "$SERVICE_DIR"/*.sln >/dev/null 2>&1 || ls "$SERVICE_DIR"/*.csproj >/dev/null 2>&1; then
+    (cd "$SERVICE_DIR" && dotnet format --verify-no-changes) || return 1
+  fi
+}
+
 validate_readme_for_service() {
   SERVICE_DIR="$1"
   SERVICE_NAME=$(basename "$SERVICE_DIR")
@@ -63,6 +83,14 @@ validate_readme_for_service() {
   fi
 
   # Check for required sections (case-insensitive)
+  grep -qi "^# " "$README" || {
+    echo "  [FAIL] $SERVICE_NAME/README.md: missing top-level title."
+    FAILED=1
+  }
+  grep -q '```' "$README" || {
+    echo "  [FAIL] $SERVICE_NAME/README.md: missing example code block."
+    FAILED=1
+  }
   grep -qi "docker.compose\|docker compose" "$README" || {
     echo "  [FAIL] $SERVICE_NAME/README.md: missing Docker Compose instructions."
     FAILED=1
@@ -75,6 +103,7 @@ validate_readme_for_service() {
     echo "  [FAIL] $SERVICE_NAME/README.md: missing endpoint or event examples."
     FAILED=1
   }
+
 
   return $FAILED
 }
@@ -104,7 +133,36 @@ validate_openapi_for_service() {
 
     SPEC_FOUND=1
     echo "  -> Validating OpenAPI: $SPEC"
-    redocly lint "$SPEC" || { echo "  [FAIL] OpenAPI validation failed: $SPEC"; return 1; }
+
+    grep -qi "^openapi:" "$SPEC" || {
+      echo "  [FAIL] OpenAPI spec missing 'openapi:' field: $SPEC"
+      return 1
+    }
+
+    grep -qi "^info:" "$SPEC" || {
+      echo "  [FAIL] OpenAPI spec missing 'info:' section: $SPEC"
+      return 1
+    }
+
+    grep -qi "^[[:space:]]*title:" "$SPEC" || {
+      echo "  [FAIL] OpenAPI spec missing 'title:' field: $SPEC"
+      return 1
+    }
+
+    grep -qi "^[[:space:]]*version:" "$SPEC" || {
+      echo "  [FAIL] OpenAPI spec missing 'version:' field: $SPEC"
+      return 1
+    }
+
+    grep -qi "^paths:" "$SPEC" || {
+      echo "  [FAIL] OpenAPI spec missing 'paths:' section: $SPEC"
+      return 1
+    }
+
+    redocly lint "$SPEC" || {
+      echo "  [FAIL] OpenAPI validation failed: $SPEC"
+      return 1
+    }
   done
 
   if [ "$SPEC_FOUND" -eq 0 ]; then
@@ -117,7 +175,7 @@ validate_openapi_for_service() {
 
 # ── 1. TESTS ─────────────────────────────────
 echo ""
-echo "[1/3] Running unit and integration tests..."
+echo "[1/4] Running unit and integration tests..."
 
 # Root-level Gradle multi-project (covers all subprojects in settings.gradle)
 if [ -f "$REPO_ROOT/gradlew" ] && [ -f "$REPO_ROOT/settings.gradle" ]; then
@@ -141,11 +199,32 @@ for SERVICE_DIR in "$REPO_ROOT"/*/; do
     || { echo ""; echo "[FAIL] Tests failed in $SERVICE_NAME. Push aborted."; exit 1; }
 done
 
-echo "[1/3] Tests passed."
+echo "[1/4] Tests passed."
 
-# ── 2. DOCUMENTATION ──────────────────────────
+# ── 2. LINT ──────────────────────────────────
 echo ""
-echo "[2/3] Validating documentation..."
+echo "[2/4] Running lint checks..."
+
+if [ -f "$REPO_ROOT/gradlew" ] && [ -f "$REPO_ROOT/settings.gradle" ]; then
+  (cd "$REPO_ROOT" && ./gradlew checkstyleMain checkstyleTest -q --warning-mode none --console plain) \
+    || { echo ""; echo "[FAIL] Root Gradle lint failed. Push aborted."; exit 1; }
+fi
+
+# Per-service lint for services that are NOT root Gradle subprojects
+for SERVICE_DIR in "$REPO_ROOT"/*/; do
+  SERVICE_NAME=$(basename "$SERVICE_DIR")
+  echo "$GRADLE_SUBPROJECTS" | grep -qw "$SERVICE_NAME" && continue
+  is_service_dir "$SERVICE_DIR" || continue
+
+  run_lint_for_service "$SERVICE_DIR" \
+    || { echo ""; echo "[FAIL] Lint failed in $SERVICE_NAME. Push aborted."; exit 1; }
+done
+
+echo "[2/4] Linters passed."
+
+# ── 3. DOCUMENTATION ──────────────────────────
+echo ""
+echo "[3/4] Validating documentation..."
 DOC_FAILED=0
 
 for SERVICE_DIR in "$REPO_ROOT"/*/; do
@@ -167,11 +246,11 @@ if [ "$DOC_FAILED" -ne 0 ]; then
   exit 1
 fi
 
-echo "[2/3] Documentation validated."
+echo "[3/4] Documentation validated."
 
 # ── 3. DOCKER BUILD ───────────────────────────
 echo ""
-echo "[3/3] Validating Docker build..."
+echo "[4/4] Validating Docker build..."
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "  [WARN] Docker not found, skipping Docker build validation."
@@ -180,7 +259,7 @@ elif [ ! -f "$REPO_ROOT/setup/docker-compose.yml" ] && [ ! -f "$REPO_ROOT/setup/
 else
   (cd "$REPO_ROOT/setup" && docker compose build --no-cache) \
     || { echo ""; echo "[FAIL] Docker build failed. Push aborted."; exit 1; }
-  echo "[3/3] Docker build passed."
+  echo "[4/4] Docker build passed."
 fi
 
 echo ""

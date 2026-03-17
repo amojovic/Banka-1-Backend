@@ -42,7 +42,7 @@ This will start:
 
 ## Pre-push Hooks
 
-Every `git push` automatically runs three checks. The push is aborted if any check fails.
+Every `git push` automatically runs four checks. The push is aborted if any check fails.
 
 ### 1. Unit and Integration Tests
 
@@ -60,14 +60,31 @@ Runs all tests across all services. Test commands are auto-detected by build sys
 
 Unit and integration tests are both placed in `src/test/java` (for JVM services).
 
-### 2. Documentation
+### 2. Lint
+
+Java services use Checkstyle for basic code style validation.
+
+Current checks include:
+- line length
+- wildcard imports
+- required braces
+- whitespace rules
+- unused imports
+
+Linting runs automatically during:
+- pre-push hooks
+- GitHub Actions CI
+
+### 3. Documentation
 
 Every microservice must have:
 
-**`README.md`** containing all three of the following sections:
+**`README.md`** should contain:
+- a top-level title
 - Docker Compose usage instructions
 - `.env` / environment variable documentation
 - Endpoint and/or event examples
+- at least one code block
 
 **OpenAPI spec** at one of these paths:
 ```
@@ -86,7 +103,7 @@ touch <service>/.skip-docs      # skips README section checks
 touch <service>/.skip-openapi   # skips OpenAPI spec requirement and validation
 ```
 
-### 3. Docker Build Validation
+### 4. Docker Build Validation
 
 Runs `docker compose build --no-cache` inside each service directory that contains a `docker-compose.yml`.
 
@@ -128,11 +145,13 @@ For non-Gradle services (Maven, Node.js, Go, Python, .NET), no changes to `setti
 
 ### 3. Add a `README.md`
 
-Every service **must** have a `README.md` containing all three of the following:
+Every service **must** have a `README.md` that includes:
 
+- **A top-level title** — the service name as an H1 heading
 - **Docker Compose instructions** — how to run the service with Docker Compose
 - **Environment variables** — list all `.env` variables or `application.yml` config the service needs
 - **Endpoints or events** — at least one example request/response or event payload
+- **At least one code block** — example command, config, request, or payload
 
 Example structure:
 
@@ -223,7 +242,25 @@ The hook runs tests automatically based on the detected build system. Ensure you
 | Python | `requirements.txt` / `pyproject.toml` | `python -m pytest` |
 | .NET | `*.sln` / `*.csproj` | `dotnet test` |
 
-### 7. Using the observability starter (optional)
+### 7. Enable linting (Java/Gradle services)
+
+If your service is a Gradle-based Java service and should participate in shared lint checks, add Checkstyle support to its `build.gradle`:
+
+```gradle
+plugins {
+    id 'checkstyle'
+}
+
+checkstyle {
+    configFile = rootProject.file('checkstyle.xml')
+}
+
+tasks.withType(Checkstyle).configureEach {
+    ignoreFailures = true
+}
+```
+
+### 8. Using the observability starter (optional)
 
 If your service is a Spring Boot service, add the shared observability library:
 

@@ -12,7 +12,7 @@ COPY company-observability-starter ./company-observability-starter
 WORKDIR /app/notification-service
 
 # Build the project
-RUN gradle build --no-daemon -x test
+RUN gradle build --no-daemon -x test -x checkstyleMain -x checkstyleTest
 
 # ===== Runtime Stage =====
 FROM eclipse-temurin:21-jre-alpine

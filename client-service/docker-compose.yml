@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: banka_clients_postgres_db
+    ports:
+      - "${CLIENT_SERVICE_DB_PORT:-5433}:5432"
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${CLIENT_SERVICE_DB_USER}
+      POSTGRES_PASSWORD: ${CLIENT_SERVICE_DB_PASSWORD}
+      POSTGRES_DB: ${CLIENT_SERVICE_DB_NAME}
+    volumes:
+      - clients_postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: banka_clients_rabbitmq
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "15673:15672"
+    env_file:
+      - .env
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    restart: unless-stopped
+
+  client-service:
+    build:
+      context: ..
+      dockerfile: client-service/Dockerfile
+    container_name: banka_client_service
+    ports:
+      - "${CLIENT_SERVICE_DOCKER_PORT:-8084}:${CLIENT_SERVICE_PORT:-8083}"
+    env_file:
+      - .env
+    environment:
+      CLIENT_SERVICE_DB_HOST: postgres
+      RABBITMQ_HOST: rabbitmq
+    depends_on:
+      - postgres
+      - rabbitmq
+    restart: on-failure
+
+volumes:
+  clients_postgres_data:

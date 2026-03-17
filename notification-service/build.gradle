@@ -3,6 +3,7 @@ plugins {
     id 'org.springframework.boot' version '4.0.3'
     id 'io.spring.dependency-management' version '1.1.7'
     id 'jacoco'
+    id 'checkstyle'
 }
 
 group = 'com.example.notification'
@@ -58,6 +59,14 @@ tasks.named('test') {
     useJUnitPlatform()
     jvmArgs "-javaagent:${configurations.mockitoAgent.singleFile.absolutePath}"
     finalizedBy jacocoTestReport
+}
+
+checkstyle {
+    configFile = rootProject.file('checkstyle.xml')
+}
+
+tasks.withType(Checkstyle).configureEach {
+    ignoreFailures = true
 }
 
 jacocoTestReport {
