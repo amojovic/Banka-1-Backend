@@ -321,11 +321,11 @@ jobs:
             docker compose -f "$COMPOSE_CI" -p "ci-$SERVICE" up -d
             sleep 30
 
-            STATUS=$(docker compose -f "$COMPOSE_CI" -p "ci-$SERVICE" ps --format json \
-              | jq -r '.[] | select(.Service == "'"$SERVICE"'") | .State')
-            echo "Container status: $STATUS"
+            RUNNING=$(docker compose -f "$COMPOSE_CI" -p "ci-$SERVICE" ps --status running 2>/dev/null \
+              | grep -c "$SERVICE" || true)
+            echo "Running containers matching $SERVICE: $RUNNING"
 
-            if [ "$STATUS" != "running" ]; then
+            if [ "$RUNNING" -lt 1 ]; then
               echo "❌ Container for $SERVICE is not running."
               docker compose -f "$COMPOSE_CI" -p "ci-$SERVICE" logs "$SERVICE" || true
               exit 1
