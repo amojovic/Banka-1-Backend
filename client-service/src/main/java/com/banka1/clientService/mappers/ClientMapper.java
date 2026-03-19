@@ -23,13 +23,15 @@ public interface ClientMapper {
      * Mapira DTO za kreiranje klijenta u entitet.
      * BaseEntity polja (id, version, deleted, timestamps) i kredencijali se postavljaju zasebno.
      */
-    @Mapping(target = "id",           ignore = true)
-    @Mapping(target = "version",      ignore = true)
-    @Mapping(target = "deleted",      ignore = true)
-    @Mapping(target = "createdAt",    ignore = true)
-    @Mapping(target = "updatedAt",    ignore = true)
-    @Mapping(target = "password",     ignore = true)
-    @Mapping(target = "role",         ignore = true)
+    @Mapping(target = "id",                ignore = true)
+    @Mapping(target = "version",           ignore = true)
+    @Mapping(target = "deleted",           ignore = true)
+    @Mapping(target = "createdAt",         ignore = true)
+    @Mapping(target = "updatedAt",         ignore = true)
+    @Mapping(target = "password",          ignore = true)
+    @Mapping(target = "role",              ignore = true)
+    @Mapping(target = "aktivan",           ignore = true)
+    @Mapping(target = "confirmationToken", ignore = true)
     Klijent toEntity(ClientCreateRequestDto dto);
 
     /**
@@ -44,13 +46,15 @@ public interface ClientMapper {
      * JMBG i kredencijali su nepromenjivi i uvek se ignorisu.
      */
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
-    @Mapping(target = "id",           ignore = true)
-    @Mapping(target = "version",      ignore = true)
-    @Mapping(target = "deleted",      ignore = true)
-    @Mapping(target = "createdAt",    ignore = true)
-    @Mapping(target = "updatedAt",    ignore = true)
-    @Mapping(target = "password",     ignore = true)
-    @Mapping(target = "jmbg",         ignore = true)
-    @Mapping(target = "role",         ignore = true)
+    @Mapping(target = "id",                ignore = true)
+    @Mapping(target = "version",           ignore = true)
+    @Mapping(target = "deleted",           ignore = true)
+    @Mapping(target = "createdAt",         ignore = true)
+    @Mapping(target = "updatedAt",         ignore = true)
+    @Mapping(target = "password",          ignore = true)
+    @Mapping(target = "jmbg",             ignore = true)
+    @Mapping(target = "role",              ignore = true)
+    @Mapping(target = "aktivan",           ignore = true)
+    @Mapping(target = "confirmationToken", ignore = true)
     void updateEntityFromDto(@MappingTarget Klijent klijent, ClientUpdateRequestDto dto);
 }

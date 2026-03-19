@@ -11,7 +11,9 @@ import com.banka1.clientService.exception.BusinessException;
 import com.banka1.clientService.exception.ErrorCode;
 import com.banka1.clientService.mappers.ClientMapper;
 import com.banka1.clientService.rabbitMQ.RabbitClient;
+import com.banka1.clientService.repository.ClientConfirmationTokenRepository;
 import com.banka1.clientService.repository.KlijentRepository;
+import com.banka1.clientService.service.TokenService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -47,6 +49,12 @@ class ClientServiceImplementationTest {
 
     @Mock
     private RabbitClient rabbitClient;
+
+    @Mock
+    private ClientConfirmationTokenRepository confirmationTokenRepository;
+
+    @Mock
+    private TokenService tokenService;
 
     @InjectMocks
     private ClientServiceImplementation clientService;

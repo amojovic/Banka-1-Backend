@@ -9,6 +9,7 @@ on:
     paths:
       - 'company-observability-starter/**'
       - 'user-service/**'
+      - 'client-service/**'
       - 'security-lib/**'
       - 'notification-service/**'
   pull_request:
@@ -16,6 +17,7 @@ on:
     paths:
       - 'company-observability-starter/**'
       - 'user-service/**'
+      - 'client-service/**'
       - 'notification-service/**'
       - 'security-lib/**'
 
@@ -39,6 +41,8 @@ jobs:
               - 'company-observability-starter/**'
             user-service:
               - 'user-service/**'
+            client-service:
+              - 'client-service/**'
             notification-service:
               - 'notification-service/**'
             security-lib:
@@ -68,6 +72,10 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.14'
+
+      - name: Publish shared libraries to mavenLocal
+        run: |
+          gradle :security-lib:publishToMavenLocal :company-observability-starter:publishToMavenLocal --no-daemon --warning-mode none --console plain
 
       - name: Lint
         run: |

@@ -1,38 +1,33 @@
-# Define upstream services using environment variables
 upstream user_service {
-    # NGINX will dynamically replace this on startup
     server user-service:${SERVER_PORT};
 }
 
+upstream client_service {
+    server client-service:${CLIENT_SERVICE_PORT};
+}
+
 server {
-    # The gateway listens on port 80 - standard HTTP
     listen 80;
     server_name localhost;
 
-    # Standard proxy headers
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-
-    # ---------------------------------------------------------
-    # ROUTING RULES
-    # ---------------------------------------------------------
-
-    location /auth {
-        proxy_pass http://user_service;
+    # User Service (all routes under /employees/ prefix)
+    location /employees/ {
+        proxy_pass http://user_service/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Prefix /employees;
     }
 
-    location /employees {
-        proxy_pass http://user_service;
-    }
-
-    location /swagger-ui {
-        proxy_pass http://user_service;
-    }
-
-    location /v3/api-docs {
-        proxy_pass http://user_service;
+    # Client Service (all routes under /clients/ prefix)
+    location /clients/ {
+        proxy_pass http://client_service/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Prefix /clients;
     }
 
     # Health check

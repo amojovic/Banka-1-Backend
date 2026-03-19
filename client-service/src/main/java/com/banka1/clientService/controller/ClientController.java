@@ -144,7 +144,7 @@ public class ClientController {
      * @return DTO sa ID-em klijenta
      */
     @GetMapping("/jmbg/{jmbg}")
-    @PreAuthorize("hasRole('SERVICE')")
+    @PreAuthorize("hasAnyRole('SERVICE','ADMIN')")
     public ResponseEntity<ClientInfoResponseDto> getInfoByJmbg(@PathVariable String jmbg) {
         return ResponseEntity.ok(clientService.getInfoByJmbg(jmbg));
     }
@@ -157,7 +157,7 @@ public class ClientController {
      * @return DTO sa ID-em, imenom i prezimenom klijenta
      */
     @GetMapping("/{id}")
-    @PreAuthorize("hasRole('SERVICE')")
+    @PreAuthorize("hasAnyRole('SERVICE','ADMIN')")
     public ResponseEntity<ClientInfoResponseDto> getInfoById(@PathVariable Long id) {
         return ResponseEntity.ok(clientService.getInfoById(id));
     }

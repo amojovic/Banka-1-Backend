@@ -10,7 +10,10 @@ public enum EmailType {
     CLIENT_CREATED("client.created"),
 
     /** Mejl sa linkom za reset zaboravljene lozinke klijenta. */
-    CLIENT_PASSWORD_RESET("client.password_reset");
+    CLIENT_PASSWORD_RESET("client.password_reset"),
+
+    /** Notifikacioni mejl koji se salje kada je nalog klijenta deaktiviran/obrisan. */
+    CLIENT_ACCOUNT_DEACTIVATED("client.account_deactivated");
 
     private final String routingKey;
 

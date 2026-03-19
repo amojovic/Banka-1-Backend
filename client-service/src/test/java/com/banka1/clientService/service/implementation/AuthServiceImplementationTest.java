@@ -135,6 +135,7 @@ class AuthServiceImplementationTest {
         k.setJmbg("1234567890123");
         k.setPassword(password);
         k.setRole(ClientRole.CLIENT_BASIC);
+        k.setAktivan(true);
         return k;
     }
 }

@@ -17,13 +17,16 @@ RUN gradle build --no-daemon -x test -x checkstyleMain -x checkstyleTest
 # ===== Runtime Stage =====
 FROM eclipse-temurin:21-jre-alpine
 
+RUN apk add --no-cache curl
+
 WORKDIR /app
 
 # Copy the built JAR from the builder stage
 COPY --from=builder /app/notification-service/build/libs/*.jar app.jar
 
 # Expose the service port
-EXPOSE 8006
+ARG SERVER_PORT=8006
+EXPOSE ${SERVER_PORT}
 
 # Run the application
 ENTRYPOINT ["java","-jar","app.jar"]
