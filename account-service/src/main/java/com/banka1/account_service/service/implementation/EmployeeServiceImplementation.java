@@ -3,7 +3,6 @@ package com.banka1.account_service.service.implementation;
 import com.banka1.account_service.domain.*;
 import com.banka1.account_service.domain.Currency;
 import com.banka1.account_service.domain.enums.AccountOwnershipType;
-import com.banka1.account_service.domain.enums.CardStatus;
 import com.banka1.account_service.domain.enums.CurrencyCode;
 import com.banka1.account_service.domain.enums.Status;
 import com.banka1.account_service.dto.request.CheckingDto;
@@ -16,10 +15,8 @@ import com.banka1.account_service.repository.AccountRepository;
 import com.banka1.account_service.repository.CompanyRepository;
 import com.banka1.account_service.repository.CurrencyRepository;
 import com.banka1.account_service.repository.SifraDelatnostiRepository;
-import com.banka1.account_service.rest_client.ClientServiceClient;
+import com.banka1.account_service.rest_client.ClientService;
 import com.banka1.account_service.service.EmployeeService;
-import lombok.RequiredArgsConstructor;
-import lombok.Setter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -36,7 +33,7 @@ import java.util.stream.Collectors;
 @Service
 public class EmployeeServiceImplementation implements EmployeeService {
     private final Random random;
-    private final ClientServiceClient clientServiceClient;
+    private final ClientService clientService;
     private final AccountRepository accountRepository;
     @Value("${banka.security.id}")
     private String appPropertiesId;
@@ -44,9 +41,9 @@ public class EmployeeServiceImplementation implements EmployeeService {
     private final SifraDelatnostiRepository sifraDelatnostiRepository;
     private final CompanyRepository companyRepository;
 
-    public EmployeeServiceImplementation(@Value("${random.seed}") Long seed, ClientServiceClient clientServiceClient, CurrencyRepository currencyRepository, SifraDelatnostiRepository sifraDelatnostiRepository, CompanyRepository companyRepository, AccountRepository accountRepository)
+    public EmployeeServiceImplementation(@Value("${my.random.seed}") Long seed, ClientService clientService, CurrencyRepository currencyRepository, SifraDelatnostiRepository sifraDelatnostiRepository, CompanyRepository companyRepository, AccountRepository accountRepository)
     {
-        this.clientServiceClient=clientServiceClient;
+        this.clientService = clientService;
         this.random=new Random(seed);
         this.currencyRepository=currencyRepository;
         this.sifraDelatnostiRepository=sifraDelatnostiRepository;
@@ -105,7 +102,7 @@ public class EmployeeServiceImplementation implements EmployeeService {
 
     private Long resolveClientId(Long id, String jmbg) {
         if (id != null) return id;
-        return clientServiceClient.getUser(jmbg).getId();
+        return clientService.getUser(jmbg).getId();
     }
 
 
@@ -188,7 +185,7 @@ public class EmployeeServiceImplementation implements EmployeeService {
     @Transactional
     public Page<AccountSearchResponseDto> searchAllAccounts(Jwt jwt,String ime,String prezime,String accountNumber,int page,int size)
     {
-        Page<ClientResponseDto> clientPage = clientServiceClient.searchClients(ime, prezime, page, size);
+        Page<ClientResponseDto> clientPage = clientService.searchClients(ime, prezime, page, size);
         List<ClientResponseDto> clients = clientPage.getContent();
         if (clients.isEmpty()) {
             return Page.empty();

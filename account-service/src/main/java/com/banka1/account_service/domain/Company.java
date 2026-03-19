@@ -28,4 +28,6 @@ public class Company extends BaseEntity{
     @Column(nullable = false)
     private Long vlasnik;
 
+
+
 }

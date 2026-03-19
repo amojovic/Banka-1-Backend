@@ -5,6 +5,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -20,8 +21,12 @@ public class SifraDelatnosti extends BaseEntity{
     private String oznaka;
     @ElementCollection
     @CollectionTable(name = "currency_countries", joinColumns = @JoinColumn(name = "currency_id"))
-    @Column(name = "country", nullable = false, updatable = false)
+    @Column(name = "country", nullable = false)
     private Set<String> sektori = new HashSet<>();
     @Column(nullable = false,updatable = false)
     private String grana;
+
+    public Set<String> getSektori() {
+        return Collections.unmodifiableSet(sektori);
+    }
 }

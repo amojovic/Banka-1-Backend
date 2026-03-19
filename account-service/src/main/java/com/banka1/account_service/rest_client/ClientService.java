@@ -11,7 +11,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 @Service
 @RequiredArgsConstructor
-public class ClientServiceClient {
+public class ClientService {
 
     private final RestClient clientServiceClient;
 

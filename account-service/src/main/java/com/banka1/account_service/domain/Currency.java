@@ -27,7 +27,7 @@ public class Currency extends BaseEntity{
     private char simbol;
     @ElementCollection
     @CollectionTable(name = "currency_countries", joinColumns = @JoinColumn(name = "currency_id"))
-    @Column(name = "country", nullable = false, updatable = false)
+    @Column(name = "country", nullable = false)
     private Set<String> countries = new HashSet<>();
     @Column(nullable = false,updatable = false)
     private String opis;
