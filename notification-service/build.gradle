@@ -30,7 +30,7 @@ configurations {
 
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter'
-    implementation 'org.springframework.boot:spring-boot-starter-web'
+     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.boot:spring-boot-starter-mail'
     implementation 'org.springframework.boot:spring-boot-starter-amqp'
@@ -39,6 +39,8 @@ dependencies {
     implementation project(':company-observability-starter')
     runtimeOnly 'org.postgresql:postgresql'
     implementation("me.paulschwarz:springboot3-dotenv:5.0.1")
+    implementation 'io.github.cdimascio:dotenv-java:3.0.0'
+    implementation 'org.flywaydb:flyway-core'
 
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
@@ -63,9 +65,6 @@ checkstyle {
     configFile = rootProject.file('checkstyle.xml')
 }
 
-tasks.withType(Checkstyle).configureEach {
-    ignoreFailures = true
-}
 
 jacocoTestReport {
     dependsOn test

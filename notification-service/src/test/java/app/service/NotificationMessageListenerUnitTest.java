@@ -13,6 +13,9 @@ import static org.mockito.Mockito.verify;
 
 /**
  * Unit tests for {@link NotificationMessageListener} listener delegation.
+ *
+ * <p>This class verifies that the RabbitMQ listener does not add business logic of its own and
+ * simply forwards the consumed payload and routing key to {@link NotificationDeliveryService}.
  */
 @ExtendWith(MockitoExtension.class)
 class NotificationMessageListenerUnitTest {
@@ -23,6 +26,12 @@ class NotificationMessageListenerUnitTest {
     @InjectMocks
     private NotificationMessageListener notificationMessageListener;
 
+    /**
+     * Verifies that a normal incoming RabbitMQ payload is delegated together with its routing key.
+     *
+     * <p>This protects the listener entry point from accidentally mutating or dropping routing
+     * metadata before it reaches the delivery orchestration layer.
+     */
     @Test
     void receiveMessageDelegatesPayloadAndRoutingKeyToDeliveryService() {
         NotificationRequest request = new NotificationRequest(
@@ -36,6 +45,12 @@ class NotificationMessageListenerUnitTest {
         verify(notificationDeliveryService).handleIncomingMessage(request, "employee.created");
     }
 
+    /**
+     * Verifies that a null payload is still passed through to the delivery service.
+     *
+     * <p>The delivery layer is responsible for validation and error persistence, so the listener
+     * must not swallow invalid messages before they reach that logic.
+     */
     @Test
     void receiveMessageDelegatesNullPayloadToDeliveryService() {
         notificationMessageListener.receiveMessage(null, "employee.created");

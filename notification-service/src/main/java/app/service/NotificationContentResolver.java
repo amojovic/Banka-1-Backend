@@ -3,7 +3,8 @@ package app.service;
 import app.dto.EmailTemplate;
 import app.dto.NotificationRequest;
 import app.dto.ResolvedEmail;
-import app.entities.NotificationType;
+import app.exception.BusinessException;
+import app.exception.ErrorCode;
 import app.template.NotificationTemplateFactory;
 
 import java.util.HashMap;
@@ -42,7 +43,7 @@ final class NotificationContentResolver {
     }
 
     /**
-     * Resolves a notification payload into the final email recipient, subject, and body.
+     * Resolves a notification payload into the final `email recipient` + `subject` + `body`.
      *
      * @param request incoming notification payload
      * @param notificationType resolved notification type used for template selection
@@ -51,7 +52,7 @@ final class NotificationContentResolver {
      */
     static ResolvedEmail resolve(
             NotificationRequest request,
-            NotificationType notificationType,
+            String notificationType,
             NotificationTemplateFactory templateFactory
     ) {
         validateRequest(request);
@@ -141,9 +142,9 @@ final class NotificationContentResolver {
      *
      * @param notificationType notification type to validate
      */
-    private static void requireNotificationType(NotificationType notificationType) {
-        if (notificationType == null) {
-            throw new IllegalArgumentException(NOTIFICATION_TYPE_REQUIRED);
+    private static void requireNotificationType(String notificationType) {
+        if (notificationType == null || notificationType.isBlank()) {
+            throw new BusinessException(ErrorCode.NOTIFICATION_TYPE_REQUIRED, NOTIFICATION_TYPE_REQUIRED);
         }
     }
 
@@ -154,10 +155,10 @@ final class NotificationContentResolver {
      */
     private static void validateRequest(NotificationRequest request) {
         if (request == null) {
-            throw new IllegalArgumentException(NOTIFICATION_PAYLOAD_REQUIRED);
+            throw new BusinessException(ErrorCode.NOTIFICATION_PAYLOAD_REQUIRED, NOTIFICATION_PAYLOAD_REQUIRED);
         }
         if (request.getUserEmail() == null || request.getUserEmail().isBlank()) {
-            throw new IllegalArgumentException(USER_EMAIL_REQUIRED);
+            throw new BusinessException(ErrorCode.RECIPIENT_EMAIL_REQUIRED, USER_EMAIL_REQUIRED);
         }
 
     }

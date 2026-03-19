@@ -17,13 +17,11 @@ import org.springframework.context.annotation.Configuration;
  * <ul>
  *     <li>A `TOPIC` exchange that receives employee events</li>
  *     <li>A durable `QUEUE` consumed by this service</li>
- *     <li>A BINDING between exchange and queue
- *     using a routing-key pattern</li>
+ *     <li>A BINDING between exchange and queue using a routing-key pattern</li>
  *     <li>A JSON message converter for request payloads</li>
  * </ul>
  *
- * <p>All names come from application.properties
- *    so values can change per environment.
+ * <p>All names come from application.properties so values can change per environment.
  */
 @Configuration
 public class RabbitConfig {
@@ -78,20 +76,22 @@ public class RabbitConfig {
     }
 
     /**
-     * Binds the notification queue to the exchange for client events ({@code client.#}).
+     * Binds the notification queue to the exchange for client events.
      *
      * @param notificationServiceQueue queue bean
      * @param employeeEventsExchange   exchange bean
+     * @param clientRoutingKey         routing-key pattern from configuration
      * @return exchange-to-queue binding for client routing keys
      */
     @Bean
     public Binding clientNotificationBinding(
             Queue notificationServiceQueue,
-            TopicExchange employeeEventsExchange
+            TopicExchange employeeEventsExchange,
+            @Value("${notification.rabbit.client-routing-key}") String clientRoutingKey
     ) {
         return BindingBuilder.bind(notificationServiceQueue)
                 .to(employeeEventsExchange)
-                .with("client.#");
+                .with(clientRoutingKey);
     }
 
     /**

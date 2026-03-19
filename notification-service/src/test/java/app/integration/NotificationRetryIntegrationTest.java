@@ -3,7 +3,7 @@ package app.integration;
 import app.dto.NotificationRequest;
 import app.entities.NotificationDelivery;
 import app.entities.NotificationDeliveryStatus;
-import app.entities.NotificationType;
+import app.entities.RoutingKeys;
 import app.repository.NotificationDeliveryRepository;
 import app.service.NotificationDeliveryService;
 import app.service.RetryTaskQueue;
@@ -37,7 +37,17 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-@SpringBootTest
+/**
+ * Integration tests for retry behavior in {@link NotificationDeliveryService}.
+ *
+ * <p>This class verifies what happens after the initial notification send fails. It checks
+ * persistence state transitions, retry scheduling, repeated processing, and terminal failure
+ * behavior using a controlled in-memory mail sender.
+ *
+ * <p>The goal is to protect the delivery guarantees of notification-service when SMTP delivery
+ * is temporarily or repeatedly unavailable.
+ */
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @TestPropertySource(properties = {
         "spring.rabbitmq.listener.simple.auto-startup=false",
         "spring.datasource.url=jdbc:h2:mem:notification-retry-it;DB_CLOSE_DELAY=-1;MODE=PostgreSQL",
@@ -46,7 +56,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         "spring.datasource.password=",
         "spring.jpa.hibernate.ddl-auto=create-drop",
         "notification.retry.delay-seconds=7",
-        "management.endpoint.health.group.readiness.include=readinessState,db,rabbit"
+        "management.endpoint.health.group.readiness.include=readinessState,db,rabbit",
+        "spring.autoconfigure.exclude=org.springdoc.webmvc.ui.SwaggerConfig"
 })
 class NotificationRetryIntegrationTest {
 
@@ -68,16 +79,23 @@ class NotificationRetryIntegrationTest {
         controlledMailSender.reset();
     }
 
+    /**
+     * Verifies that one retryable send failure is persisted, scheduled, retried, and eventually
+     * marked as succeeded.
+     *
+     * <p>This test protects the core retry path where a transient SMTP error should not lose the
+     * notification but should be retried and completed successfully later.
+     */
     @Test
     void retryableFailureIsPersistedRetriedAndEventuallySucceeds() {
         controlledMailSender.failNext(new IllegalStateException("SMTP unavailable"));
         NotificationRequest request = new NotificationRequest(
-                "Andrija",
-                "andrija@example.com",
-                Map.of("name", "Andrija", "activationLink", "https://example.com/activate/123")
+                "Dimitrije",
+                "Dimitrije@example.com",
+                Map.of("name", "Dimitrije", "activationLink", "https://example.com/activate/123")
         );
 
-        notificationDeliveryService.handleIncomingMessage(request, NotificationType.ROUTING_KEY_EMPLOYEE_CREATED);
+        notificationDeliveryService.handleIncomingMessage(request, RoutingKeys.EMPLOYEE_CREATED);
 
         waitForCondition(Duration.ofSeconds(5), () -> {
             List<NotificationDelivery> deliveries = notificationDeliveryRepository.findAll();
@@ -86,7 +104,7 @@ class NotificationRetryIntegrationTest {
         });
         NotificationDelivery scheduled = singleDelivery();
         assertEquals(NotificationDeliveryStatus.RETRY_SCHEDULED, scheduled.getStatus());
-        assertEquals(1, scheduled.getRetryCount());
+        assertEquals(1, scheduled.getAttemptCount());
         assertNotNull(scheduled.getNextAttemptAt());
         assertEquals(7, Duration.between(scheduled.getLastAttemptAt(), scheduled.getNextAttemptAt()).getSeconds());
         assertEquals(1, controlledMailSender.attemptCount());
@@ -97,7 +115,7 @@ class NotificationRetryIntegrationTest {
 
         NotificationDelivery succeeded = deliveryById(scheduled.getDeliveryId());
         assertEquals(NotificationDeliveryStatus.SUCCEEDED, succeeded.getStatus());
-        assertEquals(1, succeeded.getRetryCount());
+        assertEquals(2, succeeded.getAttemptCount());
         assertNotNull(succeeded.getSentAt());
         assertNull(succeeded.getNextAttemptAt());
         assertNull(succeeded.getLastError());
@@ -105,6 +123,13 @@ class NotificationRetryIntegrationTest {
         assertEquals(1, controlledMailSender.sentCount());
     }
 
+    /**
+     * Verifies that repeated retryable failures eventually exhaust the retry budget and end in a
+     * terminal failed state.
+     *
+     * <p>This protects the service from retrying forever and confirms that delivery state is
+     * finalized cleanly once the configured maximum number of attempts is reached.
+     */
     @Test
     void retryableFailuresEventuallyExhaustRetryBudgetAndMarkDeliveryFailed() {
         controlledMailSender.failNext(new IllegalStateException("SMTP unavailable"));
@@ -113,12 +138,12 @@ class NotificationRetryIntegrationTest {
         controlledMailSender.failNext(new IllegalStateException("SMTP unavailable"));
 
         NotificationRequest request = new NotificationRequest(
-                "Andrija",
-                "andrija@example.com",
-                Map.of("name", "Andrija", "activationLink", "https://example.com/activate/123")
+                "Dimitrije",
+                "dimitrije@example.com",
+                Map.of("name", "Dimitrije", "activationLink", "https://example.com/activate/123")
         );
 
-        notificationDeliveryService.handleIncomingMessage(request, NotificationType.ROUTING_KEY_EMPLOYEE_CREATED);
+        notificationDeliveryService.handleIncomingMessage(request, RoutingKeys.EMPLOYEE_CREATED);
 
         waitForCondition(Duration.ofSeconds(5), () -> {
             List<NotificationDelivery> deliveries = notificationDeliveryRepository.findAll();
@@ -127,7 +152,7 @@ class NotificationRetryIntegrationTest {
         });
         NotificationDelivery delivery = singleDelivery();
         assertEquals(NotificationDeliveryStatus.RETRY_SCHEDULED, delivery.getStatus());
-        assertEquals(1, delivery.getRetryCount());
+        assertEquals(1, delivery.getAttemptCount());
 
         while (delivery.getStatus() == NotificationDeliveryStatus.RETRY_SCHEDULED) {
             makeRetryDue(delivery.getDeliveryId());
@@ -136,7 +161,7 @@ class NotificationRetryIntegrationTest {
         }
 
         assertEquals(NotificationDeliveryStatus.FAILED, delivery.getStatus());
-        assertEquals(4, delivery.getRetryCount());
+        assertEquals(4, delivery.getAttemptCount());
         assertNull(delivery.getNextAttemptAt());
         assertNull(delivery.getSentAt());
         assertTrue(delivery.getLastError().contains("IllegalStateException"));
@@ -144,6 +169,13 @@ class NotificationRetryIntegrationTest {
         assertEquals(0, controlledMailSender.sentCount());
     }
 
+    /**
+     * Forces the stored retry timestamp into the past so the retry worker can process it
+     * immediately.
+     *
+     * <p>This helper exists because production retry timing is time-based, but the test needs a
+     * deterministic way to trigger the next attempt without waiting for real time to pass.
+     */
     private void makeRetryDue(String deliveryId) {
         NotificationDelivery delivery = deliveryById(deliveryId);
         Instant dueNow = Instant.now().minusSeconds(1);
@@ -152,16 +184,37 @@ class NotificationRetryIntegrationTest {
         retryTaskQueue.schedule(deliveryId, dueNow);
     }
 
+    /**
+     * Returns the only persisted delivery and asserts that exactly one record exists.
+     *
+     * <p>The retry tests operate on a single notification flow, so multiple records would mean
+     * the scenario is no longer controlled.
+     */
     private NotificationDelivery singleDelivery() {
         List<NotificationDelivery> deliveries = notificationDeliveryRepository.findAll();
         assertEquals(1, deliveries.size());
         return deliveries.get(0);
     }
 
+    /**
+     * Loads a delivery by its internal identifier.
+     *
+     * <p>This helper keeps the assertions focused on business behavior instead of repository
+     * boilerplate.
+     */
     private NotificationDelivery deliveryById(String deliveryId) {
         return notificationDeliveryRepository.findByDeliveryId(deliveryId).orElseThrow();
     }
 
+    /**
+     * Polls until the expected asynchronous retry state is visible or the timeout expires.
+     *
+     * <p>The retry flow includes after-commit work and scheduled processing, so a polling helper
+     * keeps the integration assertions stable without relying on brittle fixed sleeps.
+     *
+     * @param timeout maximum time to wait
+     * @param condition condition that signals the expected retry state was reached
+     */
     private void waitForCondition(Duration timeout, java.util.function.BooleanSupplier condition) {
         Instant deadline = Instant.now().plus(timeout);
         while (Instant.now().isBefore(deadline)) {
@@ -178,6 +231,12 @@ class NotificationRetryIntegrationTest {
         throw new AssertionError("Condition not met within timeout: " + timeout);
     }
 
+    /**
+     * Test configuration that replaces the real SMTP sender with a controllable in-memory fake.
+     *
+     * <p>This allows the retry flow to be tested inside Spring without depending on an external
+     * mail server.
+     */
     @TestConfiguration
     static class MailTestConfiguration {
         @Bean
@@ -187,6 +246,12 @@ class NotificationRetryIntegrationTest {
         }
     }
 
+    /**
+     * In-memory mail sender that can fail selected attempts and record successful sends.
+     *
+     * <p>The retry tests use this component to simulate transient mail errors in a deterministic
+     * way while still exercising the real notification-service retry logic.
+     */
     static class ControlledMailSender implements JavaMailSender {
         private final AtomicInteger attempts = new AtomicInteger();
         private final Deque<RuntimeException> failures = new ArrayDeque<>();

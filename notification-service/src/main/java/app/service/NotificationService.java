@@ -2,7 +2,6 @@ package app.service;
 
 import app.dto.NotificationRequest;
 import app.dto.ResolvedEmail;
-import app.entities.NotificationType;
 import app.template.NotificationTemplateFactory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,7 +32,7 @@ public class NotificationService {
      * @param type event type used to resolve the concrete email template
      * @return resolved email payload for SMTP delivery
      */
-    public ResolvedEmail resolveEmailContent(NotificationRequest request, NotificationType type) {
+    public ResolvedEmail resolveEmailContent(NotificationRequest request, String type) {
         return NotificationContentResolver.resolve(request, type, templateFactory);
     }
 

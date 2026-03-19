@@ -314,25 +314,50 @@ jobs:
         if: steps.check.outputs.exists == 'true'
         run: |
           SERVICE="${{ matrix.service }}"
-          echo "Starting container for $SERVICE"
-          docker run -d --name "ci-$SERVICE" "ci-test/$SERVICE:latest"
-          sleep 15
+          COMPOSE_CI="$SERVICE/docker-compose.ci.yml"
 
-          STATUS=$(docker inspect -f '{{.State.Status}}' "ci-$SERVICE")
-          echo "Container status: $STATUS"
+          if [ -f "$COMPOSE_CI" ]; then
+            echo "Starting $SERVICE via docker-compose.ci.yml (with dependencies)"
+            docker compose -f "$COMPOSE_CI" -p "ci-$SERVICE" up -d
+            sleep 30
 
-          if [ "$STATUS" != "running" ]; then
-           echo "❌ Container for $SERVICE is not running."
-           docker logs "ci-$SERVICE" || true
-           exit 1
+            RUNNING=$(docker compose -f "$COMPOSE_CI" -p "ci-$SERVICE" ps --status running 2>/dev/null \
+              | grep -c "$SERVICE" || true)
+            echo "Running containers matching $SERVICE: $RUNNING"
+
+            if [ "$RUNNING" -lt 1 ]; then
+              echo "❌ Container for $SERVICE is not running."
+              docker compose -f "$COMPOSE_CI" -p "ci-$SERVICE" logs "$SERVICE" || true
+              exit 1
+            fi
+          else
+            echo "Starting container for $SERVICE"
+            docker run -d --name "ci-$SERVICE" "ci-test/$SERVICE:latest"
+            sleep 15
+
+            STATUS=$(docker inspect -f '{{.State.Status}}' "ci-$SERVICE")
+            echo "Container status: $STATUS"
+
+            if [ "$STATUS" != "running" ]; then
+              echo "❌ Container for $SERVICE is not running."
+              docker logs "ci-$SERVICE" || true
+              exit 1
+            fi
           fi
 
           echo "✅ Docker image for $SERVICE started successfully."
+
       - name: Cleanup container
         if: always() && steps.check.outputs.exists == 'true'
         run: |
           SERVICE="${{ matrix.service }}"
-          docker rm -f "ci-$SERVICE" >/dev/null 2>&1 || true
+          COMPOSE_CI="$SERVICE/docker-compose.ci.yml"
+
+          if [ -f "$COMPOSE_CI" ]; then
+            docker compose -f "$COMPOSE_CI" -p "ci-$SERVICE" down -v >/dev/null 2>&1 || true
+          else
+            docker rm -f "ci-$SERVICE" >/dev/null 2>&1 || true
+          fi
 
   # ── TODO: Docker Build & Push to Registry ────────────────────────────────
   # Configure once a container registry is available.

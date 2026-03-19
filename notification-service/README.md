@@ -185,7 +185,7 @@ Main environment variables are defined in `.env.example`.
 
 Prerequisites:
 
-- JDK 23
+- JDK 21
 - Docker Desktop
 
 1. Create a local env file:

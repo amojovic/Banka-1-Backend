@@ -11,9 +11,19 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
  * Unit tests for {@link RetryTaskQueue}.
+ *
+ * <p>This class verifies the in-memory retry scheduling behavior used by notification-service.
+ * The tests cover invalid input handling, deduplication, ordering, and stale-entry cleanup so
+ * retry execution remains deterministic.
  */
 class RetryTaskQueueUnitTest {
 
+    /**
+     * Verifies that scheduling is ignored when the delivery identifier is missing.
+     *
+     * <p>This protects the retry queue from malformed tasks that could never be matched back to
+     * a persisted delivery record.
+     */
     @Test
     void scheduleWithNullDeliveryIdIsIgnored() {
         RetryTaskQueue queue = new RetryTaskQueue();
@@ -21,6 +31,12 @@ class RetryTaskQueueUnitTest {
         assertNull(queue.peek());
     }
 
+    /**
+     * Verifies that scheduling is ignored when the next-attempt timestamp is missing.
+     *
+     * <p>A retry task without a due time is invalid, so the queue must reject it instead of
+     * storing unusable state.
+     */
     @Test
     void scheduleWithNullNextAttemptAtIsIgnored() {
         RetryTaskQueue queue = new RetryTaskQueue();
@@ -28,6 +44,13 @@ class RetryTaskQueueUnitTest {
         assertNull(queue.peek());
     }
 
+    /**
+     * Verifies that rescheduling the exact same delivery for the exact same time
+     * does not create duplicate due entries.
+     *
+     * <p>This keeps retry processing idempotent when multiple code paths try to enqueue the same
+     * task state.
+     */
     @Test
     void scheduleSameDeliveryIdWithSameTimestampDoesNotAddDuplicateEntry() {
         RetryTaskQueue queue = new RetryTaskQueue();
@@ -42,12 +65,24 @@ class RetryTaskQueueUnitTest {
         assertNull(queue.pollDue(afterT));
     }
 
+    /**
+     * Verifies that polling an empty queue returns {@code null}.
+     *
+     * <p>This documents the queue contract for callers that drive retry processing loops.
+     */
     @Test
     void pollDueOnEmptyQueueReturnsNull() {
         RetryTaskQueue queue = new RetryTaskQueue();
         assertNull(queue.pollDue(Instant.now()));
     }
 
+    /**
+     * Verifies that stale queued entries for the same delivery are discarded in favor of the
+     * latest scheduled attempt.
+     *
+     * <p>This matters because deliveries can be rescheduled multiple times, and only the newest
+     * timestamp should survive as the actionable retry task.
+     */
     @Test
     void pollDueDiscardsMultipleStaleEntriesAndReturnsCurrentOne() {
         RetryTaskQueue queue = new RetryTaskQueue();
@@ -66,6 +101,11 @@ class RetryTaskQueueUnitTest {
         assertNull(queue.pollDue(afterAll));
     }
 
+    /**
+     * Verifies that the queue exposes the earliest due task first.
+     *
+     * <p>This protects the priority-ordering semantics required by the retry scheduler.
+     */
     @Test
     void queueReturnsEarliestTaskFirst() {
         RetryTaskQueue queue = new RetryTaskQueue();
@@ -82,6 +122,13 @@ class RetryTaskQueueUnitTest {
         assertEquals("delivery-late", queue.pollDue(base.plusSeconds(10)).deliveryId());
     }
 
+    /**
+     * Verifies that an older queued entry is ignored when the same delivery is rescheduled for a
+     * newer time.
+     *
+     * <p>This prevents the retry worker from processing outdated attempts after delivery state
+     * has already moved forward.
+     */
     @Test
     void queueIgnoresStaleEntryWhenSameDeliveryIsRescheduled() {
         RetryTaskQueue queue = new RetryTaskQueue();
