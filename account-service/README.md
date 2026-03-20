@@ -48,7 +48,7 @@ Kreirati `.env` fajl u `setup/` folderu (primer u `setup/.env.example`):
 | `ACCOUNT_DB_USER` | Korisničko ime baze | `postgres` |
 | `ACCOUNT_DB_PASSWORD` | Lozinka baze | `postgres` |
 | `JWT_SECRET` | HMAC-SHA256 secret (isti kao ostali servisi) | `my_secret_key` |
-| `SERVICES_USER_URL` | URL user-service-a (za proveru klijenta) | `http://user-service` |
+| `SERVICES_USER_URL` | URL employee-service-a (za proveru klijenta) | `http://employee-service` |
 | `CLIENT_SERVER_PORT` | Port client-service-a | `8083` |
 | `RABBITMQ_HOST` | Hostname RabbitMQ brokera | `rabbitmq` |
 | `RABBITMQ_PORT` | Port RabbitMQ brokera | `5672` |

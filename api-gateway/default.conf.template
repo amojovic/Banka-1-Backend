@@ -1,5 +1,5 @@
-upstream user_service {
-    server user-service:${SERVER_PORT};
+upstream employee_service {
+    server employee-service:${SERVER_PORT};
 }
 
 upstream client_service {
@@ -14,9 +14,9 @@ server {
     listen 80;
     server_name localhost;
 
-    # User Service (all routes under /employees/ prefix)
+    # Employee Service (all routes under /employees/ prefix)
     location /employees/ {
-        proxy_pass http://user_service/;
+        proxy_pass http://employee_service/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

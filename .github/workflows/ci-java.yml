@@ -8,7 +8,7 @@ on:
     branches: [main, dev]
     paths:
       - 'company-observability-starter/**'
-      - 'user-service/**'
+      - 'employee-service/**'
       - 'client-service/**'
       - 'account-service/**'
       - 'security-lib/**'
@@ -17,7 +17,7 @@ on:
     branches: [main, dev]
     paths:
       - 'company-observability-starter/**'
-      - 'user-service/**'
+      - 'employee-service/**'
       - 'client-service/**'
       - 'account-service/**'
       - 'notification-service/**'
@@ -41,8 +41,8 @@ jobs:
           filters: |
             company-observability-starter:
               - 'company-observability-starter/**'
-            user-service:
-              - 'user-service/**'
+            employee-service:
+              - 'employee-service/**'
             client-service:
               - 'client-service/**'
             account-service:
