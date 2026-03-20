@@ -8,16 +8,18 @@ on:
     branches: [main, dev]
     paths:
       - 'company-observability-starter/**'
-      - 'user-service/**'
+      - 'employee-service/**'
       - 'client-service/**'
+      - 'account-service/**'
       - 'security-lib/**'
       - 'notification-service/**'
   pull_request:
     branches: [main, dev]
     paths:
       - 'company-observability-starter/**'
-      - 'user-service/**'
+      - 'employee-service/**'
       - 'client-service/**'
+      - 'account-service/**'
       - 'notification-service/**'
       - 'security-lib/**'
 
@@ -39,10 +41,12 @@ jobs:
           filters: |
             company-observability-starter:
               - 'company-observability-starter/**'
-            user-service:
-              - 'user-service/**'
+            employee-service:
+              - 'employee-service/**'
             client-service:
               - 'client-service/**'
+            account-service:
+              - 'account-service/**'
             notification-service:
               - 'notification-service/**'
             security-lib:

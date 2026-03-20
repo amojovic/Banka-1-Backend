@@ -145,7 +145,7 @@ public class ClientController {
      */
     @GetMapping("/jmbg/{jmbg}")
     @PreAuthorize("hasAnyRole('SERVICE','ADMIN')")
-    public ResponseEntity<ClientInfoResponseDto> getInfoByJmbg(@PathVariable String jmbg) {
+    public ResponseEntity<ClientInfoResponseDto> getInfoByJmbg(@AuthenticationPrincipal Jwt jwt,@PathVariable String jmbg) {
         return ResponseEntity.ok(clientService.getInfoByJmbg(jmbg));
     }
 
@@ -158,7 +158,7 @@ public class ClientController {
      */
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('SERVICE','ADMIN')")
-    public ResponseEntity<ClientInfoResponseDto> getInfoById(@PathVariable Long id) {
+    public ResponseEntity<ClientInfoResponseDto> getInfoById(@AuthenticationPrincipal Jwt jwt,@PathVariable Long id) {
         return ResponseEntity.ok(clientService.getInfoById(id));
     }
 }

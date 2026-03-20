@@ -154,7 +154,7 @@ Lifecycle statuses:
 
 ## Configuration
 
-Main environment variables are defined in `.env.example`.
+Main environment variables are defined in `setup/.env.example`.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -188,36 +188,47 @@ Prerequisites:
 - JDK 21
 - Docker Desktop
 
-1. Create a local env file:
+1. Copy the shared env file:
 
-```powershell
-Copy-Item .env.example .env
+```bash
+cp setup/.env.example setup/.env
+# Edit setup/.env and fill in MAIL_USERNAME, MAIL_PASSWORD, JWT_SECRET
 ```
 
-2. Start PostgreSQL and RabbitMQ:
+2. Start only PostgreSQL and RabbitMQ from the shared stack:
 
-```powershell
-docker compose up -d postgres rabbitmq
+```bash
+docker compose -f setup/docker-compose.yml up -d postgres_notification rabbitmq
 ```
 
 3. Run the service from the repository root:
 
-```powershell
-cd ..
-.\gradlew.bat :notification-service:bootRun
+```bash
+./gradlew :notification-service:bootRun
 ```
 
 The service starts on `http://localhost:8006`.
 
 ## Running with Docker Compose
 
-From the `notification-service` directory:
+To run the full system including all services:
 
-```powershell
-docker compose up --build
+```bash
+docker compose -f setup/docker-compose.yml up -d
 ```
 
-This starts PostgreSQL, RabbitMQ, and the notification service container. The Compose build now uses the repository root as context so the local `company-observability-starter` dependency is included correctly.
+To run only the notification service and its dependencies:
+
+```bash
+docker compose -f setup/docker-compose.yml up -d postgres_notification rabbitmq notification-service
+```
+
+**Useful commands:**
+```bash
+docker compose -f setup/docker-compose.yml logs -f notification-service   # Follow logs
+docker compose -f setup/docker-compose.yml down                           # Stop all containers
+docker compose -f setup/docker-compose.yml down -v                        # Stop + delete volumes
+```
 
 ## Observability and docs
 
