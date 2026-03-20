@@ -12,8 +12,13 @@ RUN gradle build --no-daemon -x test -x checkstyleMain -x checkstyleTest
 
 FROM eclipse-temurin:21-jre-alpine
 
+RUN apk add --no-cache curl
+
 WORKDIR /app
 
 COPY --from=builder /app/account-service/build/libs/*.jar app.jar
+
+ARG SERVER_PORT=8084
+EXPOSE ${SERVER_PORT}
 
 ENTRYPOINT ["java","-jar","app.jar"]
