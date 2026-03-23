@@ -91,6 +91,29 @@ services:
       timeout: 5s
       retries: 10
 
+  # Postgres for Card Service
+  postgres_card:
+    image: postgres:16
+    container_name: postgres_card_db
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${CARD_DB_NAME:-card_db}
+      POSTGRES_USER: ${CARD_DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${CARD_DB_PASSWORD:-postgres}
+    ports:
+      - "${CARD_DB_EX_PORT:-5437}:5432"
+    volumes:
+      - postgres-card-data:/var/lib/postgresql/data
+    networks:
+      - banka-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${CARD_DB_USER:-postgres} -d ${CARD_DB_NAME:-card_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   # RabbitMQ (shared)
   rabbitmq:
     image: rabbitmq:3-management
@@ -355,6 +378,57 @@ services:
       retries: 10
       start_period: 30s
 
+  # Card Service
+  card-service:
+    build:
+      context: ..
+      dockerfile: card-service/Dockerfile
+      args:
+        SERVER_PORT: ${CARD_SERVER_PORT:-8087}
+    container_name: banka_card_service
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      CARD_SERVER_PORT: ${CARD_SERVER_PORT:-8087}
+      CARD_DB_HOST: postgres_card
+      CARD_DB_PORT: ${CARD_DB_INTERNAL_PORT:-5432}
+      CARD_DB_NAME: ${CARD_DB_NAME:-card_db}
+      CARD_DB_USER: ${CARD_DB_USER:-postgres}
+      CARD_DB_PASSWORD: ${CARD_DB_PASSWORD:-postgres}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      NOTIFICATION_QUEUE: ${NOTIFICATION_QUEUE}
+      NOTIFICATION_EXCHANGE: ${NOTIFICATION_EXCHANGE}
+      NOTIFICATION_ROUTING_KEY: ${NOTIFICATION_ROUTING_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: none
+      OTEL_LOGS_EXPORTER: none
+      OTEL_SERVICE_NAME: cardService
+    depends_on:
+      postgres_card:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    expose:
+      - "${CARD_SERVER_PORT:-8087}"
+    networks:
+      - banka-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:${CARD_SERVER_PORT:-8087}/actuator/health/liveness || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   api-gateway:
     build:
       context: ..
@@ -369,12 +443,15 @@ services:
       SERVER_PORT: ${USER_SERVER_PORT:-8081}
       CLIENT_SERVICE_PORT: ${CLIENT_SERVER_PORT:-8083}
       ACCOUNT_SERVICE_PORT: ${ACCOUNT_SERVER_PORT:-8084}
+      CARD_SERVICE_PORT: ${CARD_SERVER_PORT:-8087}
     depends_on:
       employee-service:
         condition: service_healthy
       client-service:
         condition: service_healthy
       account-service:
+        condition: service_healthy
+      card-service:
         condition: service_healthy
     networks:
       - banka-network
@@ -394,4 +471,5 @@ volumes:
   postgres-user-data:
   postgres-client-data:
   postgres-account-data:
+  postgres-card-data:
   grafana-data:
