@@ -1,14 +1,11 @@
 package com.banka1.account_service.service;
 
 
-import com.banka1.account_service.dto.request.ApproveDto;
 import com.banka1.account_service.dto.request.EditAccountLimitDto;
 import com.banka1.account_service.dto.request.EditAccountNameDto;
-import com.banka1.account_service.dto.request.NewPaymentDto;
 import com.banka1.account_service.dto.response.AccountDetailsResponseDto;
 import com.banka1.account_service.dto.response.AccountResponseDto;
 import com.banka1.account_service.dto.response.CardResponseDto;
-import com.banka1.account_service.dto.response.TransactionResponseDto;
 import org.springframework.data.domain.Page;
 import org.springframework.security.oauth2.jwt.Jwt;
 

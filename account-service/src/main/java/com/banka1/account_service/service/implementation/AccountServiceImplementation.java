@@ -2,47 +2,87 @@ package com.banka1.account_service.service.implementation;
 
 import com.banka1.account_service.domain.Account;
 import com.banka1.account_service.domain.enums.Status;
-import com.banka1.account_service.dto.request.CheckingDto;
-import com.banka1.account_service.dto.request.TransactionDto;
+import com.banka1.account_service.dto.request.PaymentDto;
 import com.banka1.account_service.dto.response.UpdatedBalanceResponseDto;
-import com.banka1.account_service.exception.BusinessException;
-import com.banka1.account_service.exception.ErrorCode;
 import com.banka1.account_service.repository.AccountRepository;
 import com.banka1.account_service.service.AccountService;
 import com.banka1.account_service.service.TransactionalService;
 import jakarta.persistence.OptimisticLockException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 
 @RequiredArgsConstructor
 @Service
 public class AccountServiceImplementation implements AccountService {
     private final TransactionalService transactionalService;
+    private final AccountRepository accountRepository;
 
+    private Account validate(String accountNumber)
+    {
+        Account account = accountRepository.findByBrojRacuna(accountNumber).orElse(null);
+        //TODO prebaciti sve u business (svaki controller)
+        if(account==null)
+            throw new IllegalArgumentException("Ne postoji racun:"+accountNumber);
+        if(account.getStatus()== Status.INACTIVE)
+            throw new IllegalArgumentException("Racun je neaktivan:"+accountNumber);
+        if(account.getDatumIsteka()!=null&&account.getDatumIsteka().isBefore(LocalDate.now()))
+            throw new IllegalArgumentException("Racun je istekao:"+accountNumber);
+        return account;
+    }
+    private Account validateBank(Account to)
+    {
+        Account account=accountRepository.findByIdAndCurrency((long) -1,to.getCurrency()).orElse(null);
+        if(account==null)
+            throw new IllegalStateException("Greska u sistemu fali banka");
+        if(account.getStatus()== Status.INACTIVE)
+            throw new IllegalStateException("Racun banke je neaktivan");
+        if(account.getDatumIsteka()!=null&&account.getDatumIsteka().isBefore(LocalDate.now()))
+            throw new IllegalStateException("Racun banke je istekao");
+        return account;
+    }
+
+
+    //todo potencijalno migrirati na Springov Retry, za sad ne treba ali moze biti lepse
 
     @Override
-    public UpdatedBalanceResponseDto debit(Jwt jwt, String accountNumber, TransactionDto transactionDto) {
+    public UpdatedBalanceResponseDto transaction(PaymentDto paymentDto) {
+        Account from=validate(paymentDto.getFromAccountNumber());
+        Account to=validate(paymentDto.getToAccountNumber());
+        Account bank=validateBank(to);
+        if(from.getVlasnik().equals(to.getVlasnik()))
+            throw new IllegalArgumentException("Tranzakcija se ne moze odvijati za racune istog vlasnike");
         for(int i = 0; true; i++) {
             try {
-                return transactionalService.debit(jwt,accountNumber,transactionDto);
+                return transactionalService.transfer(from,to,bank,paymentDto);
             } catch (ObjectOptimisticLockingFailureException | OptimisticLockException optimisticLockException) {
-                if(i>=3)
+                if(i>=2)
                     throw optimisticLockException;
             }
         }
     }
+
     @Override
-    public UpdatedBalanceResponseDto credit(Jwt jwt, String accountNumber, TransactionDto transactionDto) {
+    public UpdatedBalanceResponseDto transfer(PaymentDto paymentDto) {
+        Account from=validate(paymentDto.getFromAccountNumber());
+        Account to=validate(paymentDto.getToAccountNumber());
+        Account bank=validateBank(to);
+        if(paymentDto.getClientId()==null)
+            throw new IllegalArgumentException("Unesi id clienta");
+        if(!from.getVlasnik().equals(to.getVlasnik()))
+            throw new IllegalArgumentException("Transfer se moze odvijati samo za racune istog vlasnika");
+        if(!from.getVlasnik().equals(paymentDto.getClientId()))
+            throw new IllegalArgumentException("Nisi vlasnik racuna");
         for(int i = 0; true; i++) {
             try {
-                return transactionalService.credit(jwt,accountNumber, transactionDto);
+                return transactionalService.transfer(from,to,bank,paymentDto);
             } catch (ObjectOptimisticLockingFailureException | OptimisticLockException optimisticLockException) {
-                if(i>=3)
+                if(i>=2)
                     throw optimisticLockException;
             }
         }

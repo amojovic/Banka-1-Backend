@@ -1,6 +1,7 @@
 package com.banka1.account_service.repository;
 
 import com.banka1.account_service.domain.Account;
+import com.banka1.account_service.domain.Currency;
 import com.banka1.account_service.domain.enums.CardStatus;
 import com.banka1.account_service.domain.enums.Status;
 import org.springframework.data.domain.Page;
@@ -13,13 +14,17 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 import java.util.Optional;
 
+//todo pogledati da li za sve treba da se filtriraju aktivni
 @Repository
 public interface AccountRepository extends JpaRepository<Account,Long> {
     boolean existsByBrojRacuna(String brojRacuna);
+    boolean existsByVlasnikAndNazivRacuna(Long vlasnik, String nazivRacuna);
 
     Page<Account> findByVlasnikAndStatus(Long id, Status status, Pageable pageable);
 
     Optional<Account> findByBrojRacuna(String brojRacuna);
+
+    Optional<Account> findByIdAndCurrency(Long id, Currency currency);
 
 
 

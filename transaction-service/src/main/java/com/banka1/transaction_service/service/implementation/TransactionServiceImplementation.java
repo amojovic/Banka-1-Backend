@@ -20,7 +20,7 @@ public class TransactionServiceImplementation implements TransactionService {
     }
 
     @Override
-    public String approveTransaction(Jwt jwt, Long id, ApproveDto newPaymentDto) {
+    public String approveTransaction(Jwt jwt, Long id, ApproveDto approveDto) {
         return "";
     }
 

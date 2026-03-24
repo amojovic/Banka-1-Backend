@@ -1,20 +1,15 @@
 package com.banka1.account_service.service.implementation;
 
 import com.banka1.account_service.domain.Account;
-import com.banka1.account_service.domain.enums.CardStatus;
 import com.banka1.account_service.domain.enums.Status;
-import com.banka1.account_service.dto.request.ApproveDto;
 import com.banka1.account_service.dto.request.EditAccountLimitDto;
 import com.banka1.account_service.dto.request.EditAccountNameDto;
-import com.banka1.account_service.dto.request.NewPaymentDto;
 import com.banka1.account_service.dto.response.AccountDetailsResponseDto;
 import com.banka1.account_service.dto.response.AccountResponseDto;
 import com.banka1.account_service.dto.response.CardResponseDto;
-import com.banka1.account_service.dto.response.TransactionResponseDto;
 import com.banka1.account_service.repository.AccountRepository;
 import com.banka1.account_service.service.ClientService;
 import lombok.RequiredArgsConstructor;
-import lombok.Setter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -73,6 +68,10 @@ public class ClientServiceImplementation implements ClientService {
     public String editAccountName(Jwt jwt, Long id, EditAccountNameDto editAccountNameDto) {
         Account account=accountRepository.findById(id).orElse(null);
         validation(account,jwt);
+        if(account.getNazivRacuna().equalsIgnoreCase(editAccountNameDto.getAccountName()))
+            throw new IllegalArgumentException("Ime ne sme biti isto");
+        if(accountRepository.existsByVlasnikAndNazivRacuna(account.getVlasnik(),editAccountNameDto.getAccountName()))
+            throw new IllegalArgumentException("Vlasnik poseduje racun sa ovim imenom");
         account.setNazivRacuna(editAccountNameDto.getAccountName());
         return "Uspesno editovano ime";
     }

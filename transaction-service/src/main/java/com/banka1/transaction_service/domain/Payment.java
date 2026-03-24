@@ -1,6 +1,7 @@
 package com.banka1.transaction_service.domain;
 
 import com.banka1.transaction_service.domain.base.BaseEntityWithoutDelete;
+import com.banka1.transaction_service.domain.enums.CurrencyCode;
 import com.banka1.transaction_service.domain.enums.TransactionStatus;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.DecimalMin;
@@ -63,11 +64,13 @@ public class Payment extends BaseEntityWithoutDelete {
     @Column(nullable = false)
     private TransactionStatus status=TransactionStatus.IN_PROGRESS;
     @NotBlank
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private String fromCurrency;
+    private CurrencyCode fromCurrency;
     @NotBlank
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private String toCurrency;
+    private CurrencyCode toCurrency;
     @DecimalMin(value = "0.00", inclusive = false)
     private BigDecimal exchangeRate;
 

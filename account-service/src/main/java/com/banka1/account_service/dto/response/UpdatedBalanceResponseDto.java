@@ -10,8 +10,6 @@ import java.math.BigDecimal;
 @Setter
 @AllArgsConstructor
 public class UpdatedBalanceResponseDto {
-    private BigDecimal balance;
-    private BigDecimal availableBalance;
-    private BigDecimal dailySpending;
-    private BigDecimal monthlySpending;
+    private BigDecimal senderBalance;
+    private BigDecimal receiverBalance;
 }

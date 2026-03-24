@@ -12,6 +12,6 @@ import java.time.LocalDate;
 
 public interface TransactionService {
     String newPayment(Jwt jwt, NewPaymentDto newPaymentDto);
-    String approveTransaction(Jwt jwt, Long id, ApproveDto newPaymentDto);
+    String approveTransaction(Jwt jwt, Long id, ApproveDto approveDto);
     Page<TransactionResponseDto> findAllTransactions(Jwt jwt, Long id, TransactionStatus transactionStatus, LocalDate fromDate, LocalDate toDate, BigDecimal minAmount, BigDecimal maxAmount, int page, int size);
 }

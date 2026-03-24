@@ -77,9 +77,9 @@ public abstract class Account extends BaseEntity{
     @DecimalMin(value = "0.00", inclusive = true)
     @Column(nullable = false)
     private BigDecimal dnevnaPotrosnja=BigDecimal.ZERO;
-    @DecimalMin(value = "0.00", inclusive = false)
+    @DecimalMin(value = "0.00", inclusive = true)
     @Column(nullable = false)
-    private BigDecimal mesecnaPotrosnja;
+    private BigDecimal mesecnaPotrosnja=BigDecimal.ZERO;
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "company_id")
     private Company company;
