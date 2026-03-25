@@ -14,9 +14,10 @@ import com.company.observability.starter.domain.UserIdExtractor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
@@ -24,50 +25,31 @@ import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * Servis za upravljanje sesijama verifikacije, uključujući generisanje, validaciju i proveru statusa.
- * Rukuje 2FA verifikacionim kodovima za operacije klijenata kao što su plaćanja, transferi i promene limita.
+ * Servis za upravljanje sesijama verifikacije.
  */
 @Service
 @RequiredArgsConstructor
 public class VerificationService {
 
-    /** Repozitorijum za pristup podacima verifikacionih sesija iz baze podataka. */
     private final VerificationSessionRepository repository;
-
-    /** Enkoder za heširanje verifikacionih kodova pre čuvanja. */
-    private final PasswordEncoder passwordEncoder;
-
-    /** Šablon za slanje poruka RabbitMQ-u za isporuku notifikacija. */
+    private final OtpHashingService otpHashingService;
     private final RabbitTemplate rabbitTemplate;
+    private final UserIdExtractor userIdExtractor;
 
-    /** Naziv RabbitMQ exchange-a za objavljivanje događaja verifikacije. */
     @Value("${rabbitmq.exchange}")
     private String exchange;
 
-    /** RabbitMQ routing ključ za usmeravanje događaja verifikacije ka servisu notifikacija. */
     @Value("${rabbitmq.routing-key}")
     private String routingKey;
 
-    /** Ekstraktor za izdvajanje user ID-a iz JWT tokena. */
-    private final UserIdExtractor userIdExtractor;
-
-    /**
-     * Generiše novu sesiju verifikacije sa nasumičnim 6-cifrenim kodom, hešira ga, čuva u bazi podataka,
-     * i objavljuje događaj ka servisu notifikacija za isporuku klijentu.
-     *
-     * @param request sadrži ID klijenta, tip operacije i ID povezanog entiteta
-     * @return odgovor sa ID-om generisane sesije
-     */
     @Transactional
     public GenerateResponse generate(GenerateRequest request) {
-        // Authorization check: ensure caller can only generate for themselves
         String currentUserId = userIdExtractor.extractUserId()
                 .orElseThrow(() -> new BusinessException(ErrorCode.FORBIDDEN, "Unable to extract user ID from JWT"));
         if (!currentUserId.equals(String.valueOf(request.getClientId()))) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Cannot generate verification for other client");
         }
 
-        // Cancel any existing PENDING sessions for the same client/operation/entity
         List<VerificationSession> existingSessions = repository.findByClientIdAndOperationTypeAndRelatedEntityIdAndStatus(
                 request.getClientId(), request.getOperationType(), request.getRelatedEntityId(), VerificationStatus.PENDING);
         for (VerificationSession existing : existingSessions) {
@@ -76,8 +58,7 @@ public class VerificationService {
         }
 
         String rawCode = generateCode();
-        String hashedCode = passwordEncoder.encode(rawCode);
-
+        String hashedCode = otpHashingService.hash(rawCode);
         LocalDateTime now = LocalDateTime.now();
 
         VerificationSession session = VerificationSession.builder()
@@ -91,103 +72,77 @@ public class VerificationService {
                 .status(VerificationStatus.PENDING)
                 .build();
 
-        session = repository.save(session);
+        try {
+            session = repository.saveAndFlush(session);
+        } catch (DataIntegrityViolationException ex) {
+            throw new BusinessException(
+                    ErrorCode.VERIFICATION_SESSION_ALREADY_PENDING,
+                    "Client ID: %s, operationType: %s, relatedEntityId: %s"
+                            .formatted(request.getClientId(), request.getOperationType(), request.getRelatedEntityId())
+            );
+        }
 
-        // Publish event after transaction commits
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new org.springframework.transaction.support.TransactionSynchronization() {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    VerificationGeneratedEvent event = new VerificationGeneratedEvent();
-                    event.setClientId(request.getClientId());
-                    event.setCode(rawCode);
-                    event.setOperationType(request.getOperationType());
-                    rabbitTemplate.convertAndSend(exchange, routingKey, event);
+                    publishGeneratedEvent(request, rawCode);
                 }
             });
         } else {
-            // For unit tests or non-transactional contexts
-            VerificationGeneratedEvent event = new VerificationGeneratedEvent();
-            event.setClientId(request.getClientId());
-            event.setCode(rawCode);
-            event.setOperationType(request.getOperationType());
-            rabbitTemplate.convertAndSend(exchange, routingKey, event);
+            publishGeneratedEvent(request, rawCode);
         }
 
         return new GenerateResponse(session.getId());
     }
 
-    /**
-     * Validira dati kod u odnosu na sačuvani heširani kod za sesiju.
-     * Proverava status sesije, isticanje i broj pokušaja. Ažurira status shodno tome.
-     *
-     * @param request sadrži ID sesije i kod za validaciju
-     * @return odgovor koji ukazuje na rezultat validacije, trenutni status i preostale pokušaje
-     */
     @Transactional
     public ValidateResponse validate(ValidateRequest request) {
         VerificationSession session = repository.findById(request.getSessionId())
-                .orElseThrow(() -> new BusinessException(ErrorCode.VERIFICATION_SESSION_NOT_FOUND, "Session ID: " + request.getSessionId()));
+                .orElseThrow(() -> new BusinessException(
+                        ErrorCode.VERIFICATION_SESSION_NOT_FOUND,
+                        "Session ID: " + request.getSessionId()
+                ));
 
-        // 1. status check
         if (session.getStatus() == VerificationStatus.CANCELLED) {
             throw new BusinessException(ErrorCode.VERIFICATION_SESSION_CANCELLED, "Session ID: " + request.getSessionId());
         }
-
         if (session.getStatus() == VerificationStatus.VERIFIED) {
             throw new BusinessException(ErrorCode.VERIFICATION_SESSION_ALREADY_VERIFIED, "Session ID: " + request.getSessionId());
         }
-
         if (session.getStatus() == VerificationStatus.EXPIRED) {
             throw new BusinessException(ErrorCode.VERIFICATION_CODE_EXPIRED, "Session ID: " + request.getSessionId());
         }
 
-        // 2. expiration check
         if (LocalDateTime.now().isAfter(session.getExpiresAt())) {
             session.setStatus(VerificationStatus.EXPIRED);
             repository.save(session);
             throw new BusinessException(ErrorCode.VERIFICATION_CODE_EXPIRED, "Session ID: " + request.getSessionId());
         }
 
-        // 3. validate code
-        boolean matches = passwordEncoder.matches(request.getCode(), session.getCode());
-
+        boolean matches = otpHashingService.matches(request.getCode(), session.getCode());
         if (matches) {
             session.setStatus(VerificationStatus.VERIFIED);
             repository.save(session);
-
             return new ValidateResponse(true, session.getStatus(), 0);
         }
 
-        // 4. wrong code
         session.setAttemptCount(session.getAttemptCount() + 1);
-
         if (session.getAttemptCount() >= 3) {
             session.setStatus(VerificationStatus.CANCELLED);
         }
-
         repository.save(session);
 
-        int remaining = 3 - session.getAttemptCount();
-
-        return new ValidateResponse(false, session.getStatus(), remaining);
+        return new ValidateResponse(false, session.getStatus(), 3 - session.getAttemptCount());
     }
 
-    /**
-     * Vraća trenutni status verifikacione sesije, sa opcionom automatskom proverom isticanja.
-     *
-     * @param sessionId ID sesije za proveru
-     * @return trenutni status verifikacije
-     */
     @Transactional
     public VerificationStatus getStatus(Long sessionId) {
         VerificationSession session = repository.findById(sessionId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.VERIFICATION_SESSION_NOT_FOUND, "Session ID: " + sessionId));
 
-        // Optional: auto-expire check
-        if (session.getStatus() == VerificationStatus.PENDING &&
-            LocalDateTime.now().isAfter(session.getExpiresAt())) {
-
+        if (session.getStatus() == VerificationStatus.PENDING
+                && LocalDateTime.now().isAfter(session.getExpiresAt())) {
             session.setStatus(VerificationStatus.EXPIRED);
             repository.save(session);
         }
@@ -195,11 +150,14 @@ public class VerificationService {
         return session.getStatus();
     }
 
-    /**
-     * Generiše nasumični 6-cifreni numerički kod za verifikaciju.
-     *
-     * @return generisani kod kao string
-     */
+    private void publishGeneratedEvent(GenerateRequest request, String rawCode) {
+        VerificationGeneratedEvent event = new VerificationGeneratedEvent();
+        event.setClientId(request.getClientId());
+        event.setCode(rawCode);
+        event.setOperationType(request.getOperationType());
+        rabbitTemplate.convertAndSend(exchange, routingKey, event);
+    }
+
     private String generateCode() {
         int code = ThreadLocalRandom.current().nextInt(100000, 1000000);
         return String.valueOf(code);

@@ -27,6 +27,9 @@ public enum ErrorCode {
     /** Neispravan verifikacioni kod. */
     INVALID_VERIFICATION_CODE(HttpStatus.BAD_REQUEST, "ERR_VERIFICATION_005", "Neispravan verifikacioni kod"),
 
+    /** Vec postoji aktivna PENDING sesija za isti kljuc operacije. */
+    VERIFICATION_SESSION_ALREADY_PENDING(HttpStatus.CONFLICT, "ERR_VERIFICATION_006", "Aktivna verifikaciona sesija vec postoji"),
+
     /** Pristup odbijen zbog nedovoljnih privilegija. */
     FORBIDDEN(HttpStatus.FORBIDDEN, "ERR_FORBIDDEN", "Pristup odbijen");
 

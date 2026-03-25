@@ -58,11 +58,12 @@ class ExchangeRateControllerWebMvcTest {
                 .thenReturn(new ExchangeRateFetchResponseDto(7, List.of(
                         rate("EUR", "117.10", "117.90"),
                         rate("USD", "108.10", "108.90")
-                )));
+                ), false, LocalDate.of(2026, 3, 22)));
 
         mockMvc.perform(post("/rates/fetch"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.fetchedCount").value(7))
+                .andExpect(jsonPath("$.fallbackUsed").value(false))
                 .andExpect(jsonPath("$.rates[0].currencyCode").exists());
     }
 

@@ -20,7 +20,7 @@ import java.time.LocalDateTime;
 
 /**
  * JPA entitet koji predstavlja sesiju verifikacije u bazi podataka.
- * Čuva heširane verifikacione kodove, metapodatke sesije i status za 2FA operacije.
+ * Cuva hash verifikacionog koda, metapodatke sesije i status za 2FA operacije.
  */
 @Entity
 @Table(name = "verification_sessions")
@@ -37,29 +37,36 @@ public class VerificationSession {
     private Long id;
 
     /** ID klijenta koji zahteva verifikaciju. */
+    @Column(nullable = false)
     private Long clientId;
 
-    /** Heširani verifikacioni kod za sigurnost; nikada ne čuva običan tekst. */
+    /** Hash verifikacionog koda; nikada se ne cuva obican tekst. */
     @Column(nullable = false)
-    private String code; // hashed
+    private String code;
 
-    /** Tip operacije koja se verifikuje (npr., PAYMENT, TRANSFER). */
+    /** Tip operacije koja se verifikuje (npr. PAYMENT, TRANSFER). */
     @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
     private OperationType operationType;
 
-    /** Opcioni ID povezanog entiteta (npr., ID transakcije). */
+    /** ID povezanog entiteta (npr. ID transakcije); obavezan za jednoznacnu sesiju. */
+    @Column(nullable = false)
     private String relatedEntityId;
 
     /** Vreme kada je sesija kreirana. */
+    @Column(nullable = false)
     private LocalDateTime createdAt;
 
-    /** Vreme kada sesija ističe (tipično 5 minuta nakon kreiranja). */
+    /** Vreme kada sesija istice, tipicno 5 minuta nakon kreiranja. */
+    @Column(nullable = false)
     private LocalDateTime expiresAt;
 
-    /** Broj neuspjelih pokušaja validacije; sesija se otkazuje nakon 3. */
+    /** Broj neuspelih pokusaja validacije; sesija se otkazuje nakon 3. */
+    @Column(nullable = false)
     private int attemptCount;
 
     /** Trenutni status sesije verifikacije. */
     @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
     private VerificationStatus status;
 }

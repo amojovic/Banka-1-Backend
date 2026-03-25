@@ -14,8 +14,8 @@ import java.math.BigDecimal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
@@ -60,11 +60,8 @@ class TwelveDataClientTest {
      */
     @Test
     void fetchExchangeRateParsesSuccessfulResponse() {
-        server.expect(requestTo(allOf(
-                        containsString("/exchange_rate"),
-                        containsString("symbol=EUR/RSD"),
-                        containsString("apikey=demo-key")
-                )))
+        server.expect(requestTo(containsString("/exchange_rate?symbol=EUR/RSD")))
+                .andExpect(header("apikey", "demo-key"))
                 .andRespond(withSuccess("""
                         {
                           "symbol": "EUR/RSD",
@@ -87,10 +84,8 @@ class TwelveDataClientTest {
      */
     @Test
     void fetchExchangeRateThrowsWhenRateIsMissing() {
-        server.expect(requestTo(allOf(
-                        containsString("symbol=USD/RSD"),
-                        containsString("apikey=demo-key")
-                )))
+        server.expect(requestTo(containsString("/exchange_rate?symbol=USD/RSD")))
+                .andExpect(header("apikey", "demo-key"))
                 .andRespond(withSuccess("""
                         {
                           "symbol": "USD/RSD"
@@ -111,10 +106,8 @@ class TwelveDataClientTest {
      */
     @Test
     void fetchExchangeRateThrowsBusinessExceptionWhenApiReturnsErrorPayload() {
-        server.expect(requestTo(allOf(
-                        containsString("symbol=CHF/RSD"),
-                        containsString("apikey=demo-key")
-                )))
+        server.expect(requestTo(containsString("/exchange_rate?symbol=CHF/RSD")))
+                .andExpect(header("apikey", "demo-key"))
                 .andRespond(withSuccess("""
                         {
                           "code": 429,
@@ -136,10 +129,8 @@ class TwelveDataClientTest {
      */
     @Test
     void fetchExchangeRateThrowsWhenTimestampIsInvalid() {
-        server.expect(requestTo(allOf(
-                        containsString("symbol=EUR/RSD"),
-                        containsString("apikey=demo-key")
-                )))
+        server.expect(requestTo(containsString("/exchange_rate?symbol=EUR/RSD")))
+                .andExpect(header("apikey", "demo-key"))
                 .andRespond(withSuccess("""
                         {
                           "symbol": "EUR/RSD",

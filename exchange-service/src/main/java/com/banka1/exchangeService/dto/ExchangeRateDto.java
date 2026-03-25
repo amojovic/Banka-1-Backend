@@ -31,6 +31,12 @@ public record ExchangeRateDto(
      * @return sinteticki DTO sa kursom 1:1
      */
     public static ExchangeRateDto baseCurrency(LocalDate date) {
-        return new ExchangeRateDto(SupportedCurrency.RSD.name(), BigDecimal.ONE, BigDecimal.ONE, date, Instant.now());
+        return new ExchangeRateDto(
+                SupportedCurrency.RSD.name(),
+                BigDecimal.ONE,
+                BigDecimal.ONE,
+                date,
+                date.atStartOfDay().toInstant(java.time.ZoneOffset.UTC)
+        );
     }
 }

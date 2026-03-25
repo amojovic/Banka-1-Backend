@@ -5,6 +5,7 @@ import com.banka1.exchangeService.exception.ErrorCode;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Eksplicitno podrzane valute exchange-service domena.
@@ -28,8 +29,14 @@ public enum SupportedCurrency {
      * @return podrzana valuta iz domena
      */
     public static SupportedCurrency from(String currencyCode) {
+        String supportedValues = Arrays.stream(values())
+                .map(Enum::name)
+                .collect(Collectors.joining(", "));
         if (currencyCode == null || currencyCode.isBlank()) {
-            throw new BusinessException(ErrorCode.UNSUPPORTED_CURRENCY, "Kod valute je obavezan.");
+            throw new BusinessException(
+                    ErrorCode.UNSUPPORTED_CURRENCY,
+                    "Kod valute je obavezan. Podrzane valute: %s.".formatted(supportedValues)
+            );
         }
 
         try {
@@ -37,7 +44,8 @@ public enum SupportedCurrency {
         } catch (IllegalArgumentException ex) {
             throw new BusinessException(
                     ErrorCode.UNSUPPORTED_CURRENCY,
-                    "UNSUPPORTED CURRENCY"
+                    "Nepodrzan kod valute '%s'. Podrzane valute: %s."
+                            .formatted(currencyCode, supportedValues)
             );
         }
     }

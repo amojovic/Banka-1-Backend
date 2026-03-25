@@ -24,6 +24,7 @@ public class ExchangeRateScheduler {
      */
     @Scheduled(cron = "${exchange.rates.fetch-cron}")
     public void refreshDailyRates() {
+        log.info("Starting scheduled exchange-rate refresh.");
         exchangeRateService.fetchAndStoreDailyRates();
     }
 

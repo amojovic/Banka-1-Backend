@@ -1,5 +1,6 @@
 package com.banka1.exchangeService.dto;
 
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -15,11 +16,16 @@ import java.util.List;
  *
  * Ako FRONTEND zeli rucno da pozove refresh, a ne da ceka cron job, moze manualno da refreshuje, na zahtev
  *
- * @param fetchedCount broj valuta koje su uspesno obradjene i sacuvane
- * @param rates        sacuvani kursevi
+ * @param fetchedCount       broj valuta koje su uspesno obradjene i sacuvane
+ * @param rates              sacuvani kursevi
+ * @param fallbackUsed       da li je odgovor nastao iz lokalnog fallback snapshot-a
+ * @param sourceSnapshotDate datum snapshot-a iz kog su fallback podaci kopirani;
+ *                           jednak je trenutnom snapshot datumu za svez provider fetch
  */
 public record ExchangeRateFetchResponseDto(
         int fetchedCount,
-        List<ExchangeRateDto> rates
+        List<ExchangeRateDto> rates,
+        boolean fallbackUsed,
+        LocalDate sourceSnapshotDate
 ) {
 }

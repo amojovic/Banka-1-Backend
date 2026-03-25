@@ -21,7 +21,7 @@ public class GenerateRequest {
     @NotNull(message = "operationType is required.")
     private OperationType operationType;
 
-    /** Opcioni ID povezanog entiteta (npr., ID transakcije ili zahteva). */
+    /** Obavezni ID povezanog entiteta (npr., ID transakcije ili zahteva). */
     @NotBlank(message = "relatedEntityId is required.")
     private String relatedEntityId;
 }

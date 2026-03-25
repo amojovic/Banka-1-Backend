@@ -134,12 +134,12 @@ public class ExchangeRateServiceImpl implements ExchangeRateService {
                     .map(this::toDto)
                     .toList();
 
-            return new ExchangeRateFetchResponseDto(storedRates.size(), storedRates);
+            return new ExchangeRateFetchResponseDto(storedRates.size(), storedRates, false, snapshotDate);
         } catch (BusinessException ex) {
             if (ex.getErrorCode() != ErrorCode.EXCHANGE_RATE_FETCH_FAILED) {
                 throw ex;
             }
-            return fallbackToPreviousSnapshot(ex);
+            return fallbackToLatestSnapshot(ex);
         }
     }
 
@@ -189,16 +189,16 @@ public class ExchangeRateServiceImpl implements ExchangeRateService {
             );
         }
 
-        BigDecimal sourceSellingRate = sourceCurrency == SupportedCurrency.RSD
+        BigDecimal sourceBuyingRate = sourceCurrency == SupportedCurrency.RSD
                 ? BigDecimal.ONE
-                : findRate(sourceCurrency, snapshotDate).getSellingRate();
+                : findRate(sourceCurrency, snapshotDate).getBuyingRate();
         BigDecimal targetSellingRate = targetCurrency == SupportedCurrency.RSD
                 ? BigDecimal.ONE
                 : findRate(targetCurrency, snapshotDate).getSellingRate();
 
         BigDecimal amountInRsd = sourceCurrency == SupportedCurrency.RSD
                 ? request.amount()
-                : request.amount().multiply(sourceSellingRate);
+                : request.amount().multiply(sourceBuyingRate);
 
         BigDecimal convertedAmount = targetCurrency == SupportedCurrency.RSD
                 ? amountInRsd.setScale(CALCULATION_SCALE, RoundingMode.HALF_UP)
@@ -303,19 +303,25 @@ public class ExchangeRateServiceImpl implements ExchangeRateService {
      * @param rootCause originalna greska fetch operacije
      * @return rezultat sa fallback snapshot-om za ciljni datum
      */
-    private ExchangeRateFetchResponseDto fallbackToPreviousSnapshot(BusinessException rootCause) {
+    private ExchangeRateFetchResponseDto fallbackToLatestSnapshot(BusinessException rootCause) {
         LocalDate targetDate = LocalDate.now(clock);
-        LocalDate previousDay = targetDate.minusDays(1);
-        List<ExchangeRateEntity> previousRates = exchangeRateRepository.findAllByDateOrderByCurrencyCodeAsc(previousDay);
+        LocalDate latestSnapshotDate = exchangeRateRepository.findLatestDate();
+        if (latestSnapshotDate == null) {
+            throw new BusinessException(
+                    ErrorCode.EXCHANGE_RATE_FETCH_FAILED,
+                    "Exchange-rate fetch failed and no local snapshot exists for fallback."
+            );
+        }
+        List<ExchangeRateEntity> previousRates = exchangeRateRepository.findAllByDateOrderByCurrencyCodeAsc(latestSnapshotDate);
         if (previousRates.isEmpty()) {
             throw new BusinessException(
                     ErrorCode.EXCHANGE_RATE_FETCH_FAILED,
-                    "Exchange-rate fetch failed and no previous-day snapshot exists for %s.".formatted(previousDay)
+                    "Exchange-rate fetch failed and latest snapshot %s has no rates.".formatted(latestSnapshotDate)
             );
         }
 
-        log.warn("Exchange-rate fetch failed; copying strict previous-day snapshot from {} to {}. Cause: {}",
-                previousDay, targetDate, rootCause.getMessage());
+        log.warn("Exchange-rate fetch failed; copying latest snapshot from {} to {}. Cause: {}",
+                latestSnapshotDate, targetDate, rootCause.getMessage());
         List<ExchangeRateDto> fallbackRates = snapshotPersistenceService.replaceSnapshot(
                         targetDate,
                         previousRates.stream()
@@ -324,7 +330,7 @@ public class ExchangeRateServiceImpl implements ExchangeRateService {
                 ).stream()
                 .map(this::toDto)
                 .toList();
-        return new ExchangeRateFetchResponseDto(fallbackRates.size(), fallbackRates);
+        return new ExchangeRateFetchResponseDto(fallbackRates.size(), fallbackRates, true, latestSnapshotDate);
     }
 
     /**
@@ -412,7 +418,7 @@ public class ExchangeRateServiceImpl implements ExchangeRateService {
                 entity.getBuyingRate(),
                 entity.getSellingRate(),
                 entity.getDate(),
-                entity.getCreatedAt().toInstant()
+                entity.getCreatedAt()
         );
     }
 }

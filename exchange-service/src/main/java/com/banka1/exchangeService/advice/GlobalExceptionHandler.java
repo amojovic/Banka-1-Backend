@@ -3,6 +3,7 @@ package com.banka1.exchangeService.advice;
 import com.banka1.exchangeService.dto.ErrorResponseDto;
 import com.banka1.exchangeService.exception.BusinessException;
 import com.banka1.exchangeService.exception.ErrorCode;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.FieldError;
@@ -17,6 +18,7 @@ import java.util.Map;
 /**
  * Centralizovan handler gresaka za REST controlled deo exchange-service-a.
  */
+@Slf4j
 @RestControllerAdvice
 @Component("exchangeServiceGlobalExceptionHandler")
 public class GlobalExceptionHandler {
@@ -84,6 +86,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponseDto> handleUnexpectedException(Exception ex) {
+        log.error("Unexpected error in exchange-service", ex);
         return ResponseEntity.internalServerError()
                 .body(new ErrorResponseDto(
                         "ERR_INTERNAL_SERVER",

@@ -2,7 +2,6 @@ package com.banka1.exchangeService.domain;
 
 import org.junit.jupiter.api.Test;
 
-import java.sql.Timestamp;
 import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -37,7 +36,7 @@ class ExchangeRateEntityTest {
     @Test
     void onCreateDoesNotOverwriteExistingCreatedAt() {
         ExchangeRateEntity entity = new ExchangeRateEntity();
-        Timestamp existing = Timestamp.from(Instant.parse("2026-03-22T10:15:30Z"));
+        Instant existing = Instant.parse("2026-03-22T10:15:30Z");
         entity.setCreatedAt(existing);
 
         entity.onCreate();

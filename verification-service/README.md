@@ -55,7 +55,6 @@ Kreirati `.env` fajl u `setup/` folderu (primer u `setup/.env.example`):
 | `RABBITMQ_PORT` | Port RabbitMQ brokera | `5672` |
 | `RABBITMQ_USERNAME` | Korisničko ime RabbitMQ | `guest` |
 | `RABBITMQ_PASSWORD` | Lozinka RabbitMQ | `guest` |
-| `NOTIFICATION_QUEUE` | Naziv RabbitMQ queue-a za notifikacije | `notification-service-queue` |
 | `NOTIFICATION_EXCHANGE` | Naziv RabbitMQ exchange-a | `employee.events` |
 | `NOTIFICATION_ROUTING_KEY` | Routing key za notifikacije | `employee.#` |
 

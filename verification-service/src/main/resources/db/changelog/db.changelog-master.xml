@@ -5,6 +5,6 @@
         xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.17.xsd">
 
-    <!-- Migracije ce biti dodate u sledecim sub-issues -->
     <include file="db/changelog/001-create-verification-sessions-table.xml"/>
+    <include file="db/changelog/002-add-verification-session-constraints-and-indexes.xml"/>
 </databaseChangeLog>

@@ -12,7 +12,6 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.math.BigDecimal;
-import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
 
@@ -69,7 +68,7 @@ public class ExchangeRateEntity {
      * Vreme kada je red prvi put upisan u bazu.
      */
     @Column(name = "created_at", nullable = false)
-    private Timestamp createdAt;
+    private Instant createdAt;
 
     /**
      * Postavlja vreme kreiranja samo pri prvom upisu reda.
@@ -77,7 +76,7 @@ public class ExchangeRateEntity {
     @PrePersist
     public void onCreate() {
         if (createdAt == null) {
-            createdAt = Timestamp.from(Instant.now());
+            createdAt = Instant.now();
         }
     }
 }

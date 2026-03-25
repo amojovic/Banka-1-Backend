@@ -16,7 +16,7 @@ import java.math.BigDecimal;
  * @param twelveDataBaseUrl bazni URL Twelve Data servisa
  * @param twelveDataApiKey  API kljuc za pristup Twelve Data endpoint-u
  * @param marginPercentage     bankarska marza izrazena u procentima; npr. {@code 1.0} znaci 1%
- * @param commissionPercentage provizija za kalkulaciju ekvivalencije izrazena u procentima; opseg 0-1
+ * @param commissionPercentage provizija za kalkulaciju ekvivalencije izrazena u procentima; npr. {@code 0.70} znaci 0.70%
  * @param fetchOnStartup       da li servis treba da povuce kurseve pri pokretanju
  */
 @Validated
@@ -25,7 +25,7 @@ public record ExchangeRateProperties(
         @NotBlank String twelveDataBaseUrl,
         @NotBlank String twelveDataApiKey,
         @DecimalMin("0.0") @DecimalMax("100.0") BigDecimal marginPercentage,
-        @DecimalMin("0.0") @DecimalMax("1.0") BigDecimal commissionPercentage,
+        @DecimalMin("0.0") @DecimalMax("100.0") BigDecimal commissionPercentage,
         boolean fetchOnStartup
 ) {
 }

@@ -20,7 +20,6 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Duration;
@@ -42,7 +41,7 @@ class VerificationServiceTest {
     private VerificationSessionRepository repository;
 
     @Mock
-    private PasswordEncoder passwordEncoder;
+    private OtpHashingService otpHashingService;
 
     @Mock
     private RabbitTemplate rabbitTemplate;
@@ -67,9 +66,11 @@ class VerificationServiceTest {
         request.setRelatedEntityId("payment-123");
 
         when(userIdExtractor.extractUserId()).thenReturn(Optional.of("55"));
-        when(repository.findByClientIdAndOperationTypeAndRelatedEntityIdAndStatus(55L, OperationType.PAYMENT, "payment-123", VerificationStatus.PENDING)).thenReturn(List.of());
-        when(passwordEncoder.encode(any())).thenAnswer(invocation -> "hashed-" + invocation.getArgument(0, String.class));
-        when(repository.save(any(VerificationSession.class))).thenAnswer(invocation -> {
+        when(repository.findByClientIdAndOperationTypeAndRelatedEntityIdAndStatus(
+                55L, OperationType.PAYMENT, "payment-123", VerificationStatus.PENDING
+        )).thenReturn(List.of());
+        when(otpHashingService.hash(any())).thenAnswer(invocation -> "hashed-" + invocation.getArgument(0, String.class));
+        when(repository.saveAndFlush(any(VerificationSession.class))).thenAnswer(invocation -> {
             VerificationSession session = invocation.getArgument(0);
             session.setId(99L);
             return session;
@@ -78,7 +79,7 @@ class VerificationServiceTest {
         GenerateResponse response = verificationService.generate(request);
 
         ArgumentCaptor<VerificationSession> sessionCaptor = ArgumentCaptor.forClass(VerificationSession.class);
-        verify(repository).save(sessionCaptor.capture());
+        verify(repository).saveAndFlush(sessionCaptor.capture());
         VerificationSession savedSession = sessionCaptor.getValue();
         assertThat(savedSession.getClientId()).isEqualTo(55L);
         assertThat(savedSession.getOperationType()).isEqualTo(OperationType.PAYMENT);
@@ -120,7 +121,7 @@ class VerificationServiceTest {
         VerificationSession session = pendingSession();
         session.setId(10L);
         when(repository.findById(10L)).thenReturn(Optional.of(session));
-        when(passwordEncoder.matches("123456", session.getCode())).thenReturn(true);
+        when(otpHashingService.matches("123456", session.getCode())).thenReturn(true);
 
         ValidateRequest request = new ValidateRequest();
         request.setSessionId(10L);
@@ -140,7 +141,7 @@ class VerificationServiceTest {
         VerificationSession session = pendingSession();
         session.setId(11L);
         when(repository.findById(11L)).thenReturn(Optional.of(session));
-        when(passwordEncoder.matches("000000", session.getCode())).thenReturn(false);
+        when(otpHashingService.matches("000000", session.getCode())).thenReturn(false);
 
         ValidateRequest request = new ValidateRequest();
         request.setSessionId(11L);
@@ -161,7 +162,7 @@ class VerificationServiceTest {
         session.setId(12L);
         session.setAttemptCount(2);
         when(repository.findById(12L)).thenReturn(Optional.of(session));
-        when(passwordEncoder.matches("000000", session.getCode())).thenReturn(false);
+        when(otpHashingService.matches("000000", session.getCode())).thenReturn(false);
 
         ValidateRequest request = new ValidateRequest();
         request.setSessionId(12L);
@@ -252,6 +253,23 @@ class VerificationServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("Verifikacioni kod je istekao: Session ID: 16")
                 .extracting("errorCode").isEqualTo(ErrorCode.VERIFICATION_CODE_EXPIRED);
+    }
+
+    @Test
+    void validateRejectsAlreadyVerifiedSession() {
+        VerificationSession session = pendingSession();
+        session.setId(17L);
+        session.setStatus(VerificationStatus.VERIFIED);
+        when(repository.findById(17L)).thenReturn(Optional.of(session));
+
+        ValidateRequest request = new ValidateRequest();
+        request.setSessionId(17L);
+        request.setCode("123456");
+
+        assertThatThrownBy(() -> verificationService.validate(request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Sesija verifikacije je već verifikovana: Session ID: 17")
+                .extracting("errorCode").isEqualTo(ErrorCode.VERIFICATION_SESSION_ALREADY_VERIFIED);
     }
 
     private VerificationSession pendingSession() {

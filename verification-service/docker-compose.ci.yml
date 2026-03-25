@@ -35,7 +35,6 @@ services:
       RABBITMQ_PORT: 5672
       RABBITMQ_USERNAME: guest
       RABBITMQ_PASSWORD: guest
-      NOTIFICATION_QUEUE: notification-service-queue
       NOTIFICATION_EXCHANGE: employee.events
       NOTIFICATION_ROUTING_KEY: employee.#
       JWT_SECRET: ci-test-secret-that-is-long-enough-for-hmac
