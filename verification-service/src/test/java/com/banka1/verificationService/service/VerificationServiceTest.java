@@ -11,6 +11,7 @@ import com.banka1.verificationService.model.entity.VerificationSession;
 import com.banka1.verificationService.model.enums.OperationType;
 import com.banka1.verificationService.model.enums.VerificationStatus;
 import com.banka1.verificationService.repository.VerificationSessionRepository;
+import com.company.observability.starter.domain.UserIdExtractor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,6 +25,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -45,6 +47,9 @@ class VerificationServiceTest {
     @Mock
     private RabbitTemplate rabbitTemplate;
 
+    @Mock
+    private UserIdExtractor userIdExtractor;
+
     @InjectMocks
     private VerificationService verificationService;
 
@@ -61,6 +66,8 @@ class VerificationServiceTest {
         request.setOperationType(OperationType.PAYMENT);
         request.setRelatedEntityId("payment-123");
 
+        when(userIdExtractor.extractUserId()).thenReturn(Optional.of("55"));
+        when(repository.findByClientIdAndOperationTypeAndRelatedEntityIdAndStatus(55L, OperationType.PAYMENT, "payment-123", VerificationStatus.PENDING)).thenReturn(List.of());
         when(passwordEncoder.encode(any())).thenAnswer(invocation -> "hashed-" + invocation.getArgument(0, String.class));
         when(repository.save(any(VerificationSession.class))).thenAnswer(invocation -> {
             VerificationSession session = invocation.getArgument(0);
@@ -82,6 +89,7 @@ class VerificationServiceTest {
         assertThat(savedSession.getCode()).doesNotMatch("^\\d{6}$");
         assertThat(Duration.between(savedSession.getCreatedAt(), savedSession.getExpiresAt())).isEqualTo(Duration.ofMinutes(5));
 
+        // Note: Event publishing happens immediately in unit test (no active transaction)
         ArgumentCaptor<VerificationGeneratedEvent> eventCaptor = ArgumentCaptor.forClass(VerificationGeneratedEvent.class);
         verify(rabbitTemplate).convertAndSend(eq("test-exchange"), eq("verification.generated"), eventCaptor.capture());
         VerificationGeneratedEvent event = eventCaptor.getValue();
@@ -90,6 +98,21 @@ class VerificationServiceTest {
         assertThat(event.getCode()).matches("^\\d{6}$");
         assertThat(savedSession.getCode()).isNotEqualTo(event.getCode());
         assertThat(response.getSessionId()).isEqualTo(99L);
+    }
+
+    @Test
+    void generateThrowsWhenUserNotAuthorized() {
+        GenerateRequest request = new GenerateRequest();
+        request.setClientId(55L);
+        request.setOperationType(OperationType.PAYMENT);
+        request.setRelatedEntityId("payment-123");
+
+        when(userIdExtractor.extractUserId()).thenReturn(Optional.of("99"));
+
+        assertThatThrownBy(() -> verificationService.generate(request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Pristup odbijen: Cannot generate verification for other client")
+                .extracting("errorCode").isEqualTo(ErrorCode.FORBIDDEN);
     }
 
     @Test
@@ -212,6 +235,23 @@ class VerificationServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("Sesija verifikacije nije pronađena: Session ID: 77")
                 .extracting("errorCode").isEqualTo(ErrorCode.VERIFICATION_SESSION_NOT_FOUND);
+    }
+
+    @Test
+    void validateRejectsAlreadyExpiredSession() {
+        VerificationSession session = pendingSession();
+        session.setId(16L);
+        session.setStatus(VerificationStatus.EXPIRED);
+        when(repository.findById(16L)).thenReturn(Optional.of(session));
+
+        ValidateRequest request = new ValidateRequest();
+        request.setSessionId(16L);
+        request.setCode("123456");
+
+        assertThatThrownBy(() -> verificationService.validate(request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Verifikacioni kod je istekao: Session ID: 16")
+                .extracting("errorCode").isEqualTo(ErrorCode.VERIFICATION_CODE_EXPIRED);
     }
 
     private VerificationSession pendingSession() {

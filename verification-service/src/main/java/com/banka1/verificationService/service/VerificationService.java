@@ -10,14 +10,17 @@ import com.banka1.verificationService.exception.ErrorCode;
 import com.banka1.verificationService.model.entity.VerificationSession;
 import com.banka1.verificationService.model.enums.VerificationStatus;
 import com.banka1.verificationService.repository.VerificationSessionRepository;
+import com.company.observability.starter.domain.UserIdExtractor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
@@ -45,6 +48,9 @@ public class VerificationService {
     @Value("${rabbitmq.routing-key}")
     private String routingKey;
 
+    /** Ekstraktor za izdvajanje user ID-a iz JWT tokena. */
+    private final UserIdExtractor userIdExtractor;
+
     /**
      * Generiše novu sesiju verifikacije sa nasumičnim 6-cifrenim kodom, hešira ga, čuva u bazi podataka,
      * i objavljuje događaj ka servisu notifikacija za isporuku klijentu.
@@ -54,6 +60,21 @@ public class VerificationService {
      */
     @Transactional
     public GenerateResponse generate(GenerateRequest request) {
+        // Authorization check: ensure caller can only generate for themselves
+        String currentUserId = userIdExtractor.extractUserId()
+                .orElseThrow(() -> new BusinessException(ErrorCode.FORBIDDEN, "Unable to extract user ID from JWT"));
+        if (!currentUserId.equals(String.valueOf(request.getClientId()))) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Cannot generate verification for other client");
+        }
+
+        // Cancel any existing PENDING sessions for the same client/operation/entity
+        List<VerificationSession> existingSessions = repository.findByClientIdAndOperationTypeAndRelatedEntityIdAndStatus(
+                request.getClientId(), request.getOperationType(), request.getRelatedEntityId(), VerificationStatus.PENDING);
+        for (VerificationSession existing : existingSessions) {
+            existing.setStatus(VerificationStatus.CANCELLED);
+            repository.save(existing);
+        }
+
         String rawCode = generateCode();
         String hashedCode = passwordEncoder.encode(rawCode);
 
@@ -70,14 +91,28 @@ public class VerificationService {
                 .status(VerificationStatus.PENDING)
                 .build();
 
-        repository.save(session);
+        session = repository.save(session);
 
-        // Publish event to notification-service
-        VerificationGeneratedEvent event = new VerificationGeneratedEvent();
-        event.setClientId(request.getClientId());
-        event.setCode(rawCode);
-        event.setOperationType(request.getOperationType());
-        rabbitTemplate.convertAndSend(exchange, routingKey, event);
+        // Publish event after transaction commits
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new org.springframework.transaction.support.TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    VerificationGeneratedEvent event = new VerificationGeneratedEvent();
+                    event.setClientId(request.getClientId());
+                    event.setCode(rawCode);
+                    event.setOperationType(request.getOperationType());
+                    rabbitTemplate.convertAndSend(exchange, routingKey, event);
+                }
+            });
+        } else {
+            // For unit tests or non-transactional contexts
+            VerificationGeneratedEvent event = new VerificationGeneratedEvent();
+            event.setClientId(request.getClientId());
+            event.setCode(rawCode);
+            event.setOperationType(request.getOperationType());
+            rabbitTemplate.convertAndSend(exchange, routingKey, event);
+        }
 
         return new GenerateResponse(session.getId());
     }
@@ -101,6 +136,10 @@ public class VerificationService {
 
         if (session.getStatus() == VerificationStatus.VERIFIED) {
             throw new BusinessException(ErrorCode.VERIFICATION_SESSION_ALREADY_VERIFIED, "Session ID: " + request.getSessionId());
+        }
+
+        if (session.getStatus() == VerificationStatus.EXPIRED) {
+            throw new BusinessException(ErrorCode.VERIFICATION_CODE_EXPIRED, "Session ID: " + request.getSessionId());
         }
 
         // 2. expiration check

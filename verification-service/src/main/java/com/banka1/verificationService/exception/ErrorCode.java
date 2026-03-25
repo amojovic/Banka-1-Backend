@@ -25,7 +25,10 @@ public enum ErrorCode {
     VERIFICATION_CODE_EXPIRED(HttpStatus.BAD_REQUEST, "ERR_VERIFICATION_004", "Verifikacioni kod je istekao"),
 
     /** Neispravan verifikacioni kod. */
-    INVALID_VERIFICATION_CODE(HttpStatus.BAD_REQUEST, "ERR_VERIFICATION_005", "Neispravan verifikacioni kod");
+    INVALID_VERIFICATION_CODE(HttpStatus.BAD_REQUEST, "ERR_VERIFICATION_005", "Neispravan verifikacioni kod"),
+
+    /** Pristup odbijen zbog nedovoljnih privilegija. */
+    FORBIDDEN(HttpStatus.FORBIDDEN, "ERR_FORBIDDEN", "Pristup odbijen");
 
     /** HTTP status koji se vraća klijentu kada se baci ova greška. */
     private final HttpStatus httpStatus;
