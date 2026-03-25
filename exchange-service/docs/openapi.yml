@@ -21,7 +21,6 @@ paths:
       summary: Return basic service metadata
       security: []
       operationId: getExchangeServiceInfo
-      security: []
       responses:
         '200':
           description: Service metadata
