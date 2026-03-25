@@ -1,6 +1,5 @@
 package com.banka1.verificationService.service;
 
-import com.banka1.verificationService.dto.event.VerificationGeneratedEvent;
 import com.banka1.verificationService.dto.request.GenerateRequest;
 import com.banka1.verificationService.dto.request.ValidateRequest;
 import com.banka1.verificationService.dto.response.GenerateResponse;
@@ -12,6 +11,7 @@ import com.banka1.verificationService.model.enums.OperationType;
 import com.banka1.verificationService.model.enums.VerificationStatus;
 import com.banka1.verificationService.repository.VerificationSessionRepository;
 import com.company.observability.starter.domain.UserIdExtractor;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,11 +20,15 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -56,6 +60,20 @@ class VerificationServiceTest {
     void setUp() {
         ReflectionTestUtils.setField(verificationService, "exchange", "test-exchange");
         ReflectionTestUtils.setField(verificationService, "routingKey", "verification.generated");
+        ReflectionTestUtils.setField(verificationService, "verificationRoutingKey", "verification.generated");
+    }
+
+    @AfterEach
+    void tearDown() {
+        SecurityContextHolder.clearContext();
+    }
+
+    private void mockSecurityContextWithClientId(long clientId) {
+        Jwt jwt = Jwt.withTokenValue("token")
+                .header("alg", "HS256")
+                .claim("id", clientId)
+                .build();
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt));
     }
 
     @Test
@@ -64,8 +82,9 @@ class VerificationServiceTest {
         request.setClientId(55L);
         request.setOperationType(OperationType.PAYMENT);
         request.setRelatedEntityId("payment-123");
+        request.setClientEmail("client@example.com");
 
-        when(userIdExtractor.extractUserId()).thenReturn(Optional.of("55"));
+        mockSecurityContextWithClientId(55L);
         when(repository.findByClientIdAndOperationTypeAndRelatedEntityIdAndStatus(
                 55L, OperationType.PAYMENT, "payment-123", VerificationStatus.PENDING
         )).thenReturn(List.of());
@@ -91,13 +110,15 @@ class VerificationServiceTest {
         assertThat(Duration.between(savedSession.getCreatedAt(), savedSession.getExpiresAt())).isEqualTo(Duration.ofMinutes(5));
 
         // Note: Event publishing happens immediately in unit test (no active transaction)
-        ArgumentCaptor<VerificationGeneratedEvent> eventCaptor = ArgumentCaptor.forClass(VerificationGeneratedEvent.class);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> eventCaptor = ArgumentCaptor.forClass((Class) Map.class);
         verify(rabbitTemplate).convertAndSend(eq("test-exchange"), eq("verification.generated"), eventCaptor.capture());
-        VerificationGeneratedEvent event = eventCaptor.getValue();
-        assertThat(event.getClientId()).isEqualTo(55L);
-        assertThat(event.getOperationType()).isEqualTo(OperationType.PAYMENT);
-        assertThat(event.getCode()).matches("^\\d{6}$");
-        assertThat(savedSession.getCode()).isNotEqualTo(event.getCode());
+        Map<String, Object> event = eventCaptor.getValue();
+        assertThat(event.get("userEmail")).isEqualTo("client@example.com");
+        @SuppressWarnings("unchecked")
+        Map<String, String> templateVars = (Map<String, String>) event.get("templateVariables");
+        assertThat(templateVars.get("code")).matches("^\\d{6}$");
+        assertThat(savedSession.getCode()).isNotEqualTo(templateVars.get("code"));
         assertThat(response.getSessionId()).isEqualTo(99L);
     }
 
@@ -107,8 +128,9 @@ class VerificationServiceTest {
         request.setClientId(55L);
         request.setOperationType(OperationType.PAYMENT);
         request.setRelatedEntityId("payment-123");
+        request.setClientEmail("client@example.com");
 
-        when(userIdExtractor.extractUserId()).thenReturn(Optional.of("99"));
+        mockSecurityContextWithClientId(99L);
 
         assertThatThrownBy(() -> verificationService.generate(request))
                 .isInstanceOf(BusinessException.class)

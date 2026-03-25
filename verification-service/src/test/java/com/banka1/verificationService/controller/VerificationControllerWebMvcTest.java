@@ -46,7 +46,8 @@ class VerificationControllerWebMvcTest {
                                 {
                                   "clientId": 12,
                                   "operationType": "PAYMENT",
-                                  "relatedEntityId": "payment-1"
+                                  "relatedEntityId": "payment-1",
+                                  "clientEmail": "client@example.com"
                                 }
                                 """))
                 .andExpect(status().isOk())
