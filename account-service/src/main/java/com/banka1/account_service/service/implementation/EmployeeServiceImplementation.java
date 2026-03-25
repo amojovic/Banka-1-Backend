@@ -250,9 +250,10 @@ public class EmployeeServiceImplementation implements EmployeeService {
                 .map(AccountDetailsResponseDto::new);
     }
 
-    // Cards are managed by the Card Service
-//    @Override
-//    public Page<CardResponseDto> getAccountCards(String accountNumber, int page, int size) {
+    // Cards are managed by the Card Service — call Card Service directly instead
+    @Override
+    public Page<CardResponseDto> getAccountCards(String accountNumber, int page, int size) {
+        throw new UnsupportedOperationException("Card management is handled by the Card Service");
 //        Account account = accountRepository.findByBrojRacuna(accountNumber)
 //                .orElseThrow(() -> new IllegalArgumentException("Ne postoji racun: " + accountNumber));
 //        List<CardResponseDto> cards = cardServiceRestClient.getCardsForAccount(account.getBrojRacuna());
@@ -260,7 +261,7 @@ public class EmployeeServiceImplementation implements EmployeeService {
 //        int end = Math.min(start + size, cards.size());
 //        List<CardResponseDto> pageContent = start >= cards.size() ? List.of() : cards.subList(start, end);
 //        return new org.springframework.data.domain.PageImpl<>(pageContent, PageRequest.of(page, size), cards.size());
-//    }
+    }
 
     @Override
     @Transactional
