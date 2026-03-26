@@ -3,6 +3,7 @@ package com.banka1.verificationService.service;
 import com.banka1.verificationService.dto.request.GenerateRequest;
 import com.banka1.verificationService.dto.request.ValidateRequest;
 import com.banka1.verificationService.dto.response.GenerateResponse;
+import com.banka1.verificationService.dto.response.StatusResponse;
 import com.banka1.verificationService.dto.response.ValidateResponse;
 import com.banka1.verificationService.exception.BusinessException;
 import com.banka1.verificationService.exception.ErrorCode;
@@ -143,7 +144,7 @@ public class VerificationService {
     }
 
     @Transactional
-    public VerificationStatus getStatus(Long sessionId) {
+    public StatusResponse getStatus(Long sessionId) {
         VerificationSession session = repository.findById(sessionId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.VERIFICATION_SESSION_NOT_FOUND, "Session ID: " + sessionId));
 
@@ -153,7 +154,7 @@ public class VerificationService {
             repository.save(session);
         }
 
-        return session.getStatus();
+        return new StatusResponse(sessionId, session.getStatus());
     }
 
     private void publishGeneratedEvent(GenerateRequest request, String rawCode) {

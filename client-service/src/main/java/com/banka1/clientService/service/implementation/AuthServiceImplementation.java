@@ -147,7 +147,7 @@ public class AuthServiceImplementation implements AuthService {
             throw new IllegalStateException("Greska pri generisanju JWT tokena");
         }
 
-        return new LoginResponseDto(jwt.serialize());
+        return new LoginResponseDto(jwt.serialize(), klijent.getId(), klijent.getIme(), klijent.getPrezime(), klijent.getEmail());
     }
 
     /**

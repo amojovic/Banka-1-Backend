@@ -3,8 +3,8 @@ package com.banka1.verificationService.controller;
 import com.banka1.verificationService.dto.request.GenerateRequest;
 import com.banka1.verificationService.dto.request.ValidateRequest;
 import com.banka1.verificationService.dto.response.GenerateResponse;
+import com.banka1.verificationService.dto.response.StatusResponse;
 import com.banka1.verificationService.dto.response.ValidateResponse;
-import com.banka1.verificationService.model.enums.VerificationStatus;
 import com.banka1.verificationService.service.VerificationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -57,7 +57,7 @@ public class VerificationController {
      * @return trenutni status verifikacije
      */
     @GetMapping("/{sessionId}/status")
-    public ResponseEntity<VerificationStatus> getStatus(@AuthenticationPrincipal Jwt jwt,@PathVariable Long sessionId) {
+    public ResponseEntity<StatusResponse> getStatus(@AuthenticationPrincipal Jwt jwt,@PathVariable Long sessionId) {
         return ResponseEntity.ok(verificationService.getStatus(sessionId));
     }
 }
