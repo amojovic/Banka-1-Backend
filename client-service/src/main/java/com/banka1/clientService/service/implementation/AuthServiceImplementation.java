@@ -123,13 +123,13 @@ public class AuthServiceImplementation implements AuthService {
         Klijent klijent = klijentRepository.findByEmail(dto.getEmail())
                 .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS, ""));
 
+        if (!klijent.isAktivan()) {
+            throw new BusinessException(ErrorCode.USER_INACTIVE, "");
+        }
+
         if (klijent.getPassword() == null
                 || !passwordEncoder.matches(dto.getPassword(), klijent.getPassword())) {
             throw new BusinessException(ErrorCode.INVALID_CREDENTIALS, "");
-        }
-
-        if (!klijent.isAktivan()) {
-            throw new BusinessException(ErrorCode.USER_INACTIVE, "");
         }
 
         JWTClaimsSet claims = new JWTClaimsSet.Builder()

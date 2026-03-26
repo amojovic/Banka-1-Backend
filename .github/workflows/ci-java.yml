@@ -13,6 +13,8 @@ on:
       - 'account-service/**'
       - 'security-lib/**'
       - 'notification-service/**'
+      - 'verification-service/**'
+      - 'exchange-service/**'
   pull_request:
     branches: [main, dev]
     paths:
@@ -22,6 +24,8 @@ on:
       - 'account-service/**'
       - 'notification-service/**'
       - 'security-lib/**'
+      - 'verification-service/**'
+      - 'exchange-service/**'
 
 jobs:
 
@@ -51,6 +55,10 @@ jobs:
               - 'notification-service/**'
             security-lib:
               - 'security-lib/**'
+            verification-service:
+              - 'verification-service/**'
+            exchange-service:
+              - 'exchange-service/**'
 
   # ── Build & Test ──────────────────────────────────────────────────────────
   build-and-test:

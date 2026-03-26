@@ -686,7 +686,7 @@ components:
         racunPrimaoca:
           type: string
           minLength: 1
-          pattern: "\\d{18}"
+          pattern: "\\d{19}"
         iznos:
           type: number
         pozivNaBroj:
@@ -700,7 +700,7 @@ components:
         racunPratioca:
           type: string
           minLength: 1
-          pattern: "\\d{18}"
+          pattern: "\\d{19}"
       required:
       - iznos
       - nazivPrimaoca

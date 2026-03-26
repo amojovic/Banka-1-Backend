@@ -66,6 +66,8 @@ CREATE TABLE account_table (
                                broj_racuna VARCHAR(50) NOT NULL UNIQUE,
                                ime_vlasnika_racuna VARCHAR(255) NOT NULL,
                                prezime_vlasnika_racuna VARCHAR(255) NOT NULL,
+                               email VARCHAR(50) UNIQUE,
+                               username VARCHAR(50) UNIQUE,
                                naziv_racuna VARCHAR(255) NOT NULL,
                                vlasnik BIGINT NOT NULL,
                                zaposlen BIGINT NOT NULL,
@@ -100,6 +102,33 @@ CREATE TABLE account_table (
                                    FOREIGN KEY (company_id)
                                        REFERENCES company_table(id)
 );
+
+
+-- =========================
+-- TRANSACTION RECORD
+-- =========================
+CREATE TABLE transaction_record_table (
+                                          id BIGSERIAL PRIMARY KEY,
+                                          version BIGINT,
+
+                                          account_number VARCHAR(50) NOT NULL,
+                                          bank_account_number VARCHAR(50) NOT NULL,
+                                          amount DECIMAL(19,2) NOT NULL,
+
+                                          created_at TIMESTAMP NOT NULL
+);
+
+CREATE INDEX idx_transaction_record_account_number
+    ON transaction_record_table(account_number);
+
+CREATE INDEX idx_transaction_record_bank_account_number
+    ON transaction_record_table(bank_account_number);
+
+CREATE INDEX idx_transaction_record_created_at
+    ON transaction_record_table(created_at);
+
+
+
 
 CREATE INDEX idx_account_vlasnik ON account_table(vlasnik);
 CREATE INDEX idx_account_broj ON account_table(broj_racuna);

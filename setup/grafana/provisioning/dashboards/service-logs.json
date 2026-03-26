@@ -1,0 +1,144 @@
+{
+  "title": "Service Logs",
+  "uid": "banka-service-logs",
+  "description": "Aggregated logs from all Banka-1 microservices",
+  "tags": ["banka", "logs"],
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 0,
+  "fiscalYearStartMonth": 0,
+  "links": [
+    {
+      "title": "Jaeger Traces",
+      "url": "http://localhost:16686",
+      "type": "link",
+      "targetBlank": true,
+      "icon": "external link"
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "query",
+        "label": "Service",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "definition": "label_values(service)",
+        "query": "label_values(service)",
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
+        "current": {},
+        "refresh": 2,
+        "sort": 1,
+        "hide": 0
+      },
+      {
+        "name": "level",
+        "type": "custom",
+        "label": "Log Level",
+        "options": [
+          { "selected": true, "text": "All",   "value": "" },
+          { "selected": false, "text": "ERROR", "value": "ERROR" },
+          { "selected": false, "text": "WARN",  "value": "WARN"  },
+          { "selected": false, "text": "INFO",  "value": "INFO"  },
+          { "selected": false, "text": "DEBUG", "value": "DEBUG" }
+        ],
+        "current": {},
+        "multi": false,
+        "includeAll": false,
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Error Rate by Service",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "drawStyle": "line",
+            "spanNulls": false
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum", "max"] }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "sum by (service) (count_over_time({service=~\"$service\", level=\"ERROR\"}[$__range]))",
+          "legendFormat": "{{service}} errors",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Logs",
+      "type": "logs",
+      "gridPos": { "h": 22, "w": 24, "x": 0, "y": 6 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": false
+      },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{service=~\"$service\"} | json | level=~\"$level\"",
+          "refId": "A",
+          "legendFormat": ""
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Error Logs Only",
+      "type": "logs",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 28 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "{service=~\"$service\", level=\"ERROR\"}",
+          "refId": "A",
+          "legendFormat": ""
+        }
+      ]
+    }
+  ]
+}

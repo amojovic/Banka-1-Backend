@@ -1,6 +1,8 @@
 package com.banka1.account_service.dto.response;
 
 import com.banka1.account_service.domain.Account;
+import com.banka1.account_service.domain.CheckingAccount;
+import com.banka1.account_service.domain.FxAccount;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -8,19 +10,60 @@ import lombok.Setter;
 
 import java.math.BigDecimal;
 
+/**
+ * DTO za skraćeni odgovor sa osnovnim podacima o bankarskom računu.
+ * <p>
+ * Koristi se u slučajevima gde se ne trebaju svi detalji kao što su limitri i trošenja.
+ * Sadrži samo osnovne identifikacione i finansijske podatke.
+ * <p>
+ * Tipična upotreba: lista svih računa korisnika, pregled računa, itd.
+ */
 @NoArgsConstructor
 @AllArgsConstructor
 @Getter
 @Setter
 public class AccountResponseDto {
+    /** Naziv koji je korisnik dao za svoj račun. */
     private String nazivRacuna;
+
+    /** Jedinstveni 18-cifreni broj računa. */
     private String brojRacuna;
+
+    /** Iznos dostupan za trošenje na računu. */
     private BigDecimal raspolozivoStanje;
 
-    public AccountResponseDto(Account account)
-    {
-       this.nazivRacuna=account.getNazivRacuna();
-       this.brojRacuna=account.getBrojRacuna();
-       this.raspolozivoStanje=account.getRaspolozivoStanje();
+    /** Kod valute računa (USD, EUR, RSD, itd.). */
+    private String currency;
+
+    /** Kategorija računa (CHECKING ili FOREIGN_CURRENCY). */
+    private String accountCategory;
+
+    /** Tip vlasnistva računa (PERSONAL ili BUSINESS). */
+    private String accountType;
+
+    /** Podtip računa (za tekuće račune: STANDARDNI, ZA_MLADE, itd.). */
+    private String subtype;
+
+    /**
+     * Kreira DTO od {@link Account} entiteta.
+     * <p>
+     * Automatski mapira osnovne polje i odrđuje tip računa na osnovu tipa entiteta.
+     *
+     * @param account entitet iz baze
+     */
+    public AccountResponseDto(Account account) {
+        this.nazivRacuna = account.getNazivRacuna();
+        this.brojRacuna = account.getBrojRacuna();
+        this.raspolozivoStanje = account.getRaspolozivoStanje();
+        this.currency = account.getCurrency() != null ? account.getCurrency().getOznaka().name() : null;
+        if (account instanceof CheckingAccount ca) {
+            this.accountCategory = "CHECKING";
+            this.accountType = ca.getAccountConcrete().getAccountOwnershipType().name();
+            this.subtype = ca.getAccountConcrete().name();
+        } else if (account instanceof FxAccount fa) {
+            this.accountCategory = "FOREIGN_CURRENCY";
+            this.accountType = fa.getAccountOwnershipType().name();
+            this.subtype = null;
+        }
     }
 }

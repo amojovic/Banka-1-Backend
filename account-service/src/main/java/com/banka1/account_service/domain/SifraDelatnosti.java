@@ -1,6 +1,7 @@
 package com.banka1.account_service.domain;
 
 import jakarta.persistence.*;
+import jakarta.validation.constraints.NotBlank;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -9,6 +10,10 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 
+/**
+ * Imutabilni JPA entitet koji predstavlja sifru delatnosti prema zvanicnoj klasifikaciji.
+ * Koristi se za razvrstavanje firmi po delatnosti pri kreiranju poslovnih racuna.
+ */
 @Entity
 @org.hibernate.annotations.Immutable
 @Table(
@@ -16,9 +21,14 @@ import java.util.Set;
 )
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class SifraDelatnosti extends BaseEntity{
-    @Column(nullable = false,updatable = false,unique = true)
+public class SifraDelatnosti extends BaseEntity {
+
+    /** Jedinstvena sifra delatnosti (npr. "6419"). */
+    @NotBlank
+    @Column(nullable = false, updatable = false, unique = true)
     private String sifra;
+
+    /** Skup sektora kojima ova delatnost pripada. */
     @ElementCollection
     @CollectionTable(
             name = "sifra_delatnosti_sektori",
@@ -26,9 +36,17 @@ public class SifraDelatnosti extends BaseEntity{
     )
     @Column(name = "sektor", nullable = false)
     private Set<String> sektori = new HashSet<>();
-    @Column(nullable = false,updatable = false)
+
+    /** Naziv grane delatnosti (npr. "Finansijska delatnost"). */
+    @NotBlank
+    @Column(nullable = false, updatable = false)
     private String grana;
 
+    /**
+     * Vraca nepromenjiv pogled na skup sektora ove sifre delatnosti.
+     *
+     * @return nepromenljivi set sektora
+     */
     public Set<String> getSektori() {
         return Collections.unmodifiableSet(sektori);
     }

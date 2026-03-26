@@ -10,5 +10,6 @@
     <include file="db/changelog/003-drop-salt-password.sql"/>
     <include file="db/changelog/004-seed-data.sql"/>
     <include file="db/changelog/005-activation.sql"/>
+    <include file="db/changelog/006-add-test-client.sql"/>
 
 </databaseChangeLog>

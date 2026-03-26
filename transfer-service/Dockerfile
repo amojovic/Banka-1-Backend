@@ -1,0 +1,25 @@
+FROM gradle:8.14.3-jdk21-alpine AS builder
+
+WORKDIR /app
+
+# Kopiramo tvoj servis i zavisne libove
+COPY transfer-service ./transfer-service
+COPY security-lib ./security-lib
+COPY company-observability-starter ./company-observability-starter
+
+WORKDIR /app/transfer-service
+
+RUN gradle build --no-daemon -x test -x checkstyleMain -x checkstyleTest
+
+FROM eclipse-temurin:21-jre-alpine
+
+RUN apk add --no-cache curl
+
+WORKDIR /app
+
+COPY --from=builder /app/transfer-service/build/libs/*.jar app.jar
+
+ARG SERVER_PORT=8085
+EXPOSE ${SERVER_PORT}
+
+ENTRYPOINT ["java","-jar","app.jar"]

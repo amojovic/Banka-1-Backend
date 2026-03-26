@@ -9,47 +9,64 @@ import com.banka1.account_service.dto.request.CheckingDto;
 import com.banka1.account_service.dto.request.FirmaDto;
 import com.banka1.account_service.dto.request.FxDto;
 import com.banka1.account_service.dto.request.UpdateCardDto;
+import com.banka1.account_service.dto.request.UpdateCompanyDto;
+import com.banka1.account_service.dto.response.AccountDetailsResponseDto;
 import com.banka1.account_service.dto.response.AccountSearchResponseDto;
+import com.banka1.account_service.dto.response.CardResponseDto;
 import com.banka1.account_service.dto.response.ClientInfoResponseDto;
-import com.banka1.account_service.dto.response.ClientResponseDto;
+import com.banka1.account_service.dto.response.CompanyResponseDto;
+import com.banka1.account_service.rest_client.CardServiceRestClient;
+import com.banka1.account_service.util.AccountNumberGenerator;
+import com.banka1.account_service.rabbitMQ.CardEventDto;
+import com.banka1.account_service.rabbitMQ.CardEventType;
+import com.banka1.account_service.rabbitMQ.EmailDto;
+import com.banka1.account_service.rabbitMQ.EmailType;
+import com.banka1.account_service.rabbitMQ.RabbitClient;
 import com.banka1.account_service.repository.AccountRepository;
 import com.banka1.account_service.repository.CompanyRepository;
 import com.banka1.account_service.repository.CurrencyRepository;
 import com.banka1.account_service.repository.SifraDelatnostiRepository;
-import com.banka1.account_service.rest_client.ClientService;
+import com.banka1.account_service.rest_client.RestClientService;
 import com.banka1.account_service.service.EmployeeService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.stream.Collectors;
 
 
+//@RequiredArgsConstructor
 @Service
 public class EmployeeServiceImplementation implements EmployeeService {
     private final Random random;
-    private final ClientService clientService;
+    private final RestClientService restClientService;
     private final AccountRepository accountRepository;
     @Value("${banka.security.id}")
     private String appPropertiesId;
     private final CurrencyRepository currencyRepository;
     private final SifraDelatnostiRepository sifraDelatnostiRepository;
     private final CompanyRepository companyRepository;
+    private final RabbitClient rabbitClient;
+    private final CardServiceRestClient cardServiceRestClient;
 
-    public EmployeeServiceImplementation(@Value("${my.random.seed}") Long seed, ClientService clientService, CurrencyRepository currencyRepository, SifraDelatnostiRepository sifraDelatnostiRepository, CompanyRepository companyRepository, AccountRepository accountRepository)
+    public EmployeeServiceImplementation(@Value("${my.random.seed}") Long seed, RestClientService restClientService, CurrencyRepository currencyRepository, SifraDelatnostiRepository sifraDelatnostiRepository, CompanyRepository companyRepository, AccountRepository accountRepository, RabbitClient rabbitClient, CardServiceRestClient cardServiceRestClient)
     {
-        this.clientService = clientService;
-        this.random=new Random();
+        this.restClientService = restClientService;
+        this.rabbitClient = rabbitClient;
+        this.random = seed != null ? new Random(seed) : new Random();
         this.currencyRepository=currencyRepository;
         this.sifraDelatnostiRepository=sifraDelatnostiRepository;
         this.companyRepository=companyRepository;
         this.accountRepository = accountRepository;
+        this.cardServiceRestClient = cardServiceRestClient;
     }
 
     private void validateFxDto(FxDto dto) {
@@ -101,39 +118,21 @@ public class EmployeeServiceImplementation implements EmployeeService {
         return companyRepository.save(company);
     }
 
+    //todo menjati gresku
     private ClientInfoResponseDto resolveClientId(Long id, String jmbg) {
-        if (id != null) return clientService.getUser(id);
-        return clientService.getUser(jmbg);
+        ClientInfoResponseDto clientInfoResponseDto;
+        if (id != null)
+            clientInfoResponseDto= restClientService.getUser(id);
+        else
+            clientInfoResponseDto= restClientService.getUser(jmbg);
+        if(clientInfoResponseDto==null)
+            throw new RuntimeException("Greska sa komunikacijom izmedju servisa");
+        return clientInfoResponseDto;
     }
 
-
-    private int calculate(String s)
-    {
-        int sum=0;
-        for(char x:s.toCharArray())
-        {
-            sum+=x-'0';
-        }
-        return (11-sum%11)%11;
-    }
 
     private String generateAccountNumber(String typeVal) {
-        StringBuilder sb = new StringBuilder();
-        boolean exists=true;
-        String val="";
-        while (exists) {
-            sb.setLength(0);
-            for (int i = 0; i < 9; i++) {
-                sb.append(random.nextInt(10));
-            }
-            val="111"+"0001" + sb + typeVal;
-            int result=calculate(val);
-            if(result==10)
-                continue;
-            val+=result;
-            exists = accountRepository.existsByBrojRacuna(val);
-        }
-        return val;
+        return AccountNumberGenerator.generate(typeVal, random, accountRepository);
     }
 
     private void populateAccount(Account account,
@@ -142,55 +141,154 @@ public class EmployeeServiceImplementation implements EmployeeService {
                                  Long vlasnikId,
                                  String name,
                                  String surname,
+                                 String username,
+                                 String email,
                                  Jwt jwt,
                                  Currency currency,
-                                 Company company) {
+                                 Company company,
+                                 BigDecimal balance) {
 
         account.setBrojRacuna(broj);
         account.setImeVlasnikaRacuna(name);
         account.setPrezimeVlasnikaRacuna(surname);
         account.setNazivRacuna(naziv);
         account.setVlasnik(vlasnikId);
+        account.setUsername(username);
+        account.setEmail(email);
         account.setZaposlen(((Number) jwt.getClaim(appPropertiesId)).longValue());
         account.setDatumIVremeKreiranja(LocalDateTime.now());
         account.setCurrency(currency);
         account.setCompany(company);
+        account.setStanje(balance);
+        account.setRaspolozivoStanje(balance);
+        account.setDnevniLimit(new BigDecimal("250000.00"));
+        account.setMesecniLimit(new BigDecimal("1000000.00"));
+        account.setDatumIsteka(LocalDate.now().plusYears(5));
     }
 
-    //todo rabit mq
     @Transactional
     @Override
-    public String createFxAccount(Jwt jwt, FxDto fxDto) {
+    public AccountDetailsResponseDto createFxAccount(Jwt jwt, FxDto fxDto) {
         validateFxDto(fxDto);
         Currency currency = getCurrencyOrThrow(fxDto.getCurrencyCode());
         Company company = createCompanyIfNeeded(fxDto.getFirma());
         ClientInfoResponseDto clientInfoResponseDto = resolveClientId(fxDto.getIdVlasnika(), fxDto.getJmbg());
         String broj = generateAccountNumber(String.valueOf(fxDto.getTipRacuna().getVal()));
         Account account = new FxAccount(fxDto.getTipRacuna());
-        populateAccount(account, broj, fxDto.getNazivRacuna(), clientInfoResponseDto.getId(), clientInfoResponseDto.getName(),clientInfoResponseDto.getLastName(),jwt, currency, company);
+        populateAccount(account, broj, fxDto.getNazivRacuna(), clientInfoResponseDto.getId(), clientInfoResponseDto.getName(),clientInfoResponseDto.getLastName(), clientInfoResponseDto.getUsername(), clientInfoResponseDto.getEmail(), jwt, currency, company,fxDto.getInitialBalance());
         accountRepository.save(account);
-        return "Uspesno kreiran fx account";
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                rabbitClient.sendEmailNotification(new EmailDto(clientInfoResponseDto.getUsername(),clientInfoResponseDto.getEmail(), EmailType.ACCOUNT_CREATED));
+                if (Boolean.TRUE.equals(fxDto.getCreateCard())) {
+                    rabbitClient.sendCardEvent(new CardEventDto(clientInfoResponseDto.getId(), account.getBrojRacuna(), CardEventType.CARD_CREATE));
+                }
+            }
+        });
+        return new AccountDetailsResponseDto(account);
     }
 
-    //todo rabit mq
     @Transactional
     @Override
-    public String createCheckingAccount(Jwt jwt, CheckingDto checkingDto) {
+    public AccountDetailsResponseDto createCheckingAccount(Jwt jwt, CheckingDto checkingDto) {
         validateCheckingDto(checkingDto);
         Currency currency = getCurrencyOrThrow(CurrencyCode.RSD);
         Company company = createCompanyIfNeeded(checkingDto.getFirma());
         ClientInfoResponseDto clientInfoResponseDto = resolveClientId(checkingDto.getIdVlasnika(), checkingDto.getJmbg());
         String broj = generateAccountNumber(String.valueOf(checkingDto.getVrstaRacuna().getVal()));
         Account account = new CheckingAccount(checkingDto.getVrstaRacuna());
-        populateAccount(account, broj, checkingDto.getNazivRacuna(), clientInfoResponseDto.getId(), clientInfoResponseDto.getName(),clientInfoResponseDto.getLastName(),jwt, currency, company);
+        populateAccount(account, broj, checkingDto.getNazivRacuna(), clientInfoResponseDto.getId(), clientInfoResponseDto.getName(),clientInfoResponseDto.getLastName(), clientInfoResponseDto.getUsername(), clientInfoResponseDto.getEmail(), jwt, currency, company,checkingDto.getInitialBalance());
         accountRepository.save(account);
-        return "Uspesno kreiran checking account";
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                rabbitClient.sendEmailNotification(new EmailDto(clientInfoResponseDto.getUsername(),clientInfoResponseDto.getEmail(), EmailType.ACCOUNT_CREATED));
+                if (Boolean.TRUE.equals(checkingDto.getCreateCard())) {
+                    rabbitClient.sendCardEvent(new CardEventDto(clientInfoResponseDto.getId(), account.getBrojRacuna(), CardEventType.CARD_CREATE));
+                }
+            }
+        });
+        return new AccountDetailsResponseDto(account);
+    }
+
+    private String myTrim(String s)
+    {
+        if(s!=null)
+            return s.trim();
+        return s;
     }
 
     @Transactional
     public Page<AccountSearchResponseDto> searchAllAccounts(Jwt jwt,String ime,String prezime,String accountNumber,int page,int size)
     {
-        return accountRepository.searchAccounts(accountNumber.trim(),ime.trim(),prezime.trim(),PageRequest.of(page,size)).map(AccountSearchResponseDto::new);
+        return accountRepository.searchAccounts(myTrim(accountNumber),myTrim(ime),myTrim(prezime),PageRequest.of(page,size)).map(AccountSearchResponseDto::new);
+    }
+
+    @Override
+    public List<AccountDetailsResponseDto> getBankAccounts() {
+        return accountRepository.findAllBankAccounts().stream()
+                .map(AccountDetailsResponseDto::new)
+                .toList();
+    }
+
+    @Override
+    public AccountDetailsResponseDto getBankAccountByCurrency(CurrencyCode currencyCode) {
+        Account account = accountRepository.findBankAccountByCurrencyCode(currencyCode)
+                .orElseThrow(() -> new IllegalArgumentException("Nije pronadjen bankarski racun za valutu: " + currencyCode));
+        return new AccountDetailsResponseDto(account);
+    }
+
+    @Override
+    @Transactional
+    public AccountDetailsResponseDto getAccountDetails(String accountNumber) {
+        Account account = accountRepository.findByBrojRacuna(accountNumber)
+                .orElseThrow(() -> new IllegalArgumentException("Ne postoji racun: " + accountNumber));
+        return new AccountDetailsResponseDto(account);
+    }
+
+    @Override
+    @Transactional
+    public Page<AccountDetailsResponseDto> getClientAccounts(Long clientId, int page, int size) {
+        return accountRepository.findByVlasnikAndStatus(clientId, Status.ACTIVE, PageRequest.of(page, size))
+                .map(AccountDetailsResponseDto::new);
+    }
+
+    // Cards are managed by the Card Service — call Card Service directly instead
+    @Override
+    public Page<CardResponseDto> getAccountCards(String accountNumber, int page, int size) {
+        throw new UnsupportedOperationException("Card management is handled by the Card Service");
+//        Account account = accountRepository.findByBrojRacuna(accountNumber)
+//                .orElseThrow(() -> new IllegalArgumentException("Ne postoji racun: " + accountNumber));
+//        List<CardResponseDto> cards = cardServiceRestClient.getCardsForAccount(account.getBrojRacuna());
+//        int start = page * size;
+//        int end = Math.min(start + size, cards.size());
+//        List<CardResponseDto> pageContent = start >= cards.size() ? List.of() : cards.subList(start, end);
+//        return new org.springframework.data.domain.PageImpl<>(pageContent, PageRequest.of(page, size), cards.size());
+    }
+
+    @Override
+    @Transactional
+    public CompanyResponseDto getCompany(Long id) {
+        Company company = companyRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Ne postoji firma sa id: " + id));
+        return new CompanyResponseDto(company);
+    }
+
+    @Override
+    @Transactional
+    public CompanyResponseDto updateCompany(Long id, UpdateCompanyDto dto) {
+        Company company = companyRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Ne postoji firma sa id: " + id));
+        SifraDelatnosti sifra = sifraDelatnostiRepository.findBySifra(dto.getSifraDelatnosti())
+                .orElseThrow(() -> new IllegalArgumentException("Nije uneta sifra delatnosti: " + dto.getSifraDelatnosti()));
+        company.setNaziv(dto.getNaziv());
+        company.setSifraDelatnosti(sifra);
+        company.setAdresa(dto.getAdresa());
+        if (dto.getVlasnik() != null) {
+            company.setVlasnik(dto.getVlasnik());
+        }
+        return new CompanyResponseDto(companyRepository.save(company));
     }
 
     //todo rabit mq

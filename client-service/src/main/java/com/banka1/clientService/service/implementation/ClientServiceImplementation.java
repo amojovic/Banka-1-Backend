@@ -178,7 +178,10 @@ public class ClientServiceImplementation implements ClientService {
     public ClientInfoResponseDto getInfoByJmbg(String jmbg) {
         Klijent klijent = klijentRepository.findByJmbg(jmbg)
                 .orElseThrow(() -> new BusinessException(ErrorCode.JMBG_NOT_FOUND, "JMBG: [PROTECTED]"));
-        return new ClientInfoResponseDto(klijent.getId(),klijent.getIme(),klijent.getPrezime());
+        return new ClientInfoResponseDto(klijent.getId(), klijent.getIme(), klijent.getPrezime(),
+                klijent.getEmail(), klijent.getJmbg(), klijent.getBrojTelefona(),
+                klijent.getAdresa(), klijent.getPol(), klijent.getDatumRodjenja(),
+                klijent.getRole(), klijent.isAktivan());
     }
 
     /**
@@ -193,7 +196,10 @@ public class ClientServiceImplementation implements ClientService {
     public ClientInfoResponseDto getInfoById(Long id) {
         Klijent klijent = klijentRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.CLIENT_NOT_FOUND, "ID: " + id));
-        return new ClientInfoResponseDto(klijent.getId(), klijent.getIme(), klijent.getPrezime());
+        return new ClientInfoResponseDto(klijent.getId(), klijent.getIme(), klijent.getPrezime(),
+                klijent.getEmail(), klijent.getJmbg(), klijent.getBrojTelefona(),
+                klijent.getAdresa(), klijent.getPol(), klijent.getDatumRodjenja(),
+                klijent.getRole(), klijent.isAktivan());
     }
 
     /**

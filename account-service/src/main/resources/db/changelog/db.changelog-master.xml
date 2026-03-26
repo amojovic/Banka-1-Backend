@@ -17,4 +17,10 @@
                 splitStatements="true"/>
     </changeSet>
 
+    <changeSet id="003-seed-client-accounts" author="account-service">
+        <sqlFile
+                path="db/changelog/003-seed-client-accounts.sql"
+                splitStatements="true"/>
+    </changeSet>
+
 </databaseChangeLog>

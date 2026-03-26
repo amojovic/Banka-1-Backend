@@ -3,10 +3,20 @@ package com.banka1.account_service.domain.enums;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
+/**
+ * Enumeracija koja definise tip vlasnistva bankarskog racuna.
+ * Svaka vrednost nosi numericki kod koji se ugradjuje u broj racuna.
+ */
 @AllArgsConstructor
 @Getter
 public enum AccountOwnershipType {
-    PERSONAL(21),BUSINESS(22);
-    private final int val;
 
+    /** Licni racun fizickog lica. */
+    PERSONAL(21),
+
+    /** Poslovni racun pravnog lica (firme). */
+    BUSINESS(22);
+
+    /** Numericki kod koji se ugradjuje u generisani broj racuna. */
+    private final int val;
 }
