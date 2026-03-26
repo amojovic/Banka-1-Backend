@@ -15,17 +15,14 @@ public class ClientService {
 
     /**
      * If we need to send an EMAIL, we first need the CLIENT data necessary to call notification-service
-     * To get that data, we call client-service, specifically the endpoint "/customers/{id}/notification-recipient".
-     **
-     * <p>TODO: This assumes client-service exposes the internal route:
-     * {TODO: @code /customers/{id}/notification-recipient}.
+     * To get that data, we call client-service, specifically the endpoint "/customers/{id}".
      *
      * @param clientId internal client identifier
      * @return recipient details needed for email notification publishing
      */
     public ClientNotificationRecipientDto getNotificationRecipient(Long clientId) {
         return clientServiceClient.get()
-                .uri("/customers/{id}/notification-recipient", clientId)
+                .uri("/customers/{id}", clientId)
                 .retrieve()
                 .body(ClientNotificationRecipientDto.class);
     }

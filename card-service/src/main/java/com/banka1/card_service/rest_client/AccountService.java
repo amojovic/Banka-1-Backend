@@ -1,5 +1,6 @@
 package com.banka1.card_service.rest_client;
 
+import com.banka1.card_service.domain.enums.AccountOwnershipType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
@@ -15,19 +16,25 @@ public class AccountService {
     private final RestClient accountServiceClient;
 
     /**
-     * Loads whether the linked account is business-owned and the owner client ID.
+     * Loads the owner and ownership type for the linked account.
      *
-     * <p>This assumes account-service exposes the internal route
-     * {@code /internal/accounts/{accountNumber}/card-context}.
+     * <p>Account-service exposes this data via the internal
+     * {@code /internal/accounts/{accountNumber}/details} route.
      *
      * @param accountNumber linked account number
      * @return account card context
      */
     public AccountNotificationContextDto getAccountContext(String accountNumber) {
-        return accountServiceClient.get()
-                .uri("/internal/accounts/{accountNumber}/card-context", accountNumber)
+        InternalAccountDetailsDto details = accountServiceClient.get()
+                .uri("/internal/accounts/{accountNumber}/details", accountNumber)
                 .retrieve()
-                .body(AccountNotificationContextDto.class);
+                .body(InternalAccountDetailsDto.class);
+        return new AccountNotificationContextDto(
+                details == null || details.accountType() == null
+                        ? null
+                        : AccountOwnershipType.valueOf(details.accountType()),
+                details == null ? null : details.ownerId()
+        );
     }
 
     /**

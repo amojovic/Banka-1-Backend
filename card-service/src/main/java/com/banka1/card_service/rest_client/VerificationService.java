@@ -15,7 +15,7 @@ public class VerificationService {
 
     public VerificationStatusResponse getStatus(Long verificationId) {
         return restClient.get()
-                .uri("/{verificationId}/status", verificationId)
+                .uri("/{verificationId}/status", verificationId)        // sessionId
                 .retrieve()
                 .body(VerificationStatusResponse.class);
     }
