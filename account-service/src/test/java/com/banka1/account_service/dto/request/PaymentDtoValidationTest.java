@@ -30,13 +30,13 @@ class PaymentDtoValidationTest {
     }
 
     @Test
-    void accountNumbersAccept18DigitsAndReject19Digits() {
+    void accountNumbersAccept19DigitsAndReject18Digits() {
         PaymentDto valid = validDto();
         Set<ConstraintViolation<PaymentDto>> validViolations = validator.validate(valid);
         assertThat(validViolations).isEmpty();
 
         PaymentDto invalid = validDto();
-        invalid.setFromAccountNumber("1110001000000000115");
+        invalid.setFromAccountNumber("111000100000000011");  // 18 digits — should fail
         Set<ConstraintViolation<PaymentDto>> violations = validator.validate(invalid);
 
         assertThat(violations)
@@ -101,8 +101,8 @@ class PaymentDtoValidationTest {
 
     private PaymentDto validDto() {
         return new PaymentDto(
-                "111000100000000011",
-                "111000100000000012",
+                "1110001000000000115",
+                "1110001000000000116",
                 new BigDecimal("100.00"),
                 new BigDecimal("99.00"),
                 BigDecimal.ZERO,

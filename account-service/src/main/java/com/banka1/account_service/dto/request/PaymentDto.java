@@ -19,7 +19,7 @@ import java.math.BigDecimal;
  * <p>
  * Validacija:
  * <ul>
- *   <li>Oba broja računa moraju biti 18-cifreni</li>
+ *   <li>Oba broja računa moraju biti 19-cifreni</li>
  *   <li>Iznosi (fromAmount i toAmount) moraju biti pozitivni</li>
  *   <li>Komisija mora biti >= 0</li>
  * </ul>

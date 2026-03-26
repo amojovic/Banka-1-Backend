@@ -208,6 +208,7 @@ public class ClientController {
      * @param accountNumber broj racuna
      * @return {@link AccountDetailsResponseDto} sa svim detaljima racuna
      */
+    @PreAuthorize("hasAnyRole('CLIENT_BASIC', 'AGENT', 'SERVICE')")
     @GetMapping("/api/accounts/{accountNumber}")
     public ResponseEntity<AccountDetailsResponseDto> getDetails (@AuthenticationPrincipal Jwt jwt,@PathVariable String accountNumber)
     {

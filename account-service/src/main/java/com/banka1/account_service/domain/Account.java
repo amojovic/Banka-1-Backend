@@ -42,7 +42,7 @@ import java.time.LocalDateTime;
 @Setter
 //todo da li staviti datum isteka na null
 public abstract class Account extends BaseEntity{
-    /** Jedinstveni 18-cifreni broj racuna koji se generise pri kreiranju. */
+    /** Jedinstveni 19-cifreni broj racuna koji se generise pri kreiranju. */
     @NotBlank
     @Column(nullable = false,unique = true,updatable = false)
     private String brojRacuna;
