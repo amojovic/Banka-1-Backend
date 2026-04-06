@@ -1,0 +1,63 @@
+package com.banka1.order.dto;
+
+import com.banka1.order.entity.enums.ListingType;
+import lombok.Data;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+/**
+ * DTO representing a user's portfolio position returned by the API.
+ *
+ * This object is used by the frontend to display:
+ * - current holdings
+ * - market value
+ * - profit/loss information
+ * - OTC visibility (for stocks)
+ *
+ * NOTE:
+ * Values like currentPrice and profit are computed at runtime
+ * using data from stock-service.
+ */
+@Data
+public class PortfolioResponse {
+
+    /** Type of security (STOCK, OPTION, etc.). */
+    private ListingType listingType;
+
+    /**
+     * Ticker symbol of the security (e.g. AAPL, MSFT).
+     * Fetched from stock-service based on listingId.
+     */
+    private String ticker;
+
+    /** Number of units currently held. */
+    private Integer quantity;
+
+    /** Number of units available for OTC trading (stocks only). */
+    private Integer publicQuantity;
+
+    /** Last time this portfolio position was modified. */
+    private LocalDateTime lastModified;
+
+    /** Current market price fetched from stock-service. */
+    private BigDecimal currentPrice;
+
+    /** Unrealized or realized profit for this position. */
+    private BigDecimal profit;
+
+    /**
+     * Total profit of entire user portfolio (sum of all positions).
+     */
+    private BigDecimal totalProfit;
+
+    /**
+     * Total tax paid by the user in the current calendar year (RSD).
+     */
+    private BigDecimal yearlyTaxPaid;
+
+    /**
+     * Tax calculated for the current month that has not yet been charged (RSD).
+     */
+    private BigDecimal monthlyTaxDue;
+}

@@ -1,0 +1,83 @@
+package com.banka1.order.controller;
+
+import com.banka1.order.dto.PortfolioResponse;
+import com.banka1.order.dto.SetPublicQuantityRequestDto;
+import com.banka1.order.service.PortfolioService;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+/**
+ * REST controller exposing portfolio-related endpoints.
+ * Allows clients and actuaries to view and manage their portfolio positions.
+ */
+@RestController
+@RequestMapping("/api/portfolio")
+@RequiredArgsConstructor
+public class PortfolioController {
+
+    private final PortfolioService portfolioService;
+
+    /**
+     * Returns a list of all portfolio positions for the authenticated user.
+     * Includes stock data fetched from stock-service such as ticker and current price,
+     * as well as calculated profit for each position.
+     *
+     * @param userId ID of the authenticated user (should be extracted from JWT in real scenario)
+     * @return list of portfolio positions with detailed information
+     */
+    @GetMapping
+    @PreAuthorize("hasAnyRole('CLIENT','AGENT','SUPERVISOR','ADMIN')")
+    public ResponseEntity<List<PortfolioResponse>> getPortfolio(
+            @RequestParam Long userId
+    ) {
+        return ResponseEntity.ok(portfolioService.getPortfolio(userId));
+    }
+
+    /**
+     * Sets the number of shares from a STOCK position to be publicly available for OTC trading.
+     * Only STOCK positions support public exposure.
+     *
+     * @param id      portfolio position ID
+     * @param request request containing desired public quantity
+     * @return 200 OK on success
+     */
+    @PutMapping("/{id}/set-public")
+    @PreAuthorize("hasAnyRole('CLIENT','AGENT','SUPERVISOR','ADMIN')")
+    public ResponseEntity<Void> setPublicQuantity(
+            @PathVariable Long id,
+            @RequestBody @Valid SetPublicQuantityRequestDto request
+    ) {
+        portfolioService.setPublicQuantity(id, request);
+        return ResponseEntity.ok().build();
+    }
+
+    /**
+     * Exercises an option position from the portfolio.
+     * Only users with the AGENT role (actuaries) are allowed to execute options.
+     *
+     * Business rules:
+     * - Option must not be expired (settlementDate in the future)
+     * - Option must be in-the-money (CALL or PUT logic)
+     * - Executes contract based on contract size (e.g. 100 shares per option)
+     *
+     * @param id     portfolio position ID
+     * @param userId ID of the user performing the action
+     * @return 200 OK on successful execution
+     */
+    @PostMapping("/{id}/exercise-option")
+    @PreAuthorize("hasRole('AGENT')")
+    public ResponseEntity<Void> exerciseOption(
+            @PathVariable Long id,
+            @RequestParam Long userId
+    ) {
+        portfolioService.exerciseOption(id, userId);
+        return ResponseEntity.ok().build();
+    }
+}
+
+
