@@ -2,6 +2,8 @@ package com.banka1.order.client;
 
 import com.banka1.order.dto.AccountDetailsDto;
 import com.banka1.order.dto.AccountTransactionRequest;
+import com.banka1.order.dto.response.UpdatedBalanceResponseDto;
+import com.banka1.order.dto.client.PaymentDto;
 
 /**
  * Client interface for communicating with the account-service.
