@@ -10,6 +10,7 @@ The service currently provides:
 - persisted futures contract reference data with CSV import support
 - persisted FX pair reference data with CSV import support
 - persisted stock option reference data linked to underlying stocks
+- persisted current and daily listing market data with exchange-linked snapshots
 - stock exchange work-time/status endpoints
 - JWT authentication through `security-lib`
 - observability integration through `company-observability-starter`
@@ -39,6 +40,7 @@ The service uses:
 - `FuturesContract` JPA entity and repository
 - `ForexPair` JPA entity and repository
 - `StockOption` JPA entity and repository
+- `Listing` and `ListingDailyPriceInfo` JPA entities and repositories
 - startup/admin CSV import flow for stock exchange reference data
 - startup CSV import flow for futures contract reference data
 - startup CSV import flow for FX pair reference data
@@ -68,6 +70,7 @@ That means:
 - futures contract metadata can now be persisted as a dedicated `futures_contract` entity
 - FX pair metadata can now be persisted as a dedicated `forex_pair` entity
 - stock option metadata can now be persisted as a dedicated `stock_option` entity linked to `stock`
+- current and daily historical market snapshots can now be persisted as `listing` and `listing_daily_price_info`
 - stock exchange work-time checks are implemented
 - holiday support is intentionally left behind an interface and currently uses a no-op stub
 
@@ -79,8 +82,8 @@ The most important parts of the service are:
 - `security` JWT configuration for the resource server
 - `client` adapter for calling `exchange-service`
 - `controller` bootstrap REST endpoints
-- `repository` persistence access for stock exchanges, stocks, futures contracts, FX pairs, and stock options
-- `domain` persisted stock exchange, stock, futures contract, FX pair, and stock option entities with derived calculations
+- `repository` persistence access for stock exchanges, stocks, futures contracts, FX pairs, stock options, and listings
+- `domain` persisted stock exchange, stock, futures contract, FX pair, stock option, and listing entities with derived calculations
 - `service` CSV import, startup seeding, holiday abstraction, and market-status logic
 - `dto` request/response models for internal responses
 
@@ -265,6 +268,8 @@ The stock-service schema currently includes:
 - `src/main/resources/db/changelog/004-create-futures-contract.sql`
 - `src/main/resources/db/changelog/005-create-forex-pair.sql`
 - `src/main/resources/db/changelog/006-create-stock-option.sql`
+- `src/main/resources/db/changelog/007-create-listing.sql`
+- `src/main/resources/db/changelog/008-create-listing-daily-price-info.sql`
 
 The `stock_exchange` table stores exchange metadata and trading sessions used by the CSV import flow.
 
@@ -301,6 +306,21 @@ The `stock_option` table stores:
 - open interest
 - settlement date
 
+The `listing` table stores:
+
+- security id
+- listing type
+- foreign key `stock_exchange_id` pointing to `stock_exchange`
+- ticker and display name
+- last refresh timestamp
+- latest price, ask, bid, and volume
+
+The `listing_daily_price_info` table stores:
+
+- foreign key `listing_id` pointing to `listing`
+- trading date
+- daily price, ask, bid, change, and volume
+
 Derived values are intentionally kept in the Java domain model instead of being persisted:
 
 - `contractSize` is a constant with value `1`
@@ -324,6 +344,16 @@ For `stock_option`:
 
 Stock options are not treated as a standalone listing catalog in the current design.
 They are attached to one underlying stock and are intended to be shown alongside it.
+
+For `listing`:
+
+- `dollarVolume()` is calculated as `volume * price`
+- `initialMarginCost(maintenanceMargin)` is calculated as `maintenanceMargin * 1.1`
+
+For `listing_daily_price_info`:
+
+- `changePercent()` is calculated as `(100 * change) / (price - change)`
+- `dollarVolume()` is calculated as `volume * price`
 
 Liquibase scripts are located in:
 
@@ -599,6 +629,7 @@ Note:
 - unit tests now also cover futures contract CSV import, derived maintenance margin, and JPA/Liquibase persistence mapping
 - unit tests now also cover FX pair CSV import, derived nominal value and maintenance margin, and JPA/Liquibase persistence mapping
 - unit tests now also cover stock option derived maintenance margin, JPA/Liquibase persistence mapping, and FK enforcement toward `stock`
+- unit tests now also cover listing and daily listing derived analytics plus FK enforcement toward `stock_exchange` and `listing`
 - the tests do not start the full application stack
 
 ## Swagger and OpenAPI
