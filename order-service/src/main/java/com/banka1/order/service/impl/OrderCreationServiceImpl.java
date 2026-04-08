@@ -245,6 +245,10 @@ public class OrderCreationServiceImpl implements OrderCreationService {
         Long fundingAccountId = determineFundingAccountId(order.getUserId(), order.getAccountId(), listing.getCurrency());
         transferFee(order.getUserId(), fundingAccountId, fee, listing.getCurrency());
 
+        if (order.getDirection() == OrderDirection.BUY && !Boolean.TRUE.equals(order.getMargin())) {
+            checkFunds(fundingAccountId, approximatePrice);
+        }
+
         order.setStatus(OrderStatus.APPROVED);
         order.setApprovedBy(supervisorId);
         order = orderRepository.save(order);
@@ -538,12 +542,12 @@ public class OrderCreationServiceImpl implements OrderCreationService {
 
     private Long determineFundingAccountId(Long userId, Long selectedAccountId, String currency) {
         if (actuaryInfoRepository.findByEmployeeId(userId).isPresent()) {
-            return employeeClient.getBankAccount(currency).getAccountId();
+            return employeeClient.getBankAccount(currency).getAccountId(); // actuaries → bank account
         }
         try {
             EmployeeDto employee = employeeClient.getEmployee(userId);
             if (employee != null) {
-                return employeeClient.getBankAccount(currency).getAccountId();
+                return selectedAccountId; // non-actuary employees → own account
             }
         } catch (RuntimeException ignored) {
             // Non-employee users are expected to fund orders from their selected account.
@@ -628,7 +632,12 @@ public class OrderCreationServiceImpl implements OrderCreationService {
     }
 
     private void publishOrderDecisionNotification(Order order, Long supervisorId, OrderStatus status) {
-        EmployeeDto employee = employeeClient.getEmployee(order.getUserId());
+        EmployeeDto employee = null;
+        try {
+            employee = employeeClient.getEmployee(order.getUserId());
+        } catch (RuntimeException ex) {
+            log.warn("Could not resolve employee data for order owner {} — notification will be sent without employee details", order.getUserId(), ex);
+        }
         OrderNotificationPayload payload = new OrderNotificationPayload();
         payload.setOrderId(order.getId());
         payload.setStatus(status);
@@ -637,8 +646,8 @@ public class OrderCreationServiceImpl implements OrderCreationService {
         payload.setListingId(order.getListingId());
         payload.setOrderType(order.getOrderType());
         payload.setDirection(order.getDirection());
-        payload.setUsername(formatEmployeeName(employee));
-        payload.setUserEmail(employee.getEmail());
+        payload.setUsername(employee != null ? formatEmployeeName(employee) : null);
+        payload.setUserEmail(employee != null ? employee.getEmail() : null);
         payload.setTemplateVariables(Map.of(
                 "orderId", String.valueOf(order.getId()),
                 "status", status.name(),

@@ -62,7 +62,7 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
-tasks.withType<Test> {
+tasks.withType<Test>().configureEach {
     useJUnitPlatform()
     finalizedBy(tasks.jacocoTestReport)
 }
@@ -88,9 +88,4 @@ openApi {
 
 checkstyle {
     configFile = rootProject.file("checkstyle.xml")
-}
-
-tasks.withType<Test>().configureEach {
-    useJUnitPlatform()
-    finalizedBy(tasks.jacocoTestReport)
 }
