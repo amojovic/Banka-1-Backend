@@ -22,6 +22,14 @@ public interface ListingRepository extends JpaRepository<Listing, Long> {
     Optional<Listing> findByListingTypeAndSecurityId(ListingType listingType, Long securityId);
 
     /**
+     * Loads all listings of one category sorted by ticker.
+     *
+     * @param listingType listing category
+     * @return listings of the requested category
+     */
+    List<Listing> findAllByListingTypeOrderByTickerAsc(ListingType listingType);
+
+    /**
      * Loads all listings quoted on one stock exchange ordered by ticker.
      *
      * @param stockExchangeId stock exchange id

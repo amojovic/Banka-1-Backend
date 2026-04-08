@@ -52,6 +52,7 @@ The service uses:
 - stock exchange listing and market-status API
 - stock exchange active-toggle endpoint for testing
 - administrative stock market-data refresh endpoint
+- paginated listing catalog endpoints for stocks, futures, and FX pairs
 - manual listing refresh endpoint and scheduled listing snapshot refresh
 - timezone/session-based market-phase calculation
 - `HolidayService` extension point with a temporary no-op implementation
@@ -108,6 +109,9 @@ Inside the service itself, the routes are:
 - `PUT /api/stock-exchanges/{id}/toggle-active`
 - `POST /admin/stock-exchanges/import`
 - `POST /admin/stocks/{ticker}/refresh-market-data`
+- `GET /api/listings/stocks`
+- `GET /api/listings/futures`
+- `GET /api/listings/forex`
 - `POST /api/listings/{id}/refresh`
 - `GET /actuator/health`
 - `GET /actuator/health/liveness`
@@ -122,6 +126,9 @@ Through the API gateway, the same routes are available under the prefix:
 - `PUT /stock/api/stock-exchanges/{id}/toggle-active`
 - `POST /stock/admin/stock-exchanges/import`
 - `POST /stock/admin/stocks/{ticker}/refresh-market-data`
+- `GET /stock/api/listings/stocks`
+- `GET /stock/api/listings/futures`
+- `GET /stock/api/listings/forex`
 - `POST /stock/api/listings/{id}/refresh`
 
 Note:
@@ -246,6 +253,62 @@ Example response:
   "lastRefresh": "2026-04-08T10:15:30"
 }
 ```
+
+### `GET /api/listings/stocks`
+
+Returns paginated stock listings.
+
+Authentication:
+
+- available to client and actuary-side roles
+
+Supported filters:
+
+- `exchange` for case-insensitive prefix match on exchange MIC code, acronym, or name
+- `search` for case-insensitive partial match on ticker or name
+- `minPrice`, `maxPrice`
+- `minAsk`, `maxAsk`
+- `minBid`, `maxBid`
+- `minVolume`, `maxVolume`
+
+Supported sorting:
+
+- `ticker`
+- `price`
+- `volume`
+- `maintenanceMargin`
+
+Pagination parameters:
+
+- `page`
+- `size`
+
+Example:
+
+```http
+GET /api/listings/stocks?exchange=XNA&search=app&sortBy=price&sortDirection=desc&page=0&size=10
+```
+
+### `GET /api/listings/futures`
+
+Returns paginated futures listings.
+
+The endpoint supports the same filters as `/api/listings/stocks`, plus:
+
+- `settlementDate=YYYY-MM-DD`
+
+Sorting is the same as for stocks.
+
+### `GET /api/listings/forex`
+
+Returns paginated FX listings.
+
+Authentication:
+
+- available only to actuary-side roles
+- `CLIENT_BASIC` cannot access this endpoint
+
+Filtering, sorting, and pagination are the same as for `/api/listings/stocks`.
 
 ### `GET /api/stock-exchanges`
 
@@ -465,6 +528,8 @@ Additional role rules:
 - `PUT /api/stock-exchanges/{id}/toggle-active` requires `ADMIN` or `SUPERVISOR`
 - `POST /admin/stock-exchanges/import` requires `ADMIN`, `SUPERVISOR`, or `SERVICE`
 - `POST /admin/stocks/{ticker}/refresh-market-data` requires `ADMIN` or `SUPERVISOR`
+- `GET /api/listings/stocks` and `GET /api/listings/futures` require one of `CLIENT_BASIC`, `BASIC`, `AGENT`, `SUPERVISOR`, `ADMIN`, or `SERVICE`
+- `GET /api/listings/forex` requires one of `BASIC`, `AGENT`, `SUPERVISOR`, `ADMIN`, or `SERVICE`
 - `GET /exchange/info`, `GET /api/stock-exchanges`, and `GET /api/stock-exchanges/{id}/is-open` require one of `CLIENT_BASIC`, `BASIC`, `AGENT`, `SUPERVISOR`, `ADMIN`, or `SERVICE`
 
 The local JWT decoder uses the shared HMAC secret from:
