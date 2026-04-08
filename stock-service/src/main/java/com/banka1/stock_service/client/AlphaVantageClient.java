@@ -68,7 +68,6 @@ public class AlphaVantageClient {
         BigDecimal price = readRequiredDecimal(quoteNode, "05. price");
 
         validateExpectedSymbol(symbol, ticker, "quote");
-
         return new AlphaVantageQuoteResponse(
                 symbol,
                 price,

@@ -7,6 +7,7 @@ The service currently provides:
 - a standalone Spring Boot module inside the monorepo
 - PostgreSQL connectivity and Liquibase bootstrap migrations
 - persisted stock exchange reference data with CSV import support
+- persisted starter stock tickers for the stock refresh flow
 - persisted futures contract reference data with CSV import support
 - persisted FX pair reference data with API import support
 - persisted stock option reference data linked to underlying stocks
@@ -44,6 +45,7 @@ The service uses:
 - `StockOption` JPA entity and repository
 - `Listing` and `ListingDailyPriceInfo` JPA entities and repositories
 - startup/admin CSV import flow for stock exchange reference data
+- startup built-in seed flow for starter stock tickers
 - startup CSV import flow for futures contract reference data
 - startup API import flow for FX pair reference data
 - stock exchange listing and market-status API
@@ -69,6 +71,7 @@ That means:
 - authentication and health checks work
 - internal integration with `exchange-service` exists
 - stock exchange reference data can be imported from CSV into the database
+- a built-in starter set of local stock tickers can be seeded for refresh testing
 - stock instrument metadata can now be persisted as a dedicated `stock` entity
 - futures contract metadata can now be persisted as a dedicated `futures_contract` entity
 - FX pair metadata can now be persisted as a dedicated `forex_pair` entity
@@ -182,6 +185,15 @@ Example response:
 ### `POST /admin/stocks/{ticker}/refresh-market-data`
 
 JWT-protected administrative endpoint that refreshes one locally stored stock ticker from Alpha Vantage.
+
+The service seeds a small built-in starter set of local stock tickers on startup so the refresh
+flow has valid input rows by default:
+
+- `AAPL`
+- `MSFT`
+- `GOOGL`
+- `AMZN`
+- `TSLA`
 
 The refresh flow calls three provider endpoints:
 
@@ -460,6 +472,7 @@ STOCK_DB_USER=postgres
 STOCK_DB_PASSWORD=postgres
 JWT_SECRET=local_stock_dev_secret_at_least_32_chars
 STOCK_EXCHANGE_SERVICE_URL=http://localhost:8085
+STOCK_TICKER_SEED_ENABLED=true
 STOCK_EXCHANGE_SEED_CSV_LOCATION=classpath:seed/exchanges.csv
 STOCK_FUTURES_SEED_CSV_LOCATION=classpath:seed/future_data.csv
 STOCK_FOREX_SEED_CSV_LOCATION=classpath:seed/forex_pairs_seed.csv
@@ -480,6 +493,7 @@ Most important properties:
 | `jwt.secret` | HMAC secret used to validate JWT tokens |
 | `stock.exchange-service.base-url` | base URL for the internal `exchange-service` call |
 | `stock.exchange-seed.enabled` | enables or disables automatic CSV seeding on startup |
+| `stock.ticker-seed.enabled` | enables or disables automatic startup seeding of starter stock tickers |
 | `stock.exchange-seed.csv-location` | Spring resource location of the stock exchange CSV seed file |
 | `stock.futures-seed.enabled` | enables or disables automatic CSV seeding of futures contracts on startup |
 | `stock.futures-seed.csv-location` | Spring resource location of the futures contract CSV seed file |
@@ -498,12 +512,13 @@ When the service starts, it:
 3. connects to the PostgreSQL database
 4. lets Liquibase validate and execute migrations if needed
 5. imports stock exchange reference data from the configured CSV file if seeding is enabled
-6. imports futures dummy data from the configured CSV file if seeding is enabled, including linked listings and daily snapshots
-7. imports FX pair reference data from the configured CSV file if seeding is enabled
-8. registers the JWT decoder and security filter chain from `security-lib`
-9. registers the `RestClient` bean for `exchange-service`
-10. exposes the stock exchange REST endpoints
-11. exposes the actuator health endpoints
+6. seeds the built-in starter stock tickers if seeding is enabled
+7. imports futures dummy data from the configured CSV file if seeding is enabled, including linked listings and daily snapshots
+8. imports FX pair reference data from the API if seeding is enabled
+9. registers the JWT decoder and security filter chain from `security-lib`
+10. registers the `RestClient` bean for `exchange-service`
+11. exposes the stock exchange REST endpoints
+12. exposes the actuator health endpoints
 
 ## CSV Seed Format
 
