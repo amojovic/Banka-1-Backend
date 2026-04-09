@@ -1,6 +1,7 @@
 package com.banka1.account_service.controller;
 
 import com.banka1.account_service.domain.enums.CurrencyCode;
+import com.banka1.account_service.dto.request.BankPaymentDto;
 import com.banka1.account_service.dto.request.PaymentDto;
 import com.banka1.account_service.dto.response.InfoResponseDto;
 import com.banka1.account_service.dto.response.InternalAccountDetailsDto;
@@ -55,6 +56,23 @@ public class AccountController {
         return new ResponseEntity<>(accountService.transaction(paymentDto),HttpStatus.OK);
     }
 
+
+    @PostMapping("/transactionFromBank")
+    public ResponseEntity<Void> transactionFromBank(@AuthenticationPrincipal Jwt jwt, @RequestBody @Valid BankPaymentDto bankPaymentDto) {
+        accountService.transactionFromBank(bankPaymentDto);
+        return new ResponseEntity<>(HttpStatus.OK);
+    }
+
+    @GetMapping("/id/{accountId}/details")
+    public ResponseEntity<InternalAccountDetailsDto> getAccountDetailsById(@AuthenticationPrincipal Jwt jwt, @PathVariable Long accountId) {
+        return new ResponseEntity<>(accountService.getAccountDetails(accountId), HttpStatus.OK);
+    }
+
+    @GetMapping("/bank/{currencyCode}")
+    public ResponseEntity<InternalAccountDetailsDto> getBankAccountDetails(@AuthenticationPrincipal Jwt jwt, @PathVariable CurrencyCode currencyCode) {
+        return new ResponseEntity<>(accountService.getBankAccountDetails(currencyCode), HttpStatus.OK);
+    }
+
     /**
      * Obradi transfer novca izmedju dva racuna istog vlasnika.
      * <p>
@@ -86,16 +104,6 @@ public class AccountController {
     @GetMapping("/{accountNumber}/details")
     public ResponseEntity<InternalAccountDetailsDto> getAccountDetails(@AuthenticationPrincipal Jwt jwt, @PathVariable String accountNumber) {
         return new ResponseEntity<>(accountService.getAccountDetails(accountNumber), HttpStatus.OK);
-    }
-
-    @GetMapping("/id/{accountId}/details")
-    public ResponseEntity<InternalAccountDetailsDto> getAccountDetailsById(@AuthenticationPrincipal Jwt jwt, @PathVariable Long accountId) {
-        return new ResponseEntity<>(accountService.getAccountDetails(accountId), HttpStatus.OK);
-    }
-
-    @GetMapping("/bank/{currencyCode}")
-    public ResponseEntity<InternalAccountDetailsDto> getBankAccountDetails(@AuthenticationPrincipal Jwt jwt, @PathVariable CurrencyCode currencyCode) {
-        return new ResponseEntity<>(accountService.getBankAccountDetails(currencyCode), HttpStatus.OK);
     }
 
     /**

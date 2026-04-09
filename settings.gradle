@@ -17,3 +17,5 @@ include 'verification-service'
 include 'transaction-service'
 include 'order-service'
 
+
+include 'stock-service'

@@ -3,6 +3,7 @@ package com.banka1.account_service.service.implementation;
 import com.banka1.account_service.domain.Account;
 import com.banka1.account_service.domain.enums.CurrencyCode;
 import com.banka1.account_service.domain.enums.Status;
+import com.banka1.account_service.dto.request.BankPaymentDto;
 import com.banka1.account_service.dto.request.PaymentDto;
 import com.banka1.account_service.dto.response.InfoResponseDto;
 import com.banka1.account_service.dto.response.InternalAccountDetailsDto;
@@ -117,6 +118,31 @@ public class AccountServiceImplementation implements AccountService {
         return execute(paymentDto, from, to, bankSender, bankTarget);
     }
 
+    @Override
+    public void transactionFromBank(BankPaymentDto paymentDto) {
+        if(paymentDto.getFromAccountNumber()==null && paymentDto.getToAccountNumber()==null)
+            throw new IllegalArgumentException("Los unos");
+        Account sender;
+        Account recipient;
+        if(paymentDto.getFromAccountNumber()==null) {
+            recipient = validate(paymentDto.getToAccountNumber());
+            sender = validateBank(recipient);
+        }
+        else
+        {
+            sender = validate(paymentDto.getFromAccountNumber());
+            recipient = validateBank(sender);
+        }
+        for(int i = 0; true; i++) {
+            try {
+                transactionalService.transfer(sender,recipient,paymentDto);
+                return;
+            } catch (ObjectOptimisticLockingFailureException | OptimisticLockException optimisticLockException) {
+                if(i>=2)
+                    throw optimisticLockException;
+            }
+        }
+    }
 
 
     @Override
