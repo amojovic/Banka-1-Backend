@@ -17,8 +17,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.temporal.ChronoUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 /**
  * Integration tests for {@link StockTickerSeedService}.
@@ -69,7 +71,7 @@ class StockTickerSeedServiceTest {
         assertThat(appleListing.getStockExchange().getExchangeMICCode()).isEqualTo("XNAS");
         assertThat(appleListing.getTicker()).isEqualTo("AAPL");
         assertThat(appleListing.getName()).isEqualTo("Apple Inc.");
-        assertThat(appleListing.getLastRefresh()).isEqualTo(LocalDateTime.of(2026, 4, 8, 12, 0));
+        assertThat(appleListing.getLastRefresh()).isCloseTo(LocalDateTime.now(), within(5, ChronoUnit.SECONDS));
         assertThat(appleListing.getPrice()).isEqualByComparingTo("0.00000000");
         assertThat(appleListing.getAsk()).isEqualByComparingTo("0.00000000");
         assertThat(appleListing.getBid()).isEqualByComparingTo("0.00000000");

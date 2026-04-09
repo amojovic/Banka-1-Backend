@@ -18,8 +18,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.temporal.ChronoUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 /**
  * Integration tests for {@link ForexPairSeedService}.
@@ -68,7 +70,7 @@ class ForexPairSeedServiceTest {
         assertThat(eurUsdListing.getStockExchange().getExchangeMICCode()).isEqualTo("XNAS");
         assertThat(eurUsdListing.getTicker()).isEqualTo("EUR/USD");
         assertThat(eurUsdListing.getName()).isEqualTo("EUR / USD");
-        assertThat(eurUsdListing.getLastRefresh()).isEqualTo(LocalDateTime.of(2026, 4, 8, 12, 0));
+        assertThat(eurUsdListing.getLastRefresh()).isCloseTo(LocalDateTime.now(), within(5, ChronoUnit.SECONDS));
         assertThat(eurUsdListing.getPrice()).isEqualByComparingTo("0.00000000");
         assertThat(eurUsdListing.getAsk()).isEqualByComparingTo("0.00000000");
         assertThat(eurUsdListing.getBid()).isEqualByComparingTo("0.00000000");

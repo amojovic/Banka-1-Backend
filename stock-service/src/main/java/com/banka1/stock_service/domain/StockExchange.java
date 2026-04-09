@@ -56,7 +56,7 @@ public class StockExchange {
     /**
      * Default trading currency used by the exchange.
      */
-    @Column(name = "currency", nullable = false, length = 10)
+    @Column(name = "currency", nullable = false, length = 100)
     private String currency;
 
     /**

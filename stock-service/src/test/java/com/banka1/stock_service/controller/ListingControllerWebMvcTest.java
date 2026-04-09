@@ -13,6 +13,7 @@ import com.banka1.stock_service.dto.ListingStockDetailsResponse;
 import com.banka1.stock_service.dto.ListingSummaryResponse;
 import com.banka1.stock_service.dto.StockOptionDetailsResponse;
 import com.banka1.stock_service.dto.StockOptionSettlementGroupResponse;
+import com.banka1.stock_service.repository.ListingRepository;
 import com.banka1.stock_service.service.ListingMarketDataRefreshService;
 import com.banka1.stock_service.service.ListingQueryService;
 import org.junit.jupiter.api.Test;
@@ -39,6 +40,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -68,8 +70,12 @@ class ListingControllerWebMvcTest {
     @MockitoBean
     private ListingQueryService listingQueryService;
 
+    @MockitoBean
+    private ListingRepository listingRepository;
+
     @Test
     void getListingDetailsReturnsOkForClientRole() throws Exception {
+        when(listingRepository.findListingTypeById(15L)).thenReturn(Optional.of(ListingType.STOCK));
         when(listingQueryService.getListingDetails(15L, ListingDetailsPeriod.WEEK)).thenReturn(new ListingDetailsResponse(
                 15L,
                 101L,
@@ -138,6 +144,7 @@ class ListingControllerWebMvcTest {
 
     @Test
     void getForexListingDetailsReturnsForbiddenForClientRole() throws Exception {
+        when(listingRepository.findListingTypeById(21L)).thenReturn(Optional.of(ListingType.FOREX));
         when(listingQueryService.getListingDetails(21L, ListingDetailsPeriod.DAY)).thenReturn(new ListingDetailsResponse(
                 21L,
                 301L,

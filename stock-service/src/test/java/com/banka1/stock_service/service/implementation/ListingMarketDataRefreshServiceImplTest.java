@@ -213,7 +213,7 @@ class ListingMarketDataRefreshServiceImplTest {
         assertThatThrownBy(() -> serviceAt("2026-04-08T10:15:30Z").refreshListing(12L))
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(exception -> assertThat(((ResponseStatusException) exception).getStatusCode())
-                        .isEqualTo(HttpStatus.BAD_REQUEST));
+                        .isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY));
 
         verify(alphaVantageClient, never()).fetchQuote(any());
         verify(alphaVantageClient, never()).fetchExchangeRate(any(), any());
