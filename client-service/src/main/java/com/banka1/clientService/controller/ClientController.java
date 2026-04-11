@@ -14,7 +14,6 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import java.util.Collection;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -161,11 +160,13 @@ public class ClientController {
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('SERVICE','ADMIN','CLIENT_BASIC')")
     public ResponseEntity<ClientInfoResponseDto> getInfoById(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id) {
-        String roles = jwt.getClaimAsString("roles");
-        if (roles != null && roles.startsWith("CLIENT_")) {
-            Long tokenId = jwt.getClaim("id");
-            if (!id.equals(tokenId)) {
-                return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        if (jwt != null) {
+            String roles = jwt.getClaimAsString("roles");
+            if (roles != null && roles.startsWith("CLIENT_")) {
+                Long tokenId = jwt.getClaim("id");
+                if (!id.equals(tokenId)) {
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                }
             }
         }
         return ResponseEntity.ok(clientService.getInfoById(id));
