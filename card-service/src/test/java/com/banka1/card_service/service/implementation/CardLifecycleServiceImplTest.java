@@ -289,6 +289,23 @@ class CardLifecycleServiceImplTest {
         assertEquals("5798********5571", result.get(0).getMaskedCardNumber());
     }
 
+    @Test
+    void getInternalCardsByAccountNumber_returnsInternalSummaries() {
+        Card card = cardWithStatus(CardStatus.ACTIVE);
+        card.setCardNumber("5798123456785571");
+        card.setCardName("Visa Debit");
+        card.setAccountNumber("265000000000123456");
+        when(cardRepository.findByAccountNumber("265000000000123456")).thenReturn(List.of(card));
+
+        var result = service.getInternalCardsByAccountNumber("265000000000123456");
+
+        assertEquals(1, result.size());
+        assertEquals("5798********5571", result.get(0).getCardNumber());
+        assertEquals("Visa Debit", result.get(0).getCardType());
+        assertEquals("ACTIVE", result.get(0).getStatus());
+        assertEquals("265000000000123456", result.get(0).getAccountNumber());
+    }
+
     // --- getCardByCardNumber ---
 
     @Test

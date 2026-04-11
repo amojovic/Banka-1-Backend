@@ -77,6 +77,14 @@ public class NotificationDeliveryService {
      * In-memory scheduler optimization for due retries.
      */
     private final RetryTaskQueue retryTaskQueue;
+    /**
+     * FCM push service for verification code delivery.
+     */
+    private final FcmPushService fcmPushService;
+    /**
+     * FCM token lookup service.
+     */
+    private final FcmTokenService fcmTokenService;
 
     /**
      * Configured routing keys map.
@@ -182,6 +190,15 @@ public class NotificationDeliveryService {
         );
         notificationDeliveryTxService.createPendingDelivery(delivery);
         runAfterCommit(() -> attemptDelivery(deliveryId));
+
+        // FCM push for verification OTPs (fire-and-forget, email is authoritative)
+        if ("VERIFICATION_OTP".equals(notificationType) && req.getClientId() != null) {
+            String rawCode = req.getTemplateVariables().get("code");
+            Long clientId = req.getClientId();
+            String opType = req.getOperationType();
+            String sessId = req.getSessionId();
+            runAfterCommit(() -> attemptFcmPush(clientId, rawCode, opType, sessId));
+        }
     }
 
     /**
@@ -439,6 +456,25 @@ public class NotificationDeliveryService {
                 return;
             }
             pageNumber++;
+        }
+    }
+
+    /**
+     * Attempts to send an FCM push notification for a verification OTP.
+     * Fire-and-forget: if no token is registered or sending fails,
+     * email delivery remains the authoritative channel.
+     */
+    private void attemptFcmPush(Long clientId, String code,
+                                 String operationType, String sessionId) {
+        try {
+            Optional<String> token = fcmTokenService.findToken(clientId);
+            if (token.isEmpty()) {
+                log.debug("No FCM token for clientId={}, skipping push", clientId);
+                return;
+            }
+            fcmPushService.sendVerificationPush(token.get(), code, operationType, sessionId);
+        } catch (Exception e) {
+            log.warn("FCM push failed for clientId={}: {}", clientId, e.getMessage());
         }
     }
 

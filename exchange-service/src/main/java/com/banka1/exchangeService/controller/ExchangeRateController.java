@@ -72,7 +72,7 @@ public class ExchangeRateController {
      * @return list of daily exchange rates sorted by currency code
      */
     @GetMapping("/rates")
-    @PreAuthorize("hasAnyRole('ADMIN','SERVICE')")
+    @PreAuthorize("hasAnyRole('ADMIN','SERVICE','CLIENT_BASIC')")
     @Operation(
             summary = "Get stored exchange rates",
             responses = @ApiResponse(
@@ -98,7 +98,7 @@ public class ExchangeRateController {
      */
     @GetMapping("/rates/{currencyCode}")
     @Operation(summary = "Get a single exchange rate")
-    @PreAuthorize("hasAnyRole('ADMIN','SERVICE')")
+    @PreAuthorize("hasAnyRole('ADMIN','SERVICE','CLIENT_BASIC')")
 
     public ExchangeRateDto getRate(
             @PathVariable String currencyCode,

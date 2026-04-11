@@ -73,6 +73,12 @@ class NotificationDeliveryServiceUnitTest {
     private RetryTaskQueue retryTaskQueue;
 
     @Mock
+    private FcmPushService fcmPushService;
+
+    @Mock
+    private FcmTokenService fcmTokenService;
+
+    @Mock
     private Map<String, String> routingKeysMap;
 
     @InjectMocks
@@ -635,6 +641,120 @@ class NotificationDeliveryServiceUnitTest {
         notificationDeliveryService.processDueRetries();
     }
 
+
+    /**
+     * Verifies that a VERIFICATION_OTP message with a populated clientId triggers the
+     * FCM push branch after the surrounding transaction commits.
+     *
+     * <p>This protects the new dual-channel contract: email remains the authoritative
+     * delivery path, and the FCM push must fire in addition to it for verification
+     * codes so the mobile app can display them to the user.
+     */
+    @Test
+    void handleIncomingMessageSendsFcmPushForVerificationOtpAfterCommit() {
+        NotificationRequest request = new NotificationRequest("Dimitrije", TEST_EMAIL,
+                new HashMap<>(Map.of("code", "123456")));
+        request.setClientId(42L);
+        request.setOperationType("PAYMENT");
+        request.setSessionId("99");
+        when(routingKeysMap.get("verification.generated")).thenReturn("VERIFICATION_OTP");
+        when(notificationService.resolveEmailContent(request, "VERIFICATION_OTP"))
+                .thenReturn(new ResolvedEmail(TEST_EMAIL, "OTP", "Body"));
+        when(fcmTokenService.findToken(42L)).thenReturn(Optional.of("device-token"));
+
+        runHandleIncomingMessageAndCommit(() ->
+                notificationDeliveryService.handleIncomingMessage(request, "verification.generated")
+        );
+
+        verify(fcmTokenService).findToken(42L);
+        verify(fcmPushService).sendVerificationPush("device-token", "123456", "PAYMENT", "99");
+    }
+
+    /**
+     * Verifies that a VERIFICATION_OTP message is still delivered via email when the
+     * target client has no FCM token registered, and that the FCM send is skipped
+     * silently.
+     *
+     * <p>This protects the fire-and-forget contract: the absence of a mobile device
+     * must never block the authoritative email channel.
+     */
+    @Test
+    void handleIncomingMessageSkipsFcmPushWhenNoTokenRegisteredForClient() {
+        NotificationRequest request = new NotificationRequest("Dimitrije", TEST_EMAIL,
+                new HashMap<>(Map.of("code", "654321")));
+        request.setClientId(7L);
+        request.setOperationType("TRANSFER");
+        request.setSessionId("11");
+        when(routingKeysMap.get("verification.generated")).thenReturn("VERIFICATION_OTP");
+        when(notificationService.resolveEmailContent(request, "VERIFICATION_OTP"))
+                .thenReturn(new ResolvedEmail(TEST_EMAIL, "OTP", "Body"));
+        when(fcmTokenService.findToken(7L)).thenReturn(Optional.empty());
+
+        runHandleIncomingMessageAndCommit(() ->
+                notificationDeliveryService.handleIncomingMessage(request, "verification.generated")
+        );
+
+        verify(fcmTokenService).findToken(7L);
+        verify(fcmPushService, never()).sendVerificationPush(
+                anyString(), anyString(), anyString(), anyString()
+        );
+        verify(notificationService).sendEmail(TEST_EMAIL, "OTP", "Body");
+    }
+
+    /**
+     * Verifies that FCM push failures do not propagate out of the delivery pipeline.
+     *
+     * <p>This protects the fire-and-forget guarantee: if the FCM SDK throws (for
+     * example, because the stored token has been revoked on the device), the email
+     * delivery must still succeed and the exception must not surface to the RabbitMQ
+     * consumer.
+     */
+    @Test
+    void handleIncomingMessageSwallowsFcmPushFailuresWithoutAffectingEmailDelivery() {
+        NotificationRequest request = new NotificationRequest("Dimitrije", TEST_EMAIL,
+                new HashMap<>(Map.of("code", "111222")));
+        request.setClientId(5L);
+        request.setOperationType("PAYMENT");
+        request.setSessionId("3");
+        when(routingKeysMap.get("verification.generated")).thenReturn("VERIFICATION_OTP");
+        when(notificationService.resolveEmailContent(request, "VERIFICATION_OTP"))
+                .thenReturn(new ResolvedEmail(TEST_EMAIL, "OTP", "Body"));
+        when(fcmTokenService.findToken(5L)).thenReturn(Optional.of("device-token"));
+        doThrow(new IllegalStateException("FCM transport down"))
+                .when(fcmPushService).sendVerificationPush(anyString(), anyString(), anyString(), anyString());
+
+        runHandleIncomingMessageAndCommit(() ->
+                notificationDeliveryService.handleIncomingMessage(request, "verification.generated")
+        );
+
+        verify(fcmPushService).sendVerificationPush("device-token", "111222", "PAYMENT", "3");
+        verify(notificationService).sendEmail(TEST_EMAIL, "OTP", "Body");
+    }
+
+    /**
+     * Verifies that non-verification notification types never consult the FCM token
+     * registry and never attempt a push.
+     *
+     * <p>This protects the scope boundary of the FCM branch: only
+     * {@code VERIFICATION_OTP} events are mirrored to mobile pushes.
+     */
+    @Test
+    void handleIncomingMessageDoesNotSendFcmPushForNonVerificationNotifications() {
+        NotificationRequest request = new NotificationRequest("Dimitrije", TEST_EMAIL, Map.of());
+        request.setClientId(42L);
+        when(routingKeysMap.get("EMPLOYEE_CREATED")).thenReturn("EMPLOYEE_CREATED");
+        when(notificationService.resolveEmailContent(request, "EMPLOYEE_CREATED"))
+                .thenReturn(new ResolvedEmail(TEST_EMAIL, "Hello", "Body"));
+
+        runHandleIncomingMessageAndCommit(() ->
+                notificationDeliveryService.handleIncomingMessage(request, "EMPLOYEE_CREATED")
+        );
+
+        verify(fcmTokenService, never()).findToken(org.mockito.ArgumentMatchers.anyLong());
+        verify(fcmPushService, never()).sendVerificationPush(
+                anyString(), anyString(), anyString(), anyString()
+        );
+    }
 
     /**
      * Runs code with active transaction synchronization enabled.

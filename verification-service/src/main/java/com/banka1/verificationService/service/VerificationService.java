@@ -121,15 +121,17 @@ public class VerificationService {
             );
         }
 
+        final Long sessionId = session.getId();
+
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    publishGeneratedEvent(request, rawCode);
+                    publishGeneratedEvent(request, rawCode, sessionId);
                 }
             });
         } else {
-            publishGeneratedEvent(request, rawCode);
+            publishGeneratedEvent(request, rawCode, sessionId);
         }
 
         return new GenerateResponse(session.getId());
@@ -231,9 +233,12 @@ public class VerificationService {
      * @param request contains the clientEmail for the recipient
      * @param rawCode the 6-digit OTP code to send (before hashing)
      */
-    private void publishGeneratedEvent(GenerateRequest request, String rawCode) {
+    private void publishGeneratedEvent(GenerateRequest request, String rawCode, Long sessionId) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("userEmail", request.getClientEmail());
+        payload.put("clientId", request.getClientId());
+        payload.put("operationType", request.getOperationType().name());
+        payload.put("sessionId", String.valueOf(sessionId));
         Map<String, String> templateVariables = new HashMap<>();
         templateVariables.put("code", rawCode);
         payload.put("templateVariables", templateVariables);

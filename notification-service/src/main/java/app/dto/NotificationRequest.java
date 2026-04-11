@@ -48,6 +48,24 @@ public class NotificationRequest implements Serializable {
     private Map<String, String> templateVariables = new HashMap<>();
 
     /**
+     * Client ID for FCM token lookup (nullable, backward-compatible).
+     */
+    @Schema(description = "Client ID for push notification delivery")
+    private Long clientId;
+
+    /**
+     * Operation type (e.g. PAYMENT, TRANSFER) for display in push notification.
+     */
+    @Schema(description = "Operation type for the verification")
+    private String operationType;
+
+    /**
+     * Verification session ID, passed to mobile for validate calls.
+     */
+    @Schema(description = "Verification session ID")
+    private String sessionId;
+
+    /**
      * Convenience constructor for tests and manual object creation.
      *
      * @param reqName          display username

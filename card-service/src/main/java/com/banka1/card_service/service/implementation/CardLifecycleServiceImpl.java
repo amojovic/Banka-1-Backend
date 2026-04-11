@@ -4,6 +4,7 @@ import com.banka1.card_service.domain.Card;
 import com.banka1.card_service.domain.enums.CardStatus;
 import com.banka1.card_service.dto.card_management.internal.CardNotificationDto;
 import com.banka1.card_service.dto.card_management.response.CardDetailDTO;
+import com.banka1.card_service.dto.card_management.response.CardInternalSummaryDTO;
 import com.banka1.card_service.dto.card_management.response.CardSummaryDTO;
 import com.banka1.card_service.dto.enums.CardNotificationType;
 import com.banka1.card_service.exception.BusinessException;
@@ -98,6 +99,14 @@ public class CardLifecycleServiceImpl implements CardLifecycleService {
         return cardRepository.findByAccountNumber(accountNumber)
                 .stream()
                 .map(CardSummaryDTO::new)
+                .toList();
+    }
+
+    @Override
+    public List<CardInternalSummaryDTO> getInternalCardsByAccountNumber(String accountNumber) {
+        return cardRepository.findByAccountNumber(accountNumber)
+                .stream()
+                .map(CardInternalSummaryDTO::new)
                 .toList();
     }
 

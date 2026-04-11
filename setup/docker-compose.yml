@@ -167,6 +167,7 @@ services:
       OTEL_LOGS_EXPORTER: none
       OTEL_SERVICE_NAME: notification-service
       LOGGING_FILE_PATH: /var/log/banka
+      FIREBASE_CREDENTIALS_PATH: ${FIREBASE_CREDENTIALS_PATH:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -180,6 +181,7 @@ services:
       - banka-network
     volumes:
       - notification-service-logs:/var/log/banka
+      - ./banka-1-firebase-firebase-adminsdk-fbsvc-e306452a8c.json:/app/firebase-credentials.json:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:${NOTIFICATION_SERVER_PORT:-8006}/actuator/health/liveness || exit 1"]
       interval: 15s
@@ -838,6 +840,7 @@ services:
       TRANSACTION_SERVER_PORT: ${TRANSACTION_SERVER_PORT:-8087}
       CARD_SERVICE_PORT: ${CARD_SERVER_PORT:-8087}
       CREDIT_SERVER_PORT: ${CREDIT_SERVER_PORT:-8089}
+      NOTIFICATION_SERVICE_PORT: ${NOTIFICATION_SERVER_PORT:-8006}
       ORDER_SERVER_PORT: ${ORDER_SERVER_PORT:-8088}
     depends_on:
       employee-service:
@@ -855,6 +858,8 @@ services:
       transaction-service:
         condition: service_healthy
       credit-service:
+        condition: service_healthy
+      notification-service:
         condition: service_healthy
       order-service:
         condition: service_healthy

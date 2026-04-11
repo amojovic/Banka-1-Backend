@@ -6,6 +6,7 @@ import com.banka1.card_service.domain.enums.CardStatus;
 import com.banka1.card_service.domain.enums.CardType;
 import com.banka1.card_service.dto.card_management.request.UpdateCardLimitDTO;
 import com.banka1.card_service.dto.card_management.response.CardDetailDTO;
+import com.banka1.card_service.dto.card_management.response.CardInternalSummaryDTO;
 import com.banka1.card_service.dto.card_management.response.CardSummaryDTO;
 import com.banka1.card_service.service.CardLifecycleService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -120,6 +121,21 @@ class CardManagementControllerWebMvcTest {
                                 .jwt(jwt -> jwt.claim("id", 100L))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].maskedCardNumber").value("5798********5571"));
+    }
+
+    @Test
+    void getCardsByAccountInternalReturnsInternalSummaries() throws Exception {
+        when(cardLifecycleService.getInternalCardsByAccountNumber("265000000000123456"))
+                .thenReturn(List.of(new CardInternalSummaryDTO(card())));
+
+        mockMvc.perform(get("/internal/account/265000000000123456")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_SERVICE"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].cardNumber").value("5798********5571"))
+                .andExpect(jsonPath("$[0].cardType").value("Visa Debit"))
+                .andExpect(jsonPath("$[0].status").value("ACTIVE"))
+                .andExpect(jsonPath("$[0].expiryDate").value("2031-03-20"))
+                .andExpect(jsonPath("$[0].accountNumber").value("265000000000123456"));
     }
 
     @Test

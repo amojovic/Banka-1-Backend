@@ -151,14 +151,24 @@ public class ClientController {
 
     /**
      * Vraca osnovne informacije o klijentu na osnovu internog ID-a.
-     * Ovoj ruti moze pristupiti SAMO SERVICE token (interni pozivi izmedju servisa).
+     * Dostupno SERVICE i ADMIN tokenima, kao i CLIENT_BASIC/CLIENT_TRADING tokenima
+     * iskljucivo za preuzimanje sopstvenih podataka.
      *
      * @param id identifikator klijenta
      * @return DTO sa ID-em, imenom i prezimenom klijenta
      */
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('SERVICE','ADMIN')")
-    public ResponseEntity<ClientInfoResponseDto> getInfoById(@AuthenticationPrincipal Jwt jwt,@PathVariable Long id) {
+    @PreAuthorize("hasAnyRole('SERVICE','ADMIN','CLIENT_BASIC')")
+    public ResponseEntity<ClientInfoResponseDto> getInfoById(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id) {
+        if (jwt != null) {
+            String roles = jwt.getClaimAsString("roles");
+            if (roles != null && roles.startsWith("CLIENT_")) {
+                Long tokenId = jwt.getClaim("id");
+                if (!id.equals(tokenId)) {
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                }
+            }
+        }
         return ResponseEntity.ok(clientService.getInfoById(id));
     }
 }

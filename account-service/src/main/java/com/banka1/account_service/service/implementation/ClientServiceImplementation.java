@@ -148,7 +148,9 @@ public class ClientServiceImplementation implements ClientService {
     public AccountDetailsResponseDto getDetails(Jwt jwt, Long id) {
         Account account=accountRepository.findById(id).orElse(null);
         validation(account,jwt);
-        return new AccountDetailsResponseDto(account);
+        AccountDetailsResponseDto dto = new AccountDetailsResponseDto(account);
+        dto.setCards(cardServiceRestClient.getCardsForAccount(account.getBrojRacuna()));
+        return dto;
     }
 
     @Override
@@ -156,7 +158,9 @@ public class ClientServiceImplementation implements ClientService {
     public AccountDetailsResponseDto getDetails(Jwt jwt, String accountNumber) {
         Account account=accountRepository.findByBrojRacuna(accountNumber).orElse(null);
         validation(account,jwt);
-        return new AccountDetailsResponseDto(account);
+        AccountDetailsResponseDto dto = new AccountDetailsResponseDto(account);
+        dto.setCards(cardServiceRestClient.getCardsForAccount(account.getBrojRacuna()));
+        return dto;
     }
 
     @Override

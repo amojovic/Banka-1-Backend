@@ -24,7 +24,7 @@ public class CardServiceRestClient {
     public List<CardResponseDto> getCardsForAccount(String accountNumber) {
         try {
             List<CardResponseDto> cards = cardRestClient.get()
-                    .uri("/cards/account/{accountNumber}", accountNumber)
+                    .uri("/internal/account/{accountNumber}", accountNumber)
                     .retrieve()
                     .body(new ParameterizedTypeReference<List<CardResponseDto>>() {});
             return cards != null ? cards : List.of();

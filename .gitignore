@@ -72,6 +72,10 @@ application-local.properties
 application-local.yml
 application-local.yaml
 
+# Firebase service account keys
+*-firebase-adminsdk-*.json
+google-services.json
+
 # Test reports & coverage
 test-results/
 reports/

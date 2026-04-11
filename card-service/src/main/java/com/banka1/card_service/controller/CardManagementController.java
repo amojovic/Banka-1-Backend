@@ -2,6 +2,7 @@ package com.banka1.card_service.controller;
 
 import com.banka1.card_service.dto.card_management.request.UpdateCardLimitDTO;
 import com.banka1.card_service.dto.card_management.response.CardDetailDTO;
+import com.banka1.card_service.dto.card_management.response.CardInternalSummaryDTO;
 import com.banka1.card_service.dto.card_management.response.CardSummaryDTO;
 import com.banka1.card_service.service.CardLifecycleService;
 import jakarta.validation.Valid;
@@ -148,6 +149,26 @@ public class CardManagementController {
     @PreAuthorize("hasRole('BASIC')")
     public ResponseEntity<List<CardSummaryDTO>> getCardsByAccount(@PathVariable String accountNumber) {
         return ResponseEntity.ok(cardLifecycleService.getCardsByAccountNumber(accountNumber));
+    }
+
+    // ############################################################
+    // INTERNAL SERVICE ENDPOINTS
+    // Restricted to trusted service-to-service callers (SERVICE role)
+    // ############################################################
+
+    /**
+     * Returns all cards linked to the given account number in the richer internal shape
+     * consumed by account-service when it composes account detail responses.
+     * Only trusted services authenticated with the {@code SERVICE} role may call this endpoint.
+     * Card numbers in the response are masked.
+     *
+     * @param accountNumber bank account number
+     * @return list of internal card summaries
+     */
+    @GetMapping("/internal/account/{accountNumber}")
+    @PreAuthorize("hasRole('SERVICE')")
+    public ResponseEntity<List<CardInternalSummaryDTO>> getCardsByAccountInternal(@PathVariable String accountNumber) {
+        return ResponseEntity.ok(cardLifecycleService.getInternalCardsByAccountNumber(accountNumber));
     }
 
     /**

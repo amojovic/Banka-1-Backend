@@ -1,6 +1,7 @@
 package com.banka1.card_service.service;
 
 import com.banka1.card_service.dto.card_management.response.CardDetailDTO;
+import com.banka1.card_service.dto.card_management.response.CardInternalSummaryDTO;
 import com.banka1.card_service.dto.card_management.response.CardSummaryDTO;
 
 import java.math.BigDecimal;
@@ -46,6 +47,16 @@ public interface CardLifecycleService {
      * @return list of masked card summaries (may be empty)
      */
     List<CardSummaryDTO> getCardsByAccountNumber(String accountNumber);
+
+    /**
+     * Returns all cards linked to the given account number in the richer internal shape
+     * consumed by trusted service-to-service callers such as account-service when it
+     * populates account detail responses.
+     *
+     * @param accountNumber account number to filter by
+     * @return list of internal card summaries (may be empty)
+     */
+    List<CardInternalSummaryDTO> getInternalCardsByAccountNumber(String accountNumber);
 
     /**
      * Blocks an active card. Both clients and employees may call this.
