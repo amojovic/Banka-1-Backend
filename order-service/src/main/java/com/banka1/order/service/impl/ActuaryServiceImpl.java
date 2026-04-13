@@ -124,6 +124,13 @@ public class ActuaryServiceImpl implements ActuaryService {
         ActuaryInfo info = actuaryInfoRepository.findByEmployeeId(employeeId)
                 .orElseGet(() -> createDefaultActuaryInfo(employeeId));
 
+        if (request.getLimit().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Limit must be greater than zero.");
+        }
+        if (request.getLimit().compareTo(info.getUsedLimit()) < 0) {
+            throw new IllegalArgumentException("Limit cannot be lower than the current used limit of " + info.getUsedLimit() + ".");
+        }
+
         info.setLimit(request.getLimit());
         actuaryInfoRepository.save(info);
     }
