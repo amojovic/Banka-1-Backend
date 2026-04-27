@@ -89,8 +89,12 @@ PortfolioController {
     }
 
     private AuthenticatedUser toAuthenticatedUser(Jwt jwt) {
+        Object idClaim = jwt.getClaim("id");
+        Long id = idClaim != null
+                ? ((Number) idClaim).longValue()
+                : Long.valueOf(jwt.getSubject());
         return new AuthenticatedUser(
-                Long.valueOf(jwt.getSubject()),
+                id,
                 extractStrings(jwt.getClaim("roles")),
                 extractStrings(jwt.getClaim("permissions"))
         );
