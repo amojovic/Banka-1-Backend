@@ -68,6 +68,7 @@ class CrudServiceImplementationTest {
     @BeforeEach
     void setUp() {
         ReflectionTestUtils.setField(crudService, "role", "roles");
+        ReflectionTestUtils.setField(crudService, "permission", "permissions");
         ReflectionTestUtils.setField(crudService, "activateAccount", "http://localhost/activate?token=");
         TransactionSynchronizationManager.initSynchronization();
     }
@@ -201,7 +202,7 @@ class CrudServiceImplementationTest {
         EmployeeUpdateRequestDto request = new EmployeeUpdateRequestDto();
         request.setDepartman("IT");
         EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", "Broker", "IT", true, Role.BASIC);
-        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN"));
+        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN", "permissions", List.of()));
 
         when(zaposlenRepository.findById(1L)).thenReturn(Optional.of(emp));
         when(zaposlenRepository.save(emp)).thenReturn(emp);
@@ -218,7 +219,7 @@ class CrudServiceImplementationTest {
         EmployeeUpdateRequestDto request = new EmployeeUpdateRequestDto();
         request.setAktivan(false);
         EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", "Agent", "Prodaja", false, Role.BASIC);
-        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN"));
+        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN", "permissions", List.of()));
 
         when(zaposlenRepository.findById(1L)).thenReturn(Optional.of(emp));
         when(zaposlenRepository.save(emp)).thenReturn(emp);
@@ -316,7 +317,7 @@ class CrudServiceImplementationTest {
         EmployeeUpdateRequestDto request = new EmployeeUpdateRequestDto();
         request.setDepartman("HR");
         EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", "Broker", "HR", true, Role.BASIC);
-        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN"));
+        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN", "permissions", List.of()));
 
         when(zaposlenRepository.findById(1L)).thenReturn(Optional.of(emp));
         when(zaposlenRepository.save(emp)).thenReturn(emp);
@@ -333,7 +334,7 @@ class CrudServiceImplementationTest {
         EmployeeUpdateRequestDto request = new EmployeeUpdateRequestDto();
         request.setAktivan(true);
         EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", "Broker", "Prodaja", true, Role.BASIC);
-        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN"));
+        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN", "permissions", List.of()));
 
         when(zaposlenRepository.findById(1L)).thenReturn(Optional.of(emp));
         when(zaposlenRepository.save(emp)).thenReturn(emp);

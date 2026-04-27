@@ -16,6 +16,7 @@ import com.banka1.credit_service.repository.InstallmentRepository;
 import com.banka1.credit_service.repository.LoanRepository;
 import com.banka1.credit_service.repository.LoanRequestRepository;
 import com.banka1.credit_service.rest_client.AccountService;
+import com.banka1.credit_service.rest_client.ClientService;
 import com.banka1.credit_service.rest_client.ExchangeService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -69,6 +70,9 @@ class LoanControllerIntegrationTest {
     private ExchangeService exchangeService;
 
     @MockitoBean
+    private ClientService clientService;
+
+    @MockitoBean
     private RabbitClient rabbitClient;
 
     @BeforeEach
@@ -77,12 +81,13 @@ class LoanControllerIntegrationTest {
         loanRepository.deleteAll();
         loanRequestRepository.deleteAll();
         doNothing().when(rabbitClient).sendEmailNotification(any());
+        doNothing().when(clientService).addMarginPermission(any());
     }
 
     @Test
     void requestEndpointPersistsLoanRequestForAuthenticatedOwner() throws Exception {
         LoanRequestDto request = validRequest();
-        when(accountService.getDetails("ACC-001"))
+        when(accountService.getDetails("1234567890123456789"))
                 .thenReturn(new AccountDetailsResponseDto(77L, CurrencyCode.RSD, "pera@test.com", "pera"));
 
         mockMvc.perform(post("/api/loans/requests")
@@ -99,7 +104,7 @@ class LoanControllerIntegrationTest {
         LoanRequest persisted = loanRequestRepository.findAll().getFirst();
         assertThat(persisted.getClientId()).isEqualTo(77L);
         assertThat(persisted.getStatus()).isEqualTo(Status.PENDING);
-        assertThat(persisted.getAccountNumber()).isEqualTo("ACC-001");
+        assertThat(persisted.getAccountNumber()).isEqualTo("1234567890123456789");
     }
 
     @Test
@@ -336,6 +341,22 @@ class LoanControllerIntegrationTest {
                 .andExpect(jsonPath("$.errorDesc").value("Los loanStatus"));
     }
 
+    @Test
+    void findAllLoansEndpointReturnsLoansForAdminRoleThroughHierarchy() throws Exception {
+        Loan loan = loanRepository.save(activeLoan());
+
+        mockMvc.perform(get("/api/loans/all")
+                        .with(SecurityMockMvcRequestPostProcessors.jwt()
+                                .jwt(jwt -> jwt.claim("id", 999L).claim("roles", "ADMIN"))
+                                .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].loanNumber").value(loan.getId()))
+                .andExpect(jsonPath("$.content[0].loanType").value("AUTO"))
+                .andExpect(jsonPath("$.content[0].accountNumber").value("ACC-001"))
+                .andExpect(jsonPath("$.content[0].status").value("ACTIVE"));
+    }
+
     private LoanRequestDto validRequest() {
         return new LoanRequestDto(
                 LoanType.AUTO,
@@ -348,7 +369,7 @@ class LoanControllerIntegrationTest {
                 48,
                 24,
                 "+38160111222",
-                "ACC-001"
+                "1234567890123456789"
         );
     }
 

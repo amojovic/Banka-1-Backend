@@ -114,7 +114,7 @@ class CrudEndpointsIntegrationTest {
 
         mockMvc.perform(put("/employees/{id}", employee.getId())
                         .with(SecurityMockMvcRequestPostProcessors.jwt()
-                                .jwt(jwt -> jwt.claim("roles", "ADMIN").claim("id", 500L))
+                                .jwt(jwt -> jwt.claim("roles", "ADMIN").claim("permissions", java.util.List.of()).claim("id", 500L))
                                 .authorities(new SimpleGrantedAuthority("ROLE_AGENT")))
                         .with(SecurityMockMvcRequestPostProcessors.csrf())
                         .contentType(APPLICATION_JSON)

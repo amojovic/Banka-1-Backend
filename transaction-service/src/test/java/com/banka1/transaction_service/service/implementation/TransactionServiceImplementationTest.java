@@ -163,6 +163,7 @@ class TransactionServiceImplementationTest {
         NewPaymentDto dto = validPaymentDto();
         InfoResponseDto info = infoDto(1L, 2L);
 
+        when(jwt.getClaim("id")).thenReturn(1L);
         when(accountService.getInfo(dto.getFromAccountNumber(), dto.getToAccountNumber())).thenReturn(info);
         when(exchangeService.calculate(any(), any(), any())).thenReturn(null);
 
