@@ -8,7 +8,8 @@ import java.time.LocalDateTime;
  * @param ticker refreshed stock ticker
  * @param stockId updated stock identifier
  * @param listingId updated listing identifier
- * @param refreshedDailyEntries number of daily snapshots upserted during the refresh
+ * @param refreshedDailyEntries number of daily snapshots upserted during the refresh;
+ *                              the lightweight bulk refresh path reports {@code 1}
  * @param lastRefresh timestamp written to the listing snapshot
  */
 public record StockMarketDataRefreshResponse(

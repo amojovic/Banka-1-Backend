@@ -10,12 +10,18 @@ import com.banka1.stock_service.dto.AlphaVantageCompanyOverviewResponse;
 import com.banka1.stock_service.dto.AlphaVantageDailyResponse;
 import com.banka1.stock_service.dto.AlphaVantageDailyValue;
 import com.banka1.stock_service.dto.AlphaVantageQuoteResponse;
+import com.banka1.stock_service.dto.ListingRefreshResponse;
 import com.banka1.stock_service.dto.StockMarketDataRefreshResponse;
 import com.banka1.stock_service.repository.ListingDailyPriceInfoRepository;
 import com.banka1.stock_service.repository.ListingRepository;
 import com.banka1.stock_service.repository.StockRepository;
+import com.banka1.stock_service.service.ListingMarketDataRefreshService;
 import com.banka1.stock_service.service.StockMarketDataRefreshService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,6 +54,7 @@ import java.util.Map;
  * This class owns all mapping into local entities and all idempotent upsert behavior.
  */
 @Service
+@Slf4j
 public class StockMarketDataRefreshServiceImpl implements StockMarketDataRefreshService {
 
     private final StockRepository stockRepository;
@@ -55,7 +62,11 @@ public class StockMarketDataRefreshServiceImpl implements StockMarketDataRefresh
     private final ListingDailyPriceInfoRepository listingDailyPriceInfoRepository;
     private final AlphaVantageClient alphaVantageClient;
     private final StockMarketDataProperties stockMarketDataProperties;
+    private final ListingMarketDataRefreshService listingMarketDataRefreshService;
+    private final TaskExecutor taskExecutor;
     private final Clock clock;
+    private final long requestDelayMs;
+    private final Sleeper sleeper;
 
     /**
      * Creates the production service using the system UTC clock.
@@ -72,7 +83,11 @@ public class StockMarketDataRefreshServiceImpl implements StockMarketDataRefresh
             ListingRepository listingRepository,
             ListingDailyPriceInfoRepository listingDailyPriceInfoRepository,
             AlphaVantageClient alphaVantageClient,
-            StockMarketDataProperties stockMarketDataProperties
+            StockMarketDataProperties stockMarketDataProperties,
+            ListingMarketDataRefreshService listingMarketDataRefreshService,
+            @Qualifier("applicationTaskExecutor")
+            TaskExecutor taskExecutor,
+            @Value("${stock.alpha-vantage.request-delay-ms:12000}") long requestDelayMs
     ) {
         this(
                 stockRepository,
@@ -80,7 +95,11 @@ public class StockMarketDataRefreshServiceImpl implements StockMarketDataRefresh
                 listingDailyPriceInfoRepository,
                 alphaVantageClient,
                 stockMarketDataProperties,
-                Clock.systemUTC()
+                listingMarketDataRefreshService,
+                taskExecutor,
+                Clock.systemUTC(),
+                requestDelayMs,
+                Thread::sleep
         );
     }
 
@@ -100,14 +119,81 @@ public class StockMarketDataRefreshServiceImpl implements StockMarketDataRefresh
             ListingDailyPriceInfoRepository listingDailyPriceInfoRepository,
             AlphaVantageClient alphaVantageClient,
             StockMarketDataProperties stockMarketDataProperties,
+            ListingMarketDataRefreshService listingMarketDataRefreshService,
+            TaskExecutor taskExecutor,
             Clock clock
+    ) {
+        this(
+                stockRepository,
+                listingRepository,
+                listingDailyPriceInfoRepository,
+                alphaVantageClient,
+                stockMarketDataProperties,
+                listingMarketDataRefreshService,
+                taskExecutor,
+                clock,
+                12_000L,
+                Thread::sleep
+        );
+    }
+
+    StockMarketDataRefreshServiceImpl(
+            StockRepository stockRepository,
+            ListingRepository listingRepository,
+            ListingDailyPriceInfoRepository listingDailyPriceInfoRepository,
+            AlphaVantageClient alphaVantageClient,
+            StockMarketDataProperties stockMarketDataProperties,
+            ListingMarketDataRefreshService listingMarketDataRefreshService,
+            TaskExecutor taskExecutor,
+            Clock clock,
+            long requestDelayMs,
+            Sleeper sleeper
     ) {
         this.stockRepository = stockRepository;
         this.listingRepository = listingRepository;
         this.listingDailyPriceInfoRepository = listingDailyPriceInfoRepository;
         this.alphaVantageClient = alphaVantageClient;
         this.stockMarketDataProperties = stockMarketDataProperties;
+        this.listingMarketDataRefreshService = listingMarketDataRefreshService;
+        this.taskExecutor = taskExecutor;
         this.clock = clock;
+        this.requestDelayMs = requestDelayMs;
+        this.sleeper = sleeper;
+    }
+
+    @Override
+    public void triggerRefreshAllStocks() {
+        taskExecutor.execute(() -> {
+            log.info("Async stock bulk refresh started.");
+            try {
+                List<StockMarketDataRefreshResponse> results = refreshAllStocks();
+                log.info("Async stock bulk refresh completed. refreshedStocks={}", results.size());
+            } catch (Exception exception) {
+                log.error("Async stock bulk refresh failed.", exception);
+            }
+        });
+    }
+
+    @Override
+    public List<StockMarketDataRefreshResponse> refreshAllStocks() {
+        List<Stock> stocks = stockRepository.findAll();
+        List<StockMarketDataRefreshResponse> results = new ArrayList<>();
+        BatchRefreshThrottler throttler = new BatchRefreshThrottler(requestDelayMs, clock, sleeper);
+        for (Stock stock : stocks) {
+            Listing listing = findStockListing(stock);
+            ListingRefreshResponse listingRefreshResponse = executeProviderCall(
+                    throttler,
+                    () -> listingMarketDataRefreshService.refreshListing(listing.getId())
+            );
+            results.add(new StockMarketDataRefreshResponse(
+                    stock.getTicker(),
+                    stock.getId(),
+                    listing.getId(),
+                    1,
+                    listingRefreshResponse.lastRefresh()
+            ));
+        }
+        return results;
     }
 
     /**
@@ -131,25 +217,28 @@ public class StockMarketDataRefreshServiceImpl implements StockMarketDataRefresh
      * @return summary of the completed refresh
      */
     @Override
-    public List<StockMarketDataRefreshResponse> refreshAllStocks() {
-        List<Stock> stocks = stockRepository.findAll();
-        List<StockMarketDataRefreshResponse> results = new ArrayList<>();
-        for (Stock stock : stocks) {
-            results.add(refreshStock(stock.getTicker()));
-        }
-        return results;
-    }
-
-    @Override
     @Transactional
     public StockMarketDataRefreshResponse refreshStock(String ticker) {
+        return refreshStockInternal(ticker, null);
+    }
+
+    private StockMarketDataRefreshResponse refreshStockInternal(String ticker, BatchRefreshThrottler throttler) {
         String normalizedTicker = normalizeTicker(ticker);
         Stock stock = findStock(normalizedTicker);
         Listing listing = findStockListing(stock);
 
-        AlphaVantageQuoteResponse quoteResponse = alphaVantageClient.fetchQuote(normalizedTicker);
-        AlphaVantageDailyResponse dailyResponse = alphaVantageClient.fetchDaily(normalizedTicker);
-        AlphaVantageCompanyOverviewResponse companyOverviewResponse = alphaVantageClient.fetchCompanyOverview(normalizedTicker);
+        AlphaVantageQuoteResponse quoteResponse = executeProviderCall(
+                throttler,
+                () -> alphaVantageClient.fetchQuote(normalizedTicker)
+        );
+        AlphaVantageDailyResponse dailyResponse = executeProviderCall(
+                throttler,
+                () -> alphaVantageClient.fetchDaily(normalizedTicker)
+        );
+        AlphaVantageCompanyOverviewResponse companyOverviewResponse = executeProviderCall(
+                throttler,
+                () -> alphaVantageClient.fetchCompanyOverview(normalizedTicker)
+        );
 
         LocalDateTime refreshTimestamp = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
 
@@ -167,6 +256,13 @@ public class StockMarketDataRefreshServiceImpl implements StockMarketDataRefresh
                 refreshedDailyEntries,
                 refreshTimestamp
         );
+    }
+
+    private <T> T executeProviderCall(BatchRefreshThrottler throttler, ProviderCall<T> providerCall) {
+        if (throttler != null) {
+            throttler.awaitNextSlot();
+        }
+        return providerCall.execute();
     }
 
     /**
@@ -345,5 +441,51 @@ public class StockMarketDataRefreshServiceImpl implements StockMarketDataRefresh
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Ticker must not be blank.");
         }
         return ticker.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private static final class BatchRefreshThrottler {
+
+        private final long requestDelayMs;
+        private final Clock clock;
+        private final Sleeper sleeper;
+        private long nextAllowedRequestAtMillis;
+
+        private BatchRefreshThrottler(long requestDelayMs, Clock clock, Sleeper sleeper) {
+            this.requestDelayMs = requestDelayMs;
+            this.clock = clock;
+            this.sleeper = sleeper;
+        }
+
+        private void awaitNextSlot() {
+            if (requestDelayMs <= 0) {
+                return;
+            }
+
+            long now = clock.millis();
+            long waitMs = nextAllowedRequestAtMillis - now;
+            if (waitMs > 0) {
+                try {
+                    sleeper.sleep(waitMs);
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new ResponseStatusException(
+                            HttpStatus.SERVICE_UNAVAILABLE,
+                            "Stock bulk refresh throttling was interrupted.",
+                            exception
+                    );
+                }
+            }
+            nextAllowedRequestAtMillis = clock.millis() + requestDelayMs;
+        }
+    }
+
+    @FunctionalInterface
+    interface Sleeper {
+        void sleep(long millis) throws InterruptedException;
+    }
+
+    @FunctionalInterface
+    private interface ProviderCall<T> {
+        T execute();
     }
 }

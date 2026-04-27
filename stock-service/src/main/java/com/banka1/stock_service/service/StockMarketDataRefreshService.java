@@ -18,10 +18,20 @@ public interface StockMarketDataRefreshService {
     StockMarketDataRefreshResponse refreshStock(String ticker);
 
     /**
-     * Refreshes all persisted stock tickers sequentially.
+     * Starts the lightweight bulk stock refresh in the background and returns immediately.
      *
-     * <p>Each ticker is attempted independently. Failures are recorded in the response
-     * and do not abort the remaining tickers.
+     * <p>The caller is not blocked until completion. The asynchronous job executes the same
+     * lightweight market-snapshot refresh flow as the scheduled listing refresher.
+     */
+    void triggerRefreshAllStocks();
+
+    /**
+     * Refreshes all persisted stock tickers sequentially using the same lightweight market-snapshot
+     * flow as the scheduled listing refresher.
+     *
+     * <p>Unlike {@link #refreshStock(String)}, this bulk operation does not request stock overview
+     * fundamentals or multi-day history from the provider. It refreshes the current stock listing
+     * snapshot only and upserts the current-day listing daily snapshot.
      *
      * @return one result entry per stock, in the order they were processed
      */

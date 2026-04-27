@@ -11,15 +11,18 @@ import com.banka1.stock_service.dto.AlphaVantageCompanyOverviewResponse;
 import com.banka1.stock_service.dto.AlphaVantageDailyResponse;
 import com.banka1.stock_service.dto.AlphaVantageDailyValue;
 import com.banka1.stock_service.dto.AlphaVantageQuoteResponse;
+import com.banka1.stock_service.dto.ListingRefreshResponse;
 import com.banka1.stock_service.dto.StockMarketDataRefreshResponse;
 import com.banka1.stock_service.repository.ListingDailyPriceInfoRepository;
 import com.banka1.stock_service.repository.ListingRepository;
 import com.banka1.stock_service.repository.StockRepository;
+import com.banka1.stock_service.service.ListingMarketDataRefreshService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -29,7 +32,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -57,6 +62,12 @@ class StockMarketDataRefreshServiceImplTest {
 
     @Mock
     private AlphaVantageClient alphaVantageClient;
+
+    @Mock
+    private ListingMarketDataRefreshService listingMarketDataRefreshService;
+
+    @Mock
+    private TaskExecutor taskExecutor;
 
     @Test
     void refreshStockUpdatesStockListingAndDailySnapshots() {
@@ -172,15 +183,87 @@ class StockMarketDataRefreshServiceImplTest {
         verify(listingDailyPriceInfoRepository, never()).saveAll(any());
     }
 
+    @Test
+    void refreshAllStocksSpacesProviderCallsAcrossEntireBatch() {
+        Stock aapl = createStock();
+        Stock msft = createStock();
+        msft.setId(2L);
+        msft.setTicker("MSFT");
+        msft.setName("Old Microsoft");
+
+        Listing aaplListing = createListing(aapl);
+        Listing msftListing = createListing(msft);
+        msftListing.setId(11L);
+        msftListing.setSecurityId(msft.getId());
+        msftListing.setTicker(msft.getTicker());
+        msftListing.setName(msft.getName());
+
+        when(stockRepository.findAll()).thenReturn(List.of(aapl, msft));
+        when(listingRepository.findByListingTypeAndSecurityId(ListingType.STOCK, 1L))
+                .thenReturn(Optional.of(aaplListing));
+        when(listingRepository.findByListingTypeAndSecurityId(ListingType.STOCK, 2L))
+                .thenReturn(Optional.of(msftListing));
+        when(listingMarketDataRefreshService.refreshListing(10L)).thenReturn(new ListingRefreshResponse(
+                10L,
+                "AAPL",
+                ListingType.STOCK,
+                LocalDate.of(2026, 4, 8),
+                LocalDateTime.of(2026, 4, 8, 10, 15, 30)
+        ));
+        when(listingMarketDataRefreshService.refreshListing(11L)).thenReturn(new ListingRefreshResponse(
+                11L,
+                "MSFT",
+                ListingType.STOCK,
+                LocalDate.of(2026, 4, 8),
+                LocalDateTime.of(2026, 4, 8, 10, 15, 42)
+        ));
+
+        MutableClock clock = new MutableClock(Instant.parse("2026-04-08T10:15:30Z"));
+        List<Long> sleepCalls = new ArrayList<>();
+
+        List<StockMarketDataRefreshResponse> responses = serviceAt(clock, 12_000L, millis -> {
+            sleepCalls.add(millis);
+            clock.advanceMillis(millis);
+        }).refreshAllStocks();
+
+        assertThat(responses).hasSize(2);
+        assertThat(responses)
+                .extracting(StockMarketDataRefreshResponse::refreshedDailyEntries)
+                .containsExactly(1, 1);
+        assertThat(sleepCalls).containsExactly(12_000L);
+    }
+
+    @Test
+    void triggerRefreshAllStocksSchedulesBackgroundExecution() {
+        ArgumentCaptor<Runnable> runnableCaptor = ArgumentCaptor.forClass(Runnable.class);
+
+        serviceAt("2026-04-08T10:15:30Z").triggerRefreshAllStocks();
+
+        verify(taskExecutor).execute(runnableCaptor.capture());
+        assertThat(runnableCaptor.getValue()).isNotNull();
+    }
+
     private StockMarketDataRefreshServiceImpl serviceAt(String instant) {
         Clock clock = Clock.fixed(Instant.parse(instant), ZoneOffset.UTC);
+        return serviceAt(clock, 12_000L, Thread::sleep);
+    }
+
+    private StockMarketDataRefreshServiceImpl serviceAt(
+            Clock clock,
+            long requestDelayMs,
+            StockMarketDataRefreshServiceImpl.Sleeper sleeper
+    ) {
         return new StockMarketDataRefreshServiceImpl(
                 stockRepository,
                 listingRepository,
                 listingDailyPriceInfoRepository,
                 alphaVantageClient,
                 new StockMarketDataProperties("https://www.alphavantage.co", "demo-key", null, 2),
-                clock
+                listingMarketDataRefreshService,
+                taskExecutor,
+                clock,
+                requestDelayMs,
+                sleeper
         );
     }
 
@@ -234,5 +317,33 @@ class StockMarketDataRefreshServiceImplTest {
         entry.setChange(new BigDecimal("1.00000000"));
         entry.setVolume(15_000L);
         return entry;
+    }
+
+    private static final class MutableClock extends Clock {
+
+        private Instant currentInstant;
+
+        private MutableClock(Instant currentInstant) {
+            this.currentInstant = currentInstant;
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return currentInstant;
+        }
+
+        private void advanceMillis(long millis) {
+            currentInstant = currentInstant.plusMillis(millis);
+        }
     }
 }
