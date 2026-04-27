@@ -72,4 +72,15 @@ public interface AccountService {
      * @return DTO sa detaljima internog racuna
      */
     InternalAccountDetailsDto getBankAccountDetails(CurrencyCode currencyCode);
+
+    /**
+     * Vraca drzavni (State) racun za zadatu valutu. Drzava je modelovana kao zasebna
+     * firma sa vlasnikom {@code -2} i u nasem sistemu se koristi za naplatu poreza
+     * na kapitalnu dobit i za namirenje opcionih ugovora (exercise). U praksi,
+     * state ima samo RSD racun.
+     *
+     * @param currencyCode kod valute (u praksi samo RSD)
+     * @return DTO sa detaljima drzavnog racuna
+     */
+    InternalAccountDetailsDto getStateAccountDetails(CurrencyCode currencyCode);
 }

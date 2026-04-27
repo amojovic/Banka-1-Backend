@@ -21,5 +21,10 @@ public enum ListingType {
     /**
      * Listing of an FX pair.
      */
-    FOREX
+    FOREX,
+
+    /**
+     * Listing of an options contract.
+     */
+    OPTION
 }

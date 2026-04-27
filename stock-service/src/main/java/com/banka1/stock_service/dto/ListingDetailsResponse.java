@@ -1,8 +1,10 @@
 package com.banka1.stock_service.dto;
 
 import com.banka1.stock_service.domain.ListingType;
+import com.banka1.stock_service.domain.OptionType;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -33,6 +35,14 @@ import java.util.List;
  * @param futuresDetails futures-specific fields when the listing is a futures contract
  * @param forexDetails FX-specific fields when the listing is an FX pair
  * @param optionGroups grouped stock options when the listing is a stock
+ * @param currency trading currency of the listing's exchange (all types)
+ * @param contractSize number of units per contract (all types)
+ * @param maintenanceMargin derived maintenance margin (all types)
+ * @param optionType CALL or PUT when the listing is an options contract
+ * @param strikePrice agreed strike price when the listing is an options contract
+ * @param underlyingListingId listing id of the underlying stock when the listing is an options contract
+ * @param settlementDate expiration date when the listing is an options contract
+ * @param underlyingPrice current price of the underlying stock when the listing is an options contract
  */
 public record ListingDetailsResponse(
         Long listingId,
@@ -58,6 +68,14 @@ public record ListingDetailsResponse(
         ListingStockDetailsResponse stockDetails,
         ListingFuturesDetailsResponse futuresDetails,
         ListingForexDetailsResponse forexDetails,
-        List<StockOptionSettlementGroupResponse> optionGroups
+        List<StockOptionSettlementGroupResponse> optionGroups,
+        String currency,
+        Integer contractSize,
+        BigDecimal maintenanceMargin,
+        OptionType optionType,
+        BigDecimal strikePrice,
+        Long underlyingListingId,
+        LocalDate settlementDate,
+        BigDecimal underlyingPrice
 ) {
 }

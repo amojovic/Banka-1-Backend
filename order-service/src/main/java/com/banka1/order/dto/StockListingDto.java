@@ -2,6 +2,7 @@ package com.banka1.order.dto;
 
 import com.banka1.order.entity.enums.ListingType;
 import com.banka1.order.entity.enums.OptionType;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -12,7 +13,8 @@ import java.time.LocalDate;
  */
 @Data
 public class StockListingDto {
-    /** The listing's unique identifier. */
+    /** The listing's unique identifier. Stock-service serializes this field as "listingId". */
+    @JsonProperty("listingId")
     private Long id;
     /** Ticker symbol (e.g. "AAPL", "MSFT"). */
     private String ticker;

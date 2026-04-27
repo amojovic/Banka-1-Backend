@@ -38,9 +38,15 @@ public interface AccountClient {
     }
 
     /**
-     * Fetches the government's RSD bank account details.
+     * Fetches the state's (Republika Srbija) RSD account details.
      *
-     * @return government account details
+     * The state is modelled as a dedicated company entity with owner {@code -2},
+     * distinct from the bank's own accounts (owner {@code -1}). This endpoint
+     * is used when order-service settles capital-gains tax collection and option
+     * exercise transfers — both of which must land on the state's account rather
+     * than on bank equity.
+     *
+     * @return state RSD account details
      */
     AccountDetailsDto getGovernmentBankAccountRsd();
 

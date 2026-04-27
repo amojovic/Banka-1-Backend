@@ -74,6 +74,27 @@ public class AccountController {
     }
 
     /**
+     * Vraca drzavni racun za zadatu valutu. Drzava je modelovana kao zasebna
+     * firma sa vlasnikom {@code -2}; u nasem sistemu ima samo RSD racun koji se
+     * koristi za naplatu poreza na kapitalnu dobit i za namirenje opcionih ugovora
+     * (exercise). Ovaj endpoint se koristi od strane order-service-a umesto
+     * ranijeg {@code /bank/{currencyCode}} poziva, kako bi se drzavna sredstva
+     * odvojila od bankinog kapitala.
+     *
+     * @param jwt JWT token servisa koji pravi zahtev
+     * @param currencyCode kod valute (u praksi samo RSD)
+     * @return {@link InternalAccountDetailsDto} sa detaljima drzavnog racuna
+     */
+    @GetMapping("/state/{currencyCode}")
+    public ResponseEntity<InternalAccountDetailsDto> getStateAccountDetails(@AuthenticationPrincipal Jwt jwt, @PathVariable CurrencyCode currencyCode) {
+        if (currencyCode != CurrencyCode.RSD) {
+            throw new IllegalArgumentException(
+                    "Drzavni racun postoji samo za RSD valutu, trazena valuta: " + currencyCode);
+        }
+        return new ResponseEntity<>(accountService.getStateAccountDetails(currencyCode), HttpStatus.OK);
+    }
+
+    /**
      * Obradi transfer novca izmedju dva racuna istog vlasnika.
      * <p>
      * Razlikuje se od {@code /transaction} jer zahteva da oba racuna

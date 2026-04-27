@@ -1,8 +1,11 @@
 package com.banka1.stock_service.runner;
 
+import com.banka1.stock_service.domain.Listing;
+import com.banka1.stock_service.domain.ListingType;
 import com.banka1.stock_service.domain.OptionType;
 import com.banka1.stock_service.domain.Stock;
 import com.banka1.stock_service.domain.StockOption;
+import com.banka1.stock_service.repository.ListingRepository;
 import com.banka1.stock_service.repository.StockOptionRepository;
 import com.banka1.stock_service.repository.StockRepository;
 import lombok.RequiredArgsConstructor;
@@ -12,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -28,10 +32,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class StockOptionSeedService {
 
-    private static final BigDecimal LAST_PRICE_RATE = new BigDecimal("0.0080");
-    private static final BigDecimal MIN_PRICE = new BigDecimal("0.01000000");
-    private static final BigDecimal SPREAD_RATE = new BigDecimal("0.02");
-    private static final BigDecimal MIN_SPREAD = new BigDecimal("0.01000000");
+    private static final String SOURCE = "built-in starter stock options";
 
     // Settlement dates: next quarterly expiration cycles
     private static final LocalDate EXPIRY_JUNE   = LocalDate.of(2026, 6, 19);
@@ -85,6 +86,7 @@ public class StockOptionSeedService {
 
     private final StockRepository stockRepository;
     private final StockOptionRepository stockOptionRepository;
+    private final ListingRepository listingRepository;
 
     /**
      * Seeds the built-in starter options into the database.
@@ -114,51 +116,35 @@ public class StockOptionSeedService {
             option.setStrikePrice(new BigDecimal(row.strikePrice()));
             option.setImpliedVolatility(new BigDecimal(row.impliedVolatility()));
             option.setOpenInterest(row.openInterest());
-            option.setLastPrice(deriveLastPrice(row));
-            option.setBid(deriveBid(row));
-            option.setAsk(deriveAsk(row));
-            option.setVolume(deriveVolume(row));
             option.setSettlementDate(row.settlementDate());
             stockOptionRepository.save(option);
+            seedOptionListing(option, stock);
             createdCount++;
         }
 
         return createdCount;
     }
 
-    private BigDecimal deriveLastPrice(SeededOptionRow row) {
-        BigDecimal strikePrice = new BigDecimal(row.strikePrice());
-        BigDecimal impliedVolatility = new BigDecimal(row.impliedVolatility());
-        BigDecimal directionalMultiplier = row.optionType() == OptionType.CALL
-                ? new BigDecimal("0.98")
-                : new BigDecimal("1.02");
-
-        BigDecimal rawPrice = strikePrice
-                .multiply(impliedVolatility)
-                .multiply(LAST_PRICE_RATE)
-                .multiply(directionalMultiplier);
-
-        return rawPrice.max(MIN_PRICE).setScale(8, RoundingMode.HALF_UP);
-    }
-
-    private BigDecimal deriveAsk(SeededOptionRow row) {
-        BigDecimal lastPrice = deriveLastPrice(row);
-        BigDecimal spread = deriveSpread(lastPrice);
-        return lastPrice.add(spread).setScale(8, RoundingMode.HALF_UP);
-    }
-
-    private BigDecimal deriveBid(SeededOptionRow row) {
-        BigDecimal lastPrice = deriveLastPrice(row);
-        BigDecimal spread = deriveSpread(lastPrice);
-        return lastPrice.subtract(spread).max(MIN_PRICE).setScale(8, RoundingMode.HALF_UP);
-    }
-
-    private Long deriveVolume(SeededOptionRow row) {
-        return Math.max(1L, row.openInterest() / 4L);
-    }
-
-    private BigDecimal deriveSpread(BigDecimal lastPrice) {
-        return lastPrice.multiply(SPREAD_RATE).max(MIN_SPREAD).setScale(8, RoundingMode.HALF_UP);
+    private void seedOptionListing(StockOption option, Stock stock) {
+        listingRepository.findByListingTypeAndSecurityId(ListingType.STOCK, stock.getId())
+                .ifPresent(underlyingListing -> {
+                    if (listingRepository.findByListingTypeAndSecurityId(ListingType.OPTION, option.getId()).isPresent()) {
+                        return;
+                    }
+                    Listing optionListing = new Listing();
+                    optionListing.setListingType(ListingType.OPTION);
+                    optionListing.setSecurityId(option.getId());
+                    optionListing.setStockExchange(underlyingListing.getStockExchange());
+                    optionListing.setTicker(option.getTicker());
+                    optionListing.setName(option.getTicker());
+                    optionListing.setPrice(option.getStrikePrice());
+                    optionListing.setAsk(option.getStrikePrice());
+                    optionListing.setBid(option.getStrikePrice());
+                    optionListing.setChange(BigDecimal.ZERO);
+                    optionListing.setVolume((long) option.getOpenInterest());
+                    optionListing.setLastRefresh(LocalDateTime.now());
+                    listingRepository.save(optionListing);
+                });
     }
 
     private record SeededOptionRow(

@@ -34,6 +34,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
@@ -154,7 +155,11 @@ public class OrderExecutionServiceImpl implements OrderExecutionService {
         }
 
         int quantityToExecute = determineExecutionQuantity(managedOrder, executableCapacity);
-        BigDecimal executionPricePerUnit = calculateExecutionPricePerUnit(managedOrder, listing);
+        Optional<BigDecimal> executionPriceOpt = calculateExecutionPricePerUnit(managedOrder, listing);
+        if (executionPriceOpt.isEmpty()) {
+            return;
+        }
+        BigDecimal executionPricePerUnit = executionPriceOpt.get();
         BigDecimal grossChunkAmount = executionPricePerUnit
                 .multiply(BigDecimal.valueOf(managedOrder.getContractSize()))
                 .multiply(BigDecimal.valueOf(quantityToExecute));
@@ -175,9 +180,10 @@ public class OrderExecutionServiceImpl implements OrderExecutionService {
 
     private boolean activateIfEligible(Order order, StockListingDto listing) {
         if (order.getOrderType() == OrderType.STOP) {
-            boolean activated = order.getDirection() == OrderDirection.BUY
-                    ? listing.getAsk().compareTo(order.getStopValue()) >= 0
-                    : listing.getBid().compareTo(order.getStopValue()) < 0;
+            if (!canEvaluateStop(order, listing)) {
+                return false;
+            }
+            boolean activated = isStopActivated(order, listing);
             if (activated) {
                 order.setOrderType(OrderType.MARKET);
                 orderRepository.save(order);
@@ -185,9 +191,10 @@ public class OrderExecutionServiceImpl implements OrderExecutionService {
             return activated;
         }
         if (order.getOrderType() == OrderType.STOP_LIMIT) {
-            boolean activated = order.getDirection() == OrderDirection.BUY
-                    ? listing.getAsk().compareTo(order.getStopValue()) >= 0
-                    : listing.getBid().compareTo(order.getStopValue()) < 0;
+            if (!canEvaluateStop(order, listing)) {
+                return false;
+            }
+            boolean activated = isStopActivated(order, listing);
             if (activated) {
                 order.setOrderType(OrderType.LIMIT);
                 orderRepository.save(order);
@@ -197,15 +204,43 @@ public class OrderExecutionServiceImpl implements OrderExecutionService {
         return isExecutableAtCurrentMarket(order, listing);
     }
 
+    private boolean canEvaluateStop(Order order, StockListingDto listing) {
+        BigDecimal quote = order.getDirection() == OrderDirection.BUY ? listing.getAsk() : listing.getBid();
+        if (quote == null) {
+            log.warn("Skipping STOP activation for order {}: {} quote is unavailable",
+                    order.getId(),
+                    order.getDirection() == OrderDirection.BUY ? "ask" : "bid");
+            return false;
+        }
+        return true;
+    }
+
+    private boolean isStopActivated(Order order, StockListingDto listing) {
+        BigDecimal quote = order.getDirection() == OrderDirection.BUY ? listing.getAsk() : listing.getBid();
+        return order.getDirection() == OrderDirection.BUY
+                ? quote.compareTo(order.getStopValue()) >= 0
+                : quote.compareTo(order.getStopValue()) < 0;
+    }
+
     private boolean isExecutableAtCurrentMarket(Order order, StockListingDto listing) {
         if (order.getOrderType() == OrderType.MARKET) {
             return true;
         }
         if (order.getOrderType() == OrderType.LIMIT && order.getDirection() == OrderDirection.BUY) {
-            return listing.getAsk().compareTo(order.getLimitValue()) <= 0;
+            BigDecimal ask = listing.getAsk();
+            if (ask == null) {
+                log.warn("Skipping BUY LIMIT eligibility check for order {}: ask quote is unavailable", order.getId());
+                return false;
+            }
+            return ask.compareTo(order.getLimitValue()) <= 0;
         }
         if (order.getOrderType() == OrderType.LIMIT) {
-            return listing.getBid().compareTo(order.getLimitValue()) >= 0;
+            BigDecimal bid = listing.getBid();
+            if (bid == null) {
+                log.warn("Skipping SELL LIMIT eligibility check for order {}: bid quote is unavailable", order.getId());
+                return false;
+            }
+            return bid.compareTo(order.getLimitValue()) >= 0;
         }
         return false;
     }
@@ -222,12 +257,34 @@ public class OrderExecutionServiceImpl implements OrderExecutionService {
         return ThreadLocalRandom.current().nextInt(executableCapacity) + 1;
     }
 
-    private BigDecimal calculateExecutionPricePerUnit(Order order, StockListingDto listing) {
+    private Optional<BigDecimal> calculateExecutionPricePerUnit(Order order, StockListingDto listing) {
         return switch (order.getOrderType()) {
-            case MARKET -> order.getDirection() == OrderDirection.BUY ? listing.getAsk() : listing.getBid();
-            case LIMIT -> order.getDirection() == OrderDirection.BUY
-                    ? order.getLimitValue().min(listing.getAsk())
-                    : order.getLimitValue().max(listing.getBid());
+            case MARKET -> {
+                BigDecimal marketQuote = order.getDirection() == OrderDirection.BUY ? listing.getAsk() : listing.getBid();
+                if (marketQuote == null) {
+                    log.warn("Skipping MARKET execution for order {}: {} quote is unavailable",
+                            order.getId(),
+                            order.getDirection() == OrderDirection.BUY ? "ask" : "bid");
+                    yield Optional.empty();
+                }
+                yield Optional.of(marketQuote);
+            }
+            case LIMIT -> {
+                if (order.getDirection() == OrderDirection.BUY) {
+                    BigDecimal ask = listing.getAsk();
+                    if (ask == null) {
+                        log.warn("Skipping BUY LIMIT execution for order {}: ask quote is unavailable", order.getId());
+                        yield Optional.empty();
+                    }
+                    yield Optional.of(order.getLimitValue().min(ask));
+                }
+                BigDecimal bid = listing.getBid();
+                if (bid == null) {
+                    log.warn("Skipping SELL LIMIT execution for order {}: bid quote is unavailable", order.getId());
+                    yield Optional.empty();
+                }
+                yield Optional.of(order.getLimitValue().max(bid));
+            }
             case STOP, STOP_LIMIT -> throw new IllegalStateException("Stop-family orders must be activated before execution");
         };
     }
@@ -273,6 +330,7 @@ public class OrderExecutionServiceImpl implements OrderExecutionService {
 
         portfolio.setReservedQuantity(Math.max(0, defaultInteger(portfolio.getReservedQuantity()) - quantity));
         portfolio.setQuantity(portfolio.getQuantity() - quantity);
+        portfolio.setPublicQuantity(Math.min(defaultInteger(portfolio.getPublicQuantity()), portfolio.getQuantity()));
         if (portfolio.getQuantity() == 0 && defaultInteger(portfolio.getReservedQuantity()) == 0) {
             portfolioRepository.delete(portfolio);
         } else {

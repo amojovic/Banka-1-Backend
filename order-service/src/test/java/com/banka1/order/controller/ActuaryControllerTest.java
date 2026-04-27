@@ -2,6 +2,7 @@ package com.banka1.order.controller;
 
 import com.banka1.order.dto.ActuaryAgentDto;
 import com.banka1.order.dto.SetLimitRequestDto;
+import com.banka1.order.dto.SetNeedApprovalRequestDto;
 import com.banka1.order.dto.SimpleResponse;
 import com.banka1.order.service.ActuaryService;
 import org.junit.jupiter.api.BeforeEach;
@@ -138,11 +139,12 @@ class ActuaryControllerTest {
 
     @Test
     void resetLimit_returns200OnSuccess() {
-        ResponseEntity<Void> response = controller.resetLimit(1L);
+        ResponseEntity<SimpleResponse> response = controller.resetLimit(1L);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().status()).isEqualTo("success");
         verify(actuaryService).resetLimit(1L);
-
     }
 
     @Test
@@ -161,6 +163,29 @@ class ActuaryControllerTest {
         verify(actuaryService).resetLimit(1L);
         verify(actuaryService).resetLimit(2L);
         verify(actuaryService).resetLimit(3L);
+    }
+
+    @Test
+    void setNeedApproval_returns200OnSuccess() {
+        SetNeedApprovalRequestDto request = new SetNeedApprovalRequestDto();
+        request.setNeedApproval(true);
+
+        ResponseEntity<SimpleResponse> response = controller.setNeedApproval(1L, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().status()).isEqualTo("success");
+        verify(actuaryService).setNeedApproval(1L, request);
+    }
+
+    @Test
+    void setNeedApproval_delegatesWithFalseValue() {
+        SetNeedApprovalRequestDto request = new SetNeedApprovalRequestDto();
+        request.setNeedApproval(false);
+
+        controller.setNeedApproval(77L, request);
+
+        verify(actuaryService).setNeedApproval(77L, request);
     }
 
     @Test

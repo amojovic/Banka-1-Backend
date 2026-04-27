@@ -171,4 +171,18 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
      */
     @Query("SELECT a FROM Account a WHERE a.vlasnik = -1 AND a.currency.oznaka = :currencyCode")
     Optional<Account> findBankAccountByCurrencyCode(@Param("currencyCode") CurrencyCode currencyCode);
+
+    /**
+     * Pronalazi drzavni (State) racun za zadatom valutom.
+     * <p>
+     * Drzava je modelovana kao firma sa vlasnikom {@code -2}, razlicitim od banke
+     * ({@code -1}) i redovnih klijenata (pozitivni ID-evi). Koristi se pri
+     * naplati poreza na kapitalnu dobit i pri namirenju opcionih ugovora
+     * (exercise), gde prenos treba da ide na drzavni racun, ne na racun banke.
+     *
+     * @param currencyCode kod valute (u praksi samo RSD)
+     * @return {@code Optional} sa drzavnim racunom u datoj valuti
+     */
+    @Query("SELECT a FROM Account a WHERE a.vlasnik = -2 AND a.currency.oznaka = :currencyCode")
+    Optional<Account> findStateAccountByCurrencyCode(@Param("currencyCode") CurrencyCode currencyCode);
 }

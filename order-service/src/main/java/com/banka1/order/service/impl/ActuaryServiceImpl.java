@@ -5,6 +5,7 @@ import com.banka1.order.dto.ActuaryAgentDto;
 import com.banka1.order.dto.EmployeeDto;
 import com.banka1.order.dto.EmployeePageResponse;
 import com.banka1.order.dto.SetLimitRequestDto;
+import com.banka1.order.dto.SetNeedApprovalRequestDto;
 import com.banka1.order.entity.ActuaryInfo;
 import com.banka1.order.repository.ActuaryInfoRepository;
 import com.banka1.order.service.ActuaryService;
@@ -152,6 +153,28 @@ public class ActuaryServiceImpl implements ActuaryService {
 
         info.setUsedLimit(BigDecimal.ZERO);
         info.setReservedLimit(BigDecimal.ZERO);
+        actuaryInfoRepository.save(info);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    @Transactional
+    public void setNeedApproval(Long employeeId, SetNeedApprovalRequestDto request) {
+        EmployeeDto employee = employeeClient.getEmployee(employeeId);
+
+        if ("ADMIN".equals(employee.getRole())) {
+            throw new IllegalArgumentException("Cannot change the need-approval flag of an admin.");
+        }
+        if (!"AGENT".equals(employee.getRole())) {
+            throw new IllegalArgumentException("The need-approval flag can only be set for employees with the AGENT role.");
+        }
+
+        ActuaryInfo info = actuaryInfoRepository.findByEmployeeId(employeeId)
+                .orElseGet(() -> createDefaultActuaryInfo(employeeId));
+
+        info.setNeedApproval(Boolean.TRUE.equals(request.getNeedApproval()));
         actuaryInfoRepository.save(info);
     }
 

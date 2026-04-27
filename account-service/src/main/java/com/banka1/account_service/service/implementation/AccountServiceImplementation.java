@@ -183,6 +183,14 @@ public class AccountServiceImplementation implements AccountService {
     }
 
     @Override
+    public InternalAccountDetailsDto getStateAccountDetails(CurrencyCode currencyCode) {
+        Account account = accountRepository.findStateAccountByCurrencyCode(currencyCode).orElse(null);
+        if (account == null)
+            throw new NoSuchElementException("Ne postoji drzavni racun za valutu:" + currencyCode);
+        return InternalAccountDetailsDto.from(account);
+    }
+
+    @Override
     public InfoResponseDto info(Jwt jwt, String fromAccountNumber, String toAccountNumber) {
         Account fromAccount=accountRepository.findByBrojRacuna(fromAccountNumber).orElse(null);
         if(fromAccount==null)

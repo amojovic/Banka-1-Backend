@@ -48,7 +48,7 @@ public class AccountClientImpl implements AccountClient {
     @Override
     public AccountDetailsDto getGovernmentBankAccountRsd() {
         return accountRestClient.get()
-                .uri("/internal/accounts/bank/RSD")
+                .uri("/internal/accounts/state/RSD")
                 .retrieve()
                 .body(AccountDetailsDto.class);
     }

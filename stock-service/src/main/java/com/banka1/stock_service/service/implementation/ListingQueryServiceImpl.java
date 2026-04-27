@@ -90,6 +90,7 @@ public class ListingQueryServiceImpl implements ListingQueryService {
             case STOCK -> buildStockDetailsResponse(listing, period, priceHistory);
             case FUTURES -> buildFuturesDetailsResponse(listing, period, priceHistory);
             case FOREX -> buildForexDetailsResponse(listing, period, priceHistory);
+            case OPTION -> buildOptionDetailsResponse(listing, period, priceHistory);
         };
     }
 
@@ -234,7 +235,11 @@ public class ListingQueryServiceImpl implements ListingQueryService {
                 ),
                 null,
                 null,
-                optionGroups
+                optionGroups,
+                listing.getStockExchange().getCurrency(),
+                stock.getContractSize(),
+                maintenanceMargin,
+                null, null, null, null, null
         );
     }
 
@@ -268,7 +273,11 @@ public class ListingQueryServiceImpl implements ListingQueryService {
                         contract.getSettlementDate()
                 ),
                 null,
-                List.of()
+                List.of(),
+                listing.getStockExchange().getCurrency(),
+                contract.getContractSize(),
+                maintenanceMargin,
+                null, null, null, null, null
         );
     }
 
@@ -288,9 +297,11 @@ public class ListingQueryServiceImpl implements ListingQueryService {
         ForexPair pair = forexPairRepository.findById(listing.getSecurityId())
                 .orElseThrow(() -> missingUnderlyingEntity(listing, "forex pair"));
 
+        BigDecimal maintenanceMargin = pair.calculateMaintenanceMargin(listing.getPrice());
+
         return createDetailsResponse(
                 listing,
-                listing.calculateInitialMarginCost(pair.calculateMaintenanceMargin(listing.getPrice())),
+                listing.calculateInitialMarginCost(maintenanceMargin),
                 period,
                 priceHistory,
                 null,
@@ -302,7 +313,11 @@ public class ListingQueryServiceImpl implements ListingQueryService {
                         pair.getLiquidity(),
                         pair.getContractSize()
                 ),
-                List.of()
+                List.of(),
+                listing.getStockExchange().getCurrency(),
+                pair.getContractSize(),
+                maintenanceMargin,
+                null, null, null, null, null
         );
     }
 
@@ -360,6 +375,48 @@ public class ListingQueryServiceImpl implements ListingQueryService {
     }
 
     /**
+     * Builds the detailed response for one options listing.
+     *
+     * @param listing options listing
+     * @param period requested history window
+     * @param priceHistory filtered historical price rows
+     * @return detailed options response
+     */
+    private ListingDetailsResponse buildOptionDetailsResponse(
+            Listing listing,
+            ListingDetailsPeriod period,
+            List<ListingDailyPriceInfoResponse> priceHistory
+    ) {
+        StockOption option = stockOptionRepository.findById(listing.getSecurityId())
+                .orElseThrow(() -> missingUnderlyingEntity(listing, "stock option"));
+
+        Listing underlyingListing = listingRepository
+                .findByListingTypeAndSecurityId(ListingType.STOCK, option.getStock().getId())
+                .orElseThrow(() -> missingUnderlyingEntity(listing, "underlying stock listing"));
+
+        BigDecimal maintenanceMargin = option.calculateMaintenanceMargin(underlyingListing.getPrice());
+
+        return createDetailsResponse(
+                listing,
+                listing.calculateInitialMarginCost(maintenanceMargin),
+                period,
+                priceHistory,
+                null,
+                null,
+                null,
+                List.of(),
+                listing.getStockExchange().getCurrency(),
+                StockOption.CONTRACT_SIZE,
+                maintenanceMargin,
+                option.getOptionType(),
+                option.getStrikePrice(),
+                underlyingListing.getId(),
+                option.getSettlementDate(),
+                underlyingListing.getPrice()
+        );
+    }
+
+    /**
      * Creates the shared top-level detailed response for one listing.
      *
      * @param listing listing entity
@@ -370,6 +427,14 @@ public class ListingQueryServiceImpl implements ListingQueryService {
      * @param futuresDetails futures-specific details when applicable
      * @param forexDetails FX-specific details when applicable
      * @param optionGroups grouped stock options when applicable
+     * @param currency trading currency of the listing's exchange
+     * @param contractSize number of units per contract
+     * @param maintenanceMargin derived maintenance margin
+     * @param optionType CALL or PUT when applicable
+     * @param strikePrice agreed strike price when applicable
+     * @param underlyingListingId listing id of the underlying stock when applicable
+     * @param settlementDate expiration date when applicable
+     * @param underlyingPrice current price of the underlying stock when applicable
      * @return public detailed response
      */
     private ListingDetailsResponse createDetailsResponse(
@@ -380,7 +445,15 @@ public class ListingQueryServiceImpl implements ListingQueryService {
             ListingStockDetailsResponse stockDetails,
             ListingFuturesDetailsResponse futuresDetails,
             ListingForexDetailsResponse forexDetails,
-            List<StockOptionSettlementGroupResponse> optionGroups
+            List<StockOptionSettlementGroupResponse> optionGroups,
+            String currency,
+            Integer contractSize,
+            BigDecimal maintenanceMargin,
+            OptionType optionType,
+            BigDecimal strikePrice,
+            Long underlyingListingId,
+            LocalDate settlementDate,
+            BigDecimal underlyingPrice
     ) {
         return new ListingDetailsResponse(
                 listing.getId(),
@@ -406,7 +479,15 @@ public class ListingQueryServiceImpl implements ListingQueryService {
                 stockDetails,
                 futuresDetails,
                 forexDetails,
-                optionGroups
+                optionGroups,
+                currency,
+                contractSize,
+                maintenanceMargin,
+                optionType,
+                strikePrice,
+                underlyingListingId,
+                settlementDate,
+                underlyingPrice
         );
     }
 
@@ -550,7 +631,6 @@ public class ListingQueryServiceImpl implements ListingQueryService {
      * Applies the futures settlement-date filter when present.
      *
      * @param row derived listing row
-     * @param settlementDate requested settlement date
      * @return {@code true} when the filter matches or is absent
      */
     private boolean matchesSettlementDate(ListingCatalogRow row, LocalDate from, LocalDate to) {

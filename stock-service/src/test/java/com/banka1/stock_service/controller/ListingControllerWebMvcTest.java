@@ -129,7 +129,11 @@ class ListingControllerWebMvcTest {
                                 true
                         )),
                         List.of()
-                ))
+                )),
+                "USD",
+                1,
+                new java.math.BigDecimal("90.00"),
+                null, null, null, null, null
         ));
 
         mockMvc.perform(get("/api/listings/15")
@@ -183,7 +187,11 @@ class ListingControllerWebMvcTest {
                         com.banka1.stock_service.domain.Liquidity.HIGH,
                         1_000
                 ),
-                List.of()
+                List.of(),
+                "USD",
+                1_000,
+                new java.math.BigDecimal("108.35"),
+                null, null, null, null, null
         ));
 
         mockMvc.perform(get("/api/listings/21")

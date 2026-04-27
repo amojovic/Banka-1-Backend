@@ -2,6 +2,7 @@ package com.banka1.order.service;
 
 import com.banka1.order.dto.ActuaryAgentDto;
 import com.banka1.order.dto.SetLimitRequestDto;
+import com.banka1.order.dto.SetNeedApprovalRequestDto;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -44,6 +45,20 @@ public interface ActuaryService {
      * @param employeeId the employee's identifier
      */
     void resetLimit(Long employeeId);
+
+    /**
+     * Toggles the {@code needApproval} flag for the specified agent.
+     * When set, every order placed by the agent enters the PENDING queue for
+     * supervisor approval regardless of whether the order value would otherwise
+     * exceed the agent's daily limit.
+     * <p>
+     * Throws {@link IllegalArgumentException} if the target employee is an ADMIN
+     * or does not have the AGENT role (supervisors always have {@code needApproval = false}).
+     *
+     * @param employeeId the employee's identifier
+     * @param request    request body carrying the new flag value
+     */
+    void setNeedApproval(Long employeeId, SetNeedApprovalRequestDto request);
 
     /**
      * Resets {@code usedLimit} to zero for every actuary record in the database.

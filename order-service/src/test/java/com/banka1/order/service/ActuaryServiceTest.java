@@ -4,6 +4,7 @@ import com.banka1.order.client.EmployeeClient;
 import com.banka1.order.dto.EmployeeDto;
 import com.banka1.order.dto.EmployeePageResponse;
 import com.banka1.order.dto.SetLimitRequestDto;
+import com.banka1.order.dto.SetNeedApprovalRequestDto;
 import com.banka1.order.entity.ActuaryInfo;
 import com.banka1.order.repository.ActuaryInfoRepository;
 import com.banka1.order.service.impl.ActuaryServiceImpl;
@@ -189,6 +190,84 @@ class ActuaryServiceTest {
 
         assertThatThrownBy(() -> actuaryService.resetLimit(2L))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void setNeedApproval_togglesFlagForAgent() {
+        SetNeedApprovalRequestDto request = new SetNeedApprovalRequestDto();
+        request.setNeedApproval(true);
+
+        when(employeeClient.getEmployee(1L)).thenReturn(agentEmployee);
+        when(actuaryInfoRepository.findByEmployeeId(1L)).thenReturn(Optional.of(actuaryInfo));
+        when(actuaryInfoRepository.save(any())).thenReturn(actuaryInfo);
+
+        actuaryService.setNeedApproval(1L, request);
+
+        assertThat(actuaryInfo.getNeedApproval()).isTrue();
+        verify(actuaryInfoRepository).save(actuaryInfo);
+    }
+
+    @Test
+    void setNeedApproval_canDisableFlag() {
+        actuaryInfo.setNeedApproval(true);
+        SetNeedApprovalRequestDto request = new SetNeedApprovalRequestDto();
+        request.setNeedApproval(false);
+
+        when(employeeClient.getEmployee(1L)).thenReturn(agentEmployee);
+        when(actuaryInfoRepository.findByEmployeeId(1L)).thenReturn(Optional.of(actuaryInfo));
+        when(actuaryInfoRepository.save(any())).thenReturn(actuaryInfo);
+
+        actuaryService.setNeedApproval(1L, request);
+
+        assertThat(actuaryInfo.getNeedApproval()).isFalse();
+    }
+
+    @Test
+    void setNeedApproval_createsDefaultActuaryInfoWhenMissing() {
+        SetNeedApprovalRequestDto request = new SetNeedApprovalRequestDto();
+        request.setNeedApproval(true);
+
+        ActuaryInfo defaultInfo = new ActuaryInfo();
+        defaultInfo.setEmployeeId(1L);
+        defaultInfo.setUsedLimit(BigDecimal.ZERO);
+        defaultInfo.setReservedLimit(BigDecimal.ZERO);
+        defaultInfo.setNeedApproval(false);
+
+        when(employeeClient.getEmployee(1L)).thenReturn(agentEmployee);
+        when(actuaryInfoRepository.findByEmployeeId(1L)).thenReturn(Optional.empty());
+        when(actuaryInfoRepository.save(any())).thenReturn(defaultInfo);
+
+        actuaryService.setNeedApproval(1L, request);
+
+        verify(actuaryInfoRepository, times(2)).save(any(ActuaryInfo.class));
+    }
+
+    @Test
+    void setNeedApproval_throwsWhenTargetIsAdmin() {
+        SetNeedApprovalRequestDto request = new SetNeedApprovalRequestDto();
+        request.setNeedApproval(true);
+
+        when(employeeClient.getEmployee(2L)).thenReturn(adminEmployee);
+
+        assertThatThrownBy(() -> actuaryService.setNeedApproval(2L, request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("admin");
+    }
+
+    @Test
+    void setNeedApproval_throwsWhenTargetIsNotAgent() {
+        EmployeeDto supervisor = new EmployeeDto();
+        supervisor.setId(3L);
+        supervisor.setRole("SUPERVISOR");
+
+        SetNeedApprovalRequestDto request = new SetNeedApprovalRequestDto();
+        request.setNeedApproval(true);
+
+        when(employeeClient.getEmployee(3L)).thenReturn(supervisor);
+
+        assertThatThrownBy(() -> actuaryService.setNeedApproval(3L, request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("AGENT");
     }
 
     @Test
