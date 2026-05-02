@@ -4,6 +4,7 @@ import com.banka1.order.entity.enums.ListingType;
 import com.banka1.order.entity.enums.OptionType;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
+import java.util.Map;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -26,8 +27,25 @@ public class StockListingDto {
     private BigDecimal ask;
     /** Bid price. */
     private BigDecimal bid;
-    /** Currency code of the listing's exchange. */
+    /** Currency code of the listing's exchange. Stored as-is from stock-service; getCurrency() normalizes to ISO code. */
     private String currency;
+
+    private static final Map<String, String> CURRENCY_NAME_TO_ISO = Map.ofEntries(
+        Map.entry("United States Dollar", "USD"),
+        Map.entry("US Dollar", "USD"),
+        Map.entry("Euro", "EUR"),
+        Map.entry("British Pound", "GBP"),
+        Map.entry("British Pound Sterling", "GBP"),
+        Map.entry("Japanese Yen", "JPY"),
+        Map.entry("Canadian Dollar", "CAD"),
+        Map.entry("Australian Dollar", "AUD"),
+        Map.entry("Swiss Franc", "CHF"),
+        Map.entry("Serbian Dinar", "RSD")
+    );
+
+    public String getCurrency() {
+        return currency == null ? null : CURRENCY_NAME_TO_ISO.getOrDefault(currency, currency);
+    }
     /** Identifier of the exchange this listing belongs to. Stock-service serializes this field as "stockExchangeId". */
     @JsonProperty("stockExchangeId")
     private Long exchangeId;

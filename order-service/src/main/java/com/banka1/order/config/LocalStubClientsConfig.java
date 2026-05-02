@@ -71,7 +71,7 @@ class LocalStubClientsConfig {
                 dto.setBalance(new BigDecimal("1000000.00"));
                 dto.setAvailableCredit(BigDecimal.ZERO);
                 dto.setCurrency("USD");
-                dto.setOwnerId(0L);
+                dto.setOwnerId(null);
                 return dto;
             }
         };

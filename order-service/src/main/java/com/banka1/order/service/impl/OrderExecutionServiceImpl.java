@@ -98,10 +98,14 @@ public class OrderExecutionServiceImpl implements OrderExecutionService {
     private final ObjectProvider<OrderExecutionService> selfProvider;
     private final TaskScheduler orderExecutionTaskScheduler;
 
+    private static final long INITIAL_EXECUTION_DELAY_MILLIS = 60_000L;
+
     @Override
     public void executeOrderAsync(Long orderId) {
-        scheduleExecution(orderId, 0L);
+        scheduleExecution(orderId, INITIAL_EXECUTION_DELAY_MILLIS);
     }
+
+    private static final long RETRY_DELAY_ON_ERROR_MILLIS = 5000L;
 
     private void processExecutionAttempt(Long orderId) {
         Order order = orderRepository.findById(orderId).orElse(null);
@@ -109,7 +113,13 @@ public class OrderExecutionServiceImpl implements OrderExecutionService {
             return;
         }
 
-        selfProvider.getObject().executeOrderPortion(order);
+        try {
+            selfProvider.getObject().executeOrderPortion(order);
+        } catch (Exception e) {
+            log.error("Order {} execution attempt failed, retrying in {}ms", orderId, RETRY_DELAY_ON_ERROR_MILLIS, e);
+            scheduleExecution(orderId, RETRY_DELAY_ON_ERROR_MILLIS);
+            return;
+        }
 
         Order updatedOrder = orderRepository.findById(orderId).orElse(null);
         if (updatedOrder == null || updatedOrder.getStatus() != OrderStatus.APPROVED
@@ -339,7 +349,7 @@ public class OrderExecutionServiceImpl implements OrderExecutionService {
 
     private void transferFunds(Order order, String currency, BigDecimal amount) {
         BankAccountDto bankAccount = employeeClient.getBankAccount(currency);
-        boolean actuaryOrder = actuaryInfoRepository.findByEmployeeId(order.getUserId()).isPresent();
+        boolean actuaryOrder = bankAccount.getAccountId() != null && bankAccount.getAccountId().equals(order.getAccountId());
 
         if (order.getDirection() == OrderDirection.BUY) {
             if (actuaryOrder) {
@@ -353,6 +363,10 @@ public class OrderExecutionServiceImpl implements OrderExecutionService {
     }
 
     private void finalizeActuaryExposure(Order order, String currency, BigDecimal amount) {
+        BankAccountDto bankAccount = employeeClient.getBankAccount(currency);
+        if (bankAccount.getAccountId() == null || !bankAccount.getAccountId().equals(order.getAccountId())) {
+            return;
+        }
         ActuaryInfo actuaryInfo = actuaryInfoRepository.findByEmployeeIdForUpdate(order.getUserId()).orElse(null);
         if (actuaryInfo == null) {
             return;
@@ -383,9 +397,15 @@ public class OrderExecutionServiceImpl implements OrderExecutionService {
 
     private BigDecimal calculateCommission(OrderType orderType, BigDecimal baseAmount, String currency) {
         BigDecimal rate = isMarketFamily(orderType) ? new BigDecimal("0.14") : new BigDecimal("0.24");
-        BigDecimal capUsd = isMarketFamily(orderType) ? new BigDecimal("7") : new BigDecimal("12");
-        BigDecimal cap = convertAmount(USD, currency, capUsd);
-        return baseAmount.multiply(rate).setScale(2, RoundingMode.HALF_UP).min(cap);
+        BigDecimal commission = baseAmount.multiply(rate).setScale(2, RoundingMode.HALF_UP);
+        try {
+            BigDecimal capUsd = isMarketFamily(orderType) ? new BigDecimal("7") : new BigDecimal("12");
+            BigDecimal cap = convertAmount(USD, currency, capUsd);
+            return commission.min(cap);
+        } catch (Exception e) {
+            log.warn("Cannot convert commission cap from USD to {}, applying uncapped commission rate", currency);
+            return commission;
+        }
     }
 
     private boolean isMarketFamily(OrderType orderType) {
@@ -441,22 +461,17 @@ public class OrderExecutionServiceImpl implements OrderExecutionService {
 
     private void transferForClient(Long fromAccountId, Long toAccountId, BigDecimal amount, String currency, String description) {
         AccountDetailsDto fromAccount = accountClient.getAccountDetails(fromAccountId);
-        AccountDetailsDto toAccount = accountClient.getAccountDetails(toAccountId);
         if (fromAccount.getCurrency() == null || fromAccount.getCurrency().equalsIgnoreCase(currency)) {
             transferWithoutConversionFee(fromAccountId, toAccountId, amount, currency, description);
             return;
         }
 
-        ExchangeRateDto conversion = exchangeClient.calculate(fromAccount.getCurrency(), currency, amount);
-        PaymentDto payment = new PaymentDto(
-                fromAccount.getAccountNumber(),
-                toAccount.getAccountNumber(),
-                amount,
-                conversion.getConvertedAmount() == null ? amount : conversion.getConvertedAmount(),
-                conversion.getCommission() == null ? BigDecimal.ZERO : conversion.getCommission(),
-                orderOwnerId(fromAccount)
-        );
-        accountClient.transaction(payment);
+        // Account currency differs from listing currency: convert the trade amount to the account's currency,
+        // then pay the bank account that matches the client's currency directly.
+        ExchangeRateDto conversion = exchangeClient.calculate(currency, fromAccount.getCurrency(), amount);
+        BigDecimal convertedAmount = conversion.getConvertedAmount() == null ? amount : conversion.getConvertedAmount();
+        BankAccountDto fromCurrencyBank = employeeClient.getBankAccount(fromAccount.getCurrency());
+        transferWithoutConversionFee(fromAccountId, fromCurrencyBank.getAccountId(), convertedAmount, fromAccount.getCurrency(), description);
     }
 
     private Long orderOwnerId(AccountDetailsDto account) {

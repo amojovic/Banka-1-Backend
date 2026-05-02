@@ -35,4 +35,10 @@
                 splitStatements="true"/>
     </changeSet>
 
+    <changeSet id="006-seed-subin-accounts" author="account-service">
+        <sqlFile
+                path="db/changelog/006-seed-subin-accounts.sql"
+                splitStatements="true"/>
+    </changeSet>
+
 </databaseChangeLog>

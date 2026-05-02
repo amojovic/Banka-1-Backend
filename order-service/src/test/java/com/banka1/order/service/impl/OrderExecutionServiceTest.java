@@ -384,7 +384,7 @@ class OrderExecutionServiceTest {
 
     @Test
     void actuaryExecution_updatesUsedLimitWithCurrencyConversion() {
-        when(actuaryInfoRepository.findByEmployeeId(1L)).thenReturn(Optional.of(actuaryInfo));
+        order.setAccountId(bankAccount.getAccountId()); // actuary buys are funded from bank account
         when(actuaryInfoRepository.findByEmployeeIdForUpdate(1L)).thenReturn(Optional.of(actuaryInfo));
 
         service.executeOrderPortion(order);
@@ -395,8 +395,7 @@ class OrderExecutionServiceTest {
 
     @Test
     void actuaryBuy_isBankFundedWithoutUserTransfer() {
-        when(actuaryInfoRepository.findByEmployeeId(1L)).thenReturn(Optional.of(actuaryInfo));
-        when(actuaryInfoRepository.findByEmployeeIdForUpdate(1L)).thenReturn(Optional.of(actuaryInfo));
+        order.setAccountId(bankAccount.getAccountId()); // actuary buys are funded from bank account
 
         service.executeOrderPortion(order);
 

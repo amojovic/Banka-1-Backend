@@ -11,5 +11,6 @@
     <include file="db/changelog/004-seed-data.sql"/>
     <include file="db/changelog/005-activation.sql"/>
     <include file="db/changelog/006-add-test-client.sql"/>
+    <include file="db/changelog/007-subin-trading-permissions.sql"/>
 
 </databaseChangeLog>

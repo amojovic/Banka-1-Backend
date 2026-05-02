@@ -222,15 +222,15 @@ class OrderCreationServiceTest {
 //    }
 
     @Test
-    void confirmBuyOrder_forClientMovesToPendingAndAwaitsSupervisorApproval() {
+    void confirmBuyOrder_forClientAutoApprovedAndStartsExecution() {
         service.createBuyOrder(clientUser, buyRequest);
 
         OrderResponse response = service.confirmOrder(clientUser, 100L);
 
-        assertThat(response.getStatus()).isEqualTo(OrderStatus.PENDING);
-        assertThat(response.getApprovedBy()).isNull();
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.APPROVED);
+        assertThat(response.getApprovedBy()).isEqualTo(OrderCreationServiceImpl.NO_APPROVAL_REQUIRED);
         verify(accountClient, never()).transfer(any(AccountTransactionRequest.class));
-        verify(orderExecutionService, never()).executeOrderAsync(any());
+        verify(orderExecutionService).executeOrderAsync(100L);
     }
 
     @Test
@@ -489,7 +489,7 @@ class OrderCreationServiceTest {
         service.createBuyOrder(marginClient, buyRequest);
         OrderResponse response = service.confirmOrder(marginClient, 100L);
 
-        assertThat(response.getStatus()).isEqualTo(OrderStatus.PENDING);
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.APPROVED);
     }
 
     @Test
@@ -520,7 +520,7 @@ class OrderCreationServiceTest {
         OrderResponse confirmed = service.confirmOrder(clientUser, 100L);
 
         assertThat(created.getStatus()).isEqualTo(OrderStatus.PENDING_CONFIRMATION);
-        assertThat(confirmed.getStatus()).isEqualTo(OrderStatus.PENDING);
+        assertThat(confirmed.getStatus()).isEqualTo(OrderStatus.APPROVED);
     }
 
     @Test
@@ -565,7 +565,7 @@ class OrderCreationServiceTest {
         service.createSellOrder(marginClient, sellRequest);
         OrderResponse response = service.confirmOrder(marginClient, 100L);
 
-        assertThat(response.getStatus()).isEqualTo(OrderStatus.PENDING);
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.APPROVED);
     }
 
     @Test
@@ -584,7 +584,7 @@ class OrderCreationServiceTest {
         service.createSellOrder(marginClient, sellRequest);
         OrderResponse response = service.confirmOrder(marginClient, 100L);
 
-        assertThat(response.getStatus()).isEqualTo(OrderStatus.PENDING);
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.APPROVED);
     }
 
     @Test

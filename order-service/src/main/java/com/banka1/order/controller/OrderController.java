@@ -93,9 +93,9 @@ public class OrderController {
         return ResponseEntity.ok(orderCreationService.cancelOrder(toAuthenticatedUser(jwt), id));
     }
 
-    @PutMapping("/{id}/cancelPartial")
+    @PutMapping("/{id}/cancel")
     @PreAuthorize("hasRole('SUPERVISOR')")
-    public ResponseEntity<OrderResponse> cancelOrderPartial(
+    public ResponseEntity<OrderResponse> cancelOrder(
             @PathVariable Long id,
             @RequestBody(required = false) PartialCancelOrderRequest request
     ) {
