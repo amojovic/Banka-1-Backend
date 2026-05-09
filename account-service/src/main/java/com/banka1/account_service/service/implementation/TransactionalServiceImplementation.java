@@ -125,5 +125,21 @@ public class TransactionalServiceImplementation implements TransactionalService 
       debit(account,amount);
     }
 
+    @Transactional
+    @Override
+    public void withdrawOneSided(Account account, BigDecimal amount) {
+        // GHI #199: jednostrana debit operacija za trade-leg klijentskog BUY-a.
+        // Reuse postojece debit() primitive sa istim saldo/limit proverama;
+        // bankin racun se NE dira (po PM direktivi).
+        debit(account, amount);
+    }
+
+    @Transactional
+    @Override
+    public void depositOneSided(Account account, BigDecimal amount) {
+        // GHI #199: jednostrana credit operacija za trade-leg klijentskog SELL-a.
+        credit(account, amount);
+    }
+
 
 }

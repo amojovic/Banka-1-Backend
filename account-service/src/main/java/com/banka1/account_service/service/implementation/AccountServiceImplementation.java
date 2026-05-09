@@ -7,6 +7,7 @@ import com.banka1.account_service.domain.enums.Status;
 import com.banka1.account_service.dto.request.BankPaymentDto;
 import com.banka1.account_service.dto.request.CreditDebitAccountDto;
 import com.banka1.account_service.dto.request.CreditDebitBankDto;
+import com.banka1.account_service.dto.request.OneSidedTransactionDto;
 import com.banka1.account_service.dto.request.PaymentDto;
 import com.banka1.account_service.dto.response.InfoResponseDto;
 import com.banka1.account_service.dto.response.InternalAccountDetailsDto;
@@ -276,6 +277,50 @@ public class AccountServiceImplementation implements AccountService {
         if (account == null)
             throw new NoSuchElementException("Ne postoji interni bankovni racun za valutu:" + currencyCode);
         return InternalAccountDetailsDto.from(account);
+    }
+
+    @Override
+    public UpdatedBalanceResponseDto exchangeBuy(OneSidedTransactionDto request) {
+        Account account = resolveAccountForOneSided(request);
+        if (request.getAmount() == null || request.getAmount().signum() <= 0) {
+            throw new IllegalArgumentException("Iznos mora biti pozitivan");
+        }
+        transactionalService.withdrawOneSided(account, request.getAmount());
+        return new UpdatedBalanceResponseDto(account.getRaspolozivoStanje(), null);
+    }
+
+    @Override
+    public UpdatedBalanceResponseDto exchangeSell(OneSidedTransactionDto request) {
+        Account account = resolveAccountForOneSided(request);
+        if (request.getAmount() == null || request.getAmount().signum() <= 0) {
+            throw new IllegalArgumentException("Iznos mora biti pozitivan");
+        }
+        transactionalService.depositOneSided(account, request.getAmount());
+        return new UpdatedBalanceResponseDto(account.getRaspolozivoStanje(), null);
+    }
+
+    /**
+     * Razresava racun iz {@link OneSidedTransactionDto}: prvo probaj po
+     * {@code accountNumber}, fallback na {@code accountId}. Validacija je ista
+     * kao u {@link #validate(String)}.
+     */
+    private Account resolveAccountForOneSided(OneSidedTransactionDto request) {
+        if (request == null) {
+            throw new IllegalArgumentException("Request ne sme biti null");
+        }
+        if (request.getAccountNumber() != null && !request.getAccountNumber().isBlank()) {
+            return validate(request.getAccountNumber());
+        }
+        if (request.getAccountId() != null) {
+            Account account = accountRepository.findById(request.getAccountId()).orElseThrow(
+                    () -> new IllegalArgumentException("Ne postoji racun za id:" + request.getAccountId()));
+            if (account.getStatus() == Status.INACTIVE)
+                throw new IllegalArgumentException("Racun je neaktivan:" + account.getBrojRacuna());
+            if (account.getDatumIsteka() != null && account.getDatumIsteka().isBefore(LocalDate.now()))
+                throw new IllegalArgumentException("Racun je istekao:" + account.getBrojRacuna());
+            return account;
+        }
+        throw new IllegalArgumentException("OneSidedTransactionDto mora imati accountNumber ili accountId");
     }
 
     @Override

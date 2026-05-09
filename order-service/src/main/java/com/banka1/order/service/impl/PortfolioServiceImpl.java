@@ -235,6 +235,9 @@ public class PortfolioServiceImpl implements PortfolioService {
 
         PortfolioResponse response = new PortfolioResponse();
 
+        // GHI #199: id i listingId su potrebni frontu za SELL navigation
+        response.setId(portfolio.getId());
+        response.setListingId(portfolio.getListingId());
         response.setListingType(portfolio.getListingType());
         response.setQuantity(portfolio.getQuantity());
         response.setPublicQuantity(portfolio.getPublicQuantity());

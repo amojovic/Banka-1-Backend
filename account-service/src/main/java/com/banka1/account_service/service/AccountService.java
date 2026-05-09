@@ -44,6 +44,26 @@ public interface AccountService {
     void transactionFromBank(BankPaymentDto paymentDto);
 
     /**
+     * Jednostrana debit operacija za trade-leg klijentskog BUY-a (GHI #199).
+     * Bankin racun se NE dira - po PM direktivi
+     * <em>,,NE DAJE BANCI PARE, samo se skidaju sa racuna''</em>.
+     *
+     * @param request payload sa account identifikatorom + iznosom
+     * @return azurirano stanje racuna nakon debita
+     */
+    UpdatedBalanceResponseDto exchangeBuy(com.banka1.account_service.dto.request.OneSidedTransactionDto request);
+
+    /**
+     * Jednostrana credit operacija za trade-leg klijentskog SELL-a (GHI #199).
+     * Smer je obrnut od {@link #exchangeBuy}: korisniku se dodaju trade proceeds,
+     * dok bankin racun ostaje netaknut.
+     *
+     * @param request payload sa account identifikatorom + iznosom
+     * @return azurirano stanje racuna nakon credita
+     */
+    UpdatedBalanceResponseDto exchangeSell(com.banka1.account_service.dto.request.OneSidedTransactionDto request);
+
+    /**
      * Izvrsava transfer izmedju dva racuna istog vlasnika.
      * Razlikuje se od {@link #transaction} po tome sto proverava da oba racuna
      * pripadaju istom vlasniku.

@@ -16,6 +16,7 @@ import com.banka1.order.dto.ExchangeRateDto;
 import com.banka1.order.dto.ExchangeStatusDto;
 import com.banka1.order.dto.StockExchangeDto;
 import com.banka1.order.dto.StockListingDto;
+import com.banka1.order.dto.client.OneSidedTransactionDto;
 import com.banka1.order.dto.client.PaymentDto;
 import com.banka1.order.dto.response.UpdatedBalanceResponseDto;
 import com.banka1.order.entity.enums.ListingType;
@@ -62,6 +63,16 @@ class LocalStubClientsConfig {
 
             @Override
             public UpdatedBalanceResponseDto transaction(PaymentDto payment) {
+                return null;
+            }
+
+            @Override
+            public UpdatedBalanceResponseDto exchangeBuy(OneSidedTransactionDto request) {
+                return null;
+            }
+
+            @Override
+            public UpdatedBalanceResponseDto exchangeSell(OneSidedTransactionDto request) {
                 return null;
             }
 
