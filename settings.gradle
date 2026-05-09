@@ -20,3 +20,4 @@ include 'order-service'
 
 
 include 'stock-service'
+include 'saga-orchestrator-service'

@@ -843,6 +843,8 @@ services:
       CREDIT_SERVER_PORT: ${CREDIT_SERVER_PORT:-8089}
       NOTIFICATION_SERVICE_PORT: ${NOTIFICATION_SERVER_PORT:-8006}
       ORDER_SERVER_PORT: ${ORDER_SERVER_PORT:-8088}
+      STOCK_SERVICE_PORT: ${STOCK_SERVICE_PORT:-8090}
+      SAGA_SERVICE_PORT: ${SAGA_SERVER_PORT:-8095}
     depends_on:
       employee-service:
         condition: service_healthy
@@ -864,6 +866,8 @@ services:
         condition: service_healthy
       order-service:
         condition: service_healthy
+      saga-orchestrator-service:
+        condition: service_healthy
     networks:
       - banka-network
     healthcheck:
@@ -872,6 +876,52 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+
+  # Saga Orchestrator Service (#213, #214, #215)
+  saga-orchestrator-service:
+    build:
+      context: ..
+      dockerfile: saga-orchestrator-service/Dockerfile
+      args:
+        SERVER_PORT: ${SAGA_SERVER_PORT:-8095}
+    container_name: saga-orchestrator-service
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SAGA_SERVICE_HOST: 0.0.0.0
+      SAGA_SERVICE_PORT: ${SAGA_SERVER_PORT:-8095}
+      SERVER_PORT: ${SAGA_SERVER_PORT:-8095}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${SAGA_POSTGRES_DB:-saga_db}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
+      MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: saga-orchestrator-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    expose:
+      - "${SAGA_SERVER_PORT:-8095}"
+    networks:
+      - banka-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:${SAGA_SERVER_PORT:-8095}/actuator/health/liveness || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
 networks:
   banka-network:

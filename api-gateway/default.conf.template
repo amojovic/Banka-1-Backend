@@ -47,6 +47,10 @@ upstream notification_service {
     server notification-service:${NOTIFICATION_SERVICE_PORT};
 }
 
+upstream saga_orchestrator_service {
+    server saga-orchestrator-service:${SAGA_SERVICE_PORT};
+}
+
 server {
     listen 80;
     server_name localhost;
@@ -221,6 +225,20 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-Forwarded-Prefix /notifications;
+    }
+
+    # Saga Orchestrator (admin/internal API - Issue #213)
+    location = /saga {
+        return 301 /saga/;
+    }
+
+    location /saga/ {
+        proxy_pass http://saga_orchestrator_service/saga/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Prefix /saga;
     }
 
     # Health check
