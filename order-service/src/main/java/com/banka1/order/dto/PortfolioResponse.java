@@ -29,6 +29,22 @@ import java.time.LocalDateTime;
 @Data
 public class PortfolioResponse {
 
+    /**
+     * Database primary key of the Portfolio entity. Required by the frontend
+     * to address a specific position (e.g. exercising an option, setting a
+     * public OTC quantity, or initiating a SELL flow that needs to identify
+     * the exact holding row).
+     */
+    private Long id;
+
+    /**
+     * Listing identifier of the underlying security. Without this field the
+     * portfolio list does not carry enough information to navigate to a
+     * direction-specific Create Order route, which is the entry point for
+     * selling a held position.
+     */
+    private Long listingId;
+
     /** Type of security held: STOCK, FUTURES, FOREX, or OPTION. */
     private ListingType listingType;
 

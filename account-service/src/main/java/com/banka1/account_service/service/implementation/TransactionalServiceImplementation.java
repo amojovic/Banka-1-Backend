@@ -125,5 +125,20 @@ public class TransactionalServiceImplementation implements TransactionalService 
       debit(account,amount);
     }
 
+    @Transactional
+    @Override
+    public void withdrawOneSided(Account account, BigDecimal amount) {
+        // Reuses the validated debit primitive (balance + daily/monthly limit
+        // checks) without generating a paired counterparty leg: the matching
+        // exchange-side leg is external to this system.
+        debit(account, amount);
+    }
+
+    @Transactional
+    @Override
+    public void depositOneSided(Account account, BigDecimal amount) {
+        credit(account, amount);
+    }
+
 
 }

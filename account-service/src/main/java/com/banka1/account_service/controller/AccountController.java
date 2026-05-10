@@ -4,6 +4,7 @@ import com.banka1.account_service.domain.enums.CurrencyCode;
 import com.banka1.account_service.dto.request.BankPaymentDto;
 import com.banka1.account_service.dto.request.CreditDebitAccountDto;
 import com.banka1.account_service.dto.request.CreditDebitBankDto;
+import com.banka1.account_service.dto.request.OneSidedTransactionDto;
 import com.banka1.account_service.dto.request.PaymentDto;
 import com.banka1.account_service.dto.response.InfoResponseDto;
 import com.banka1.account_service.dto.response.InternalAccountDetailsDto;
@@ -56,6 +57,31 @@ public class AccountController {
     @PostMapping("/transaction")
     public ResponseEntity<UpdatedBalanceResponseDto> transaction(@AuthenticationPrincipal Jwt jwt, @RequestBody @Valid PaymentDto paymentDto) {
         return new ResponseEntity<>(accountService.transaction(paymentDto),HttpStatus.OK);
+    }
+
+    /**
+     * One-sided debit for the funds leg of an executed BUY exchange order.
+     * <p>The matching exchange-side counter-leg is external to this system, so
+     * routing the trade amount through a paired transfer to a bank account is
+     * incorrect: it would either spuriously credit the bank or fail same-owner
+     * validation when the order is placed on a bank-owned account. This endpoint
+     * debits only the targeted account; the regulatory commission still flows
+     * through the existing paired transfer path.
+     */
+    @PostMapping("/exchange/buy")
+    public ResponseEntity<UpdatedBalanceResponseDto> exchangeBuy(@AuthenticationPrincipal Jwt jwt, @RequestBody @Valid OneSidedTransactionDto request) {
+        return new ResponseEntity<>(accountService.exchangeBuy(request), HttpStatus.OK);
+    }
+
+    /**
+     * One-sided credit for the funds leg of an executed SELL exchange order.
+     * <p>Symmetric counterpart to {@link #exchangeBuy}: credits the targeted
+     * account directly with the trade proceeds without touching a paired
+     * counterparty account.
+     */
+    @PostMapping("/exchange/sell")
+    public ResponseEntity<UpdatedBalanceResponseDto> exchangeSell(@AuthenticationPrincipal Jwt jwt, @RequestBody @Valid OneSidedTransactionDto request) {
+        return new ResponseEntity<>(accountService.exchangeSell(request), HttpStatus.OK);
     }
 
 

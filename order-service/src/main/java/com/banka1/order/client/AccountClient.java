@@ -2,6 +2,7 @@ package com.banka1.order.client;
 
 import com.banka1.order.dto.AccountDetailsDto;
 import com.banka1.order.dto.AccountTransactionRequest;
+import com.banka1.order.dto.client.OneSidedTransactionDto;
 import com.banka1.order.dto.client.PaymentDto;
 import com.banka1.order.dto.response.UpdatedBalanceResponseDto;
 
@@ -72,4 +73,18 @@ public interface AccountClient {
      * @return updated balances after the transfer
      */
     UpdatedBalanceResponseDto transaction(PaymentDto payment);
+
+    /**
+     * Single-side debit on the funding account for the BUY trade leg of an
+     * exchange order. The matching exchange-side counter-leg is external to
+     * this system, so a paired transfer to a bank account is intentionally
+     * not produced here.
+     */
+    UpdatedBalanceResponseDto exchangeBuy(OneSidedTransactionDto request);
+
+    /**
+     * Single-side credit on the funding account for the SELL trade leg of an
+     * exchange order. Symmetric counterpart to {@link #exchangeBuy}.
+     */
+    UpdatedBalanceResponseDto exchangeSell(OneSidedTransactionDto request);
 }

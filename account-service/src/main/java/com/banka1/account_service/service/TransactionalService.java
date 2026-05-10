@@ -43,4 +43,27 @@ public interface TransactionalService {
     void debitTransactional(Account account, BigDecimal amount);
 
 
+    /**
+     * Single-side debit on a single account, used to settle the funds leg of a
+     * BUY exchange order. Reuses the same balance/limit primitives as
+     * {@link #debitTransactional(Account, BigDecimal)}; no counterparty leg is
+     * generated.
+     *
+     * @param account account to debit
+     * @param amount  positive amount to debit
+     */
+    void withdrawOneSided(Account account, BigDecimal amount);
+
+
+    /**
+     * Single-side credit on a single account, used to settle the funds leg of a
+     * SELL exchange order. Symmetric counterpart to
+     * {@link #withdrawOneSided(Account, BigDecimal)}.
+     *
+     * @param account account to credit
+     * @param amount  positive amount to credit
+     */
+    void depositOneSided(Account account, BigDecimal amount);
+
+
 }

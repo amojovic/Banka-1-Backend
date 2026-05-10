@@ -235,6 +235,11 @@ public class PortfolioServiceImpl implements PortfolioService {
 
         PortfolioResponse response = new PortfolioResponse();
 
+        // id and listingId are required by the frontend to address the holding
+        // unambiguously (exercise/public-quantity actions and the SELL flow
+        // navigate by these values).
+        response.setId(portfolio.getId());
+        response.setListingId(portfolio.getListingId());
         response.setListingType(portfolio.getListingType());
         response.setQuantity(portfolio.getQuantity());
         response.setPublicQuantity(portfolio.getPublicQuantity());

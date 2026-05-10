@@ -3,6 +3,7 @@ package com.banka1.account_service.service;
 import com.banka1.account_service.dto.request.BankPaymentDto;
 import com.banka1.account_service.dto.request.CreditDebitAccountDto;
 import com.banka1.account_service.dto.request.CreditDebitBankDto;
+import com.banka1.account_service.dto.request.OneSidedTransactionDto;
 import com.banka1.account_service.dto.request.PaymentDto;
 
 import com.banka1.account_service.domain.enums.CurrencyCode;
@@ -42,6 +43,25 @@ public interface AccountService {
 
 
     void transactionFromBank(BankPaymentDto paymentDto);
+
+    /**
+     * Executes the funds leg of an exchange BUY order as a single-side debit
+     * on the targeted account. The exchange counter-leg is external to the
+     * system, so no paired transfer is created here.
+     *
+     * @param request payload identifying the account and trade amount
+     * @return updated balance after debit
+     */
+    UpdatedBalanceResponseDto exchangeBuy(OneSidedTransactionDto request);
+
+    /**
+     * Executes the funds leg of an exchange SELL order as a single-side credit
+     * on the targeted account. Symmetric counterpart to {@link #exchangeBuy}.
+     *
+     * @param request payload identifying the account and trade proceeds
+     * @return updated balance after credit
+     */
+    UpdatedBalanceResponseDto exchangeSell(OneSidedTransactionDto request);
 
     /**
      * Izvrsava transfer izmedju dva racuna istog vlasnika.

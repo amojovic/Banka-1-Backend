@@ -8,6 +8,7 @@ import com.banka1.order.dto.AccountDetailsDto;
 import com.banka1.order.dto.BankAccountDto;
 import com.banka1.order.dto.ExchangeRateDto;
 import com.banka1.order.dto.StockListingDto;
+import com.banka1.order.dto.client.OneSidedTransactionDto;
 import com.banka1.order.dto.client.PaymentDto;
 import com.banka1.order.entity.ActuaryInfo;
 import com.banka1.order.entity.Order;
@@ -203,10 +204,14 @@ class OrderExecutionServiceTest {
         assertThat(transactionCaptor.getValue().getPricePerUnit()).isEqualByComparingTo("101.00");
         assertThat(transactionCaptor.getValue().getTotalPrice()).isEqualByComparingTo("202.00");
 
-        ArgumentCaptor<PaymentDto> transferCaptor = ArgumentCaptor.forClass(PaymentDto.class);
-        verify(accountClient).transaction(transferCaptor.capture());
-        assertThat(transferCaptor.getValue().getFromAccountNumber()).isEqualTo("1110001400000000221");
-        assertThat(transferCaptor.getValue().getToAccountNumber()).isEqualTo("1110001000000000023");
+        // BUY trade leg is settled with a single-side debit on the funding
+        // account; no paired transfer to a bank account is generated.
+        ArgumentCaptor<OneSidedTransactionDto> transferCaptor = ArgumentCaptor.forClass(OneSidedTransactionDto.class);
+        verify(accountClient).exchangeBuy(transferCaptor.capture());
+        assertThat(transferCaptor.getValue().getAccountNumber()).isEqualTo("1110001400000000221");
+        assertThat(transferCaptor.getValue().getAccountId()).isEqualTo(5L);
+        assertThat(transferCaptor.getValue().getAmount()).isEqualByComparingTo("202.00");
+        verify(accountClient, never()).transaction(any(PaymentDto.class));
         assertThat(order.getStatus()).isEqualTo(OrderStatus.DONE);
         assertThat(order.getIsDone()).isTrue();
     }
@@ -265,7 +270,7 @@ class OrderExecutionServiceTest {
 
         assertThat(staleOrder.getRemainingPortions()).isEqualTo(5);
         assertThat(lockedOrder.getRemainingPortions()).isZero();
-        verify(accountClient).transaction(any(PaymentDto.class));
+        verify(accountClient).exchangeBuy(any(OneSidedTransactionDto.class));
         verify(transactionRepository).save(any(Transaction.class));
     }
 
@@ -376,10 +381,13 @@ class OrderExecutionServiceTest {
         service.executeOrderPortion(order);
 
         verify(portfolioRepository, atLeastOnce()).save(portfolio);
-        ArgumentCaptor<PaymentDto> captor = ArgumentCaptor.forClass(PaymentDto.class);
-        verify(accountClient).transaction(captor.capture());
-        assertThat(captor.getValue().getFromAccountNumber()).isEqualTo("1110001000000000023");
-        assertThat(captor.getValue().getToAccountNumber()).isEqualTo("1110001400000000221");
+        // SELL trade leg is settled with a single-side credit on the funding
+        // account; no paired transfer from a bank account is generated.
+        ArgumentCaptor<OneSidedTransactionDto> captor = ArgumentCaptor.forClass(OneSidedTransactionDto.class);
+        verify(accountClient).exchangeSell(captor.capture());
+        assertThat(captor.getValue().getAccountNumber()).isEqualTo("1110001400000000221");
+        assertThat(captor.getValue().getAccountId()).isEqualTo(5L);
+        verify(accountClient, never()).transaction(any(PaymentDto.class));
     }
 
     @Test
@@ -394,11 +402,25 @@ class OrderExecutionServiceTest {
     }
 
     @Test
-    void actuaryBuy_isBankFundedWithoutUserTransfer() {
-        order.setAccountId(bankAccount.getAccountId()); // actuary buys are funded from bank account
+    void actuaryBuy_debitsBankFundingAccountWithSingleSideTradeLeg() {
+        // Bank-owned funding account participates in the trade like any other
+        // funding account: the matching counter-leg is the external exchange,
+        // so the trade amount is debited on the bank account directly. Earlier
+        // revisions short-circuited this leg, leaving bank balances unchanged
+        // for actuary trades.
+        order.setAccountId(bankAccount.getAccountId());
+        AccountDetailsDto bankFunding = new AccountDetailsDto();
+        bankFunding.setAccountNumber("1110001000000000023");
+        bankFunding.setCurrency("USD");
+        bankFunding.setOwnerId(-1L);
+        when(accountClient.getAccountDetails(bankAccount.getAccountId())).thenReturn(bankFunding);
 
         service.executeOrderPortion(order);
 
+        ArgumentCaptor<OneSidedTransactionDto> captor = ArgumentCaptor.forClass(OneSidedTransactionDto.class);
+        verify(accountClient).exchangeBuy(captor.capture());
+        assertThat(captor.getValue().getAccountNumber()).isEqualTo("1110001000000000023");
+        assertThat(captor.getValue().getAccountId()).isEqualTo(bankAccount.getAccountId());
         verify(accountClient, never()).transaction(any(PaymentDto.class));
     }
 

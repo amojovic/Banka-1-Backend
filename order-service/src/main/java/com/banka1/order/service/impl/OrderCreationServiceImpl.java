@@ -231,13 +231,19 @@ public class OrderCreationServiceImpl implements OrderCreationService {
         Long fundingAccountId = user.isClient()
                 ? order.getAccountId()
                 : determineFundingAccountId(user.userId(), order.getAccountId(), listing.getCurrency());
-        if (order.getDirection() == OrderDirection.BUY && !user.isClient()) {
+        if (!user.isClient()) {
+            // Both BUY and SELL legs of a non-client order must settle against
+            // the resolved funding account. Earlier revisions only synchronised
+            // BUY, leaving SELL with whatever the form submitted (potentially
+            // null when the dropdown defaulted via auto-fill instead of an
+            // explicit selection); the executor then stalled the order on a
+            // missing or stale account identifier.
             order.setAccountId(fundingAccountId);
         }
         if (Boolean.TRUE.equals(order.getMargin())) {
             checkMarginRequirements(user, fundingAccountId, listing, order.getQuantity());
         } else if (order.getDirection() == OrderDirection.BUY) {
-            checkFunds(fundingAccountId, approximatePrice.add(fee));
+            checkFunds(fundingAccountId, approximatePrice.add(fee), listing.getCurrency());
         }
         ApprovalReservationDecision decision = user.isClient()
                 ? new ApprovalReservationDecision(OrderStatus.APPROVED, BigDecimal.ZERO)
@@ -310,10 +316,15 @@ public class OrderCreationServiceImpl implements OrderCreationService {
                 order.getQuantity(), order.getLimitValue(), order.getStopValue());
         BigDecimal fee = calculateFee(orderPricingFamily(order.getOrderType()), approximatePrice, listing.getCurrency());
         Long fundingAccountId = determineFundingAccountId(order.getUserId(), order.getAccountId(), listing.getCurrency());
+        // Lock the order's funding account to the resolved value (actuary
+        // orders always settle against the bank account regardless of the
+        // form selection) so the executor never reaches an inconsistent or
+        // missing account identifier.
+        order.setAccountId(fundingAccountId);
         transferFee(order.getUserId(), fundingAccountId, fee, listing.getCurrency());
 
         if (order.getDirection() == OrderDirection.BUY && !Boolean.TRUE.equals(order.getMargin())) {
-            checkFunds(fundingAccountId, approximatePrice);
+            checkFunds(fundingAccountId, approximatePrice, listing.getCurrency());
         }
 
         // See note in confirmOrder — keep ask/volume current so the async executor can fill.
@@ -587,10 +598,20 @@ public class OrderCreationServiceImpl implements OrderCreationService {
         }
     }
 
-    private void checkFunds(Long accountId, BigDecimal totalAmount) {
+    private void checkFunds(Long accountId, BigDecimal totalAmount, String tradeCurrency) {
         AccountDetailsDto account = accountClient.getAccountDetails(accountId);
         BigDecimal balance = account.getBalance() == null ? BigDecimal.ZERO : account.getBalance();
-        if (balance.compareTo(totalAmount) < 0) {
+        // Trade amounts are denominated in the listing's currency, while the
+        // funding account's balance is denominated in the account's currency.
+        // Comparing them numerically without conversion (legacy behaviour)
+        // approved orders that the executor could not subsequently settle,
+        // leaving them stuck in APPROVED while retrying the debit forever.
+        BigDecimal balanceCheckAmount = totalAmount;
+        String accountCurrency = account.getCurrency();
+        if (tradeCurrency != null && accountCurrency != null && !accountCurrency.equalsIgnoreCase(tradeCurrency)) {
+            balanceCheckAmount = convertAmount(tradeCurrency, accountCurrency, totalAmount);
+        }
+        if (balance.compareTo(balanceCheckAmount) < 0) {
             throw new BusinessConflictException("Insufficient funds");
         }
     }
