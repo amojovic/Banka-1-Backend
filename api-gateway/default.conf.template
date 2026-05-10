@@ -31,6 +31,10 @@ upstream notification_service {
     server notification-service:${NOTIFICATION_SERVICE_PORT};
 }
 
+upstream investment_fund_service {
+    server investment-fund-service:${INVESTMENT_FUND_SERVICE_PORT};
+}
+
 server {
     listen 80;
     server_name localhost;
@@ -205,6 +209,20 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-Forwarded-Prefix /notifications;
+    }
+
+    location = /funds {
+        return 301 /funds/;
+    }
+
+    # Investment Fund Service
+    location /funds/ {
+        proxy_pass http://investment_fund_service/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Prefix /funds;
     }
 
     # Health check

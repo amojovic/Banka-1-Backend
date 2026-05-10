@@ -300,7 +300,10 @@ services:
       BANKING_DB_PASSWORD: ${BANKING_DB_PASSWORD:-postgres}
       JWT_SECRET: ${JWT_SECRET}
       SERVICES_USER_URL: ${SERVICES_USER_URL:-http://client-service:8083}
+      SERVICES_CLIENT_URL: ${SERVICES_CLIENT_URL:-http://client-service:8083}
+      SERVICES_ACCOUNT_URL: ${SERVICES_ACCOUNT_URL:-http://banking-service:8084}
       SERVICES_CARD_URL: ${SERVICES_CARD_URL:-http://banking-service:8084}
+      SERVICES_EXCHANGE_URL: ${SERVICES_EXCHANGE_URL:-http://exchange-service:8085}
       SERVICES_VERIFICATION_URL: http://verification-service:${VERIFICATION_SERVER_PORT:-8086}
       SKIP_VERIFICATION: ${SKIP_VERIFICATION:-false}
       RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
@@ -310,6 +313,11 @@ services:
       NOTIFICATION_QUEUE: ${NOTIFICATION_QUEUE:-notification-service-queue}
       NOTIFICATION_EXCHANGE: ${NOTIFICATION_EXCHANGE:-employee.events}
       NOTIFICATION_ROUTING_KEY: ${NOTIFICATION_ROUTING_KEY:-employee.#}
+      NOTIFICATION_RABBIT_EXCHANGE: ${NOTIFICATION_EXCHANGE:-employee.events}
+      CARD_RABBIT_AUTO_EXCHANGE: ${NOTIFICATION_EXCHANGE:-employee.events}
+      CARD_RABBIT_AUTO_QUEUE: ${CARD_RABBIT_AUTO_QUEUE:-card-service-auto-card-queue}
+      CARD_RABBIT_AUTO_ROUTING_KEY: ${CARD_RABBIT_AUTO_ROUTING_KEY:-card.create}
+      CARD_CREATION_AUTOMATIC_DEFAULT_LIMIT: ${CARD_CREATION_AUTOMATIC_DEFAULT_LIMIT:-1000000}
       MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
       MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
@@ -559,6 +567,66 @@ services:
       retries: 10
       start_period: 30s
 
+  redis:
+    image: redis:7-alpine
+    container_name: banka_redis
+    restart: unless-stopped
+    expose:
+      - "6379"
+    networks:
+      - banka-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  investment-fund-service:
+    build:
+      context: ..
+      dockerfile: investment-fund-service/Dockerfile
+    container_name: banka_investment_fund_service
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_HOST: ${INVESTMENT_FUND_DB_HOST:-postgres}
+      DB_PORT: ${INVESTMENT_FUND_DB_PORT:-5432}
+      DB_NAME: ${INVESTMENT_FUND_DB_NAME:-investment_fund_db}
+      DB_USER: ${INVESTMENT_FUND_DB_USER:-postgres}
+      DB_PASSWORD: ${INVESTMENT_FUND_DB_PASSWORD:-postgres}
+      REDIS_HOST: ${INVESTMENT_FUND_REDIS_HOST:-redis}
+      REDIS_PORT: ${INVESTMENT_FUND_REDIS_PORT:-6379}
+      REDIS_TTL_SECONDS: ${INVESTMENT_FUND_REDIS_TTL_SECONDS:-60}
+      BANKING_SERVICE_URL: ${INVESTMENT_FUND_BANKING_SERVICE_URL:-http://banking-service:8084}
+      EMPLOYEE_SERVICE_URL: ${INVESTMENT_FUND_EMPLOYEE_SERVICE_URL:-http://employee-service:8081}
+      ORDER_SERVICE_URL: ${INVESTMENT_FUND_ORDER_SERVICE_URL:-http://order-service:8088}
+      JWT_SECRET: ${JWT_SECRET}
+      PORT: ${INVESTMENT_FUND_SERVER_PORT:-8092}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      banking-service:
+        condition: service_healthy
+      employee-service:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+    expose:
+      - "${INVESTMENT_FUND_SERVER_PORT:-8092}"
+    networks:
+      - banka-network
+    volumes:
+      - investment-fund-service-logs:/var/log/banka
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:${INVESTMENT_FUND_SERVER_PORT:-8092}/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   api-gateway:
     build:
       context: ..
@@ -578,6 +646,7 @@ services:
       NOTIFICATION_SERVICE_PORT: ${NOTIFICATION_SERVER_PORT:-8006}
       ORDER_SERVER_PORT: ${ORDER_SERVER_PORT:-8088}
       STOCK_SERVICE_PORT: ${STOCK_SERVICE_PORT:-8090}
+      INVESTMENT_FUND_SERVICE_PORT: ${INVESTMENT_FUND_SERVER_PORT:-8092}
     depends_on:
       employee-service:
         condition: service_healthy
@@ -592,6 +661,8 @@ services:
       notification-service:
         condition: service_healthy
       order-service:
+        condition: service_healthy
+      investment-fund-service:
         condition: service_healthy
     networks:
       - banka-network
@@ -618,4 +689,5 @@ volumes:
   verification-service-logs:
   order-service-logs:
   stock-service-logs:
+  investment-fund-service-logs:
 
