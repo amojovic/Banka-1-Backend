@@ -8,9 +8,9 @@ banka.security.roles-claim=roles
 #ms
 banka.security.expiration-time=3600000
 banka.security.permissions-claim=permissions
-banka.security.permit-all=/v3/api-docs/**,/v3/api-docs.yaml,/swagger-ui/**,/swagger-ui.html,/auth/login,/auth/check-activate,/auth/activate,/auth/reset-password,/auth/forgot-password,/auth/resend-activation,/actuator/**
-springdoc.api-docs.enabled=true
-springdoc.swagger-ui.enabled=true
+banka.security.permit-all=/v3/api-docs/**,/v3/api-docs.yaml,/swagger-ui/**,/swagger-ui.html,/auth/login,/auth/check-activate,/auth/activate,/auth/reset-password,/auth/forgot-password,/auth/resend-activation,/actuator/health/liveness,/actuator/health/readiness,/actuator/info
+springdoc.api-docs.enabled=${SWAGGER_ENABLED:true}
+springdoc.swagger-ui.enabled=${SWAGGER_ENABLED:true}
 springdoc.swagger-ui.config-url=/clients/v3/api-docs/swagger-config
 springdoc.swagger-ui.url=/clients/v3/api-docs
 server.forward-headers-strategy=FRAMEWORK
@@ -39,7 +39,10 @@ spring.datasource.driver-class-name=org.postgresql.Driver
 spring.jpa.hibernate.ddl-auto=validate
 # Liquibase
 spring.liquibase.enabled=true
-spring.liquibase.change-log=classpath:db/changelog/db.changelog-master.xml
+spring.liquibase.change-log=classpath:db/changelog/db-changelog-client.xml
+# Default to "dev" context so test clients (Marko, Ana, Subin etc. with client123 / admin123 passwords) are seeded.
+# Production deploy: set LIQUIBASE_CONTEXTS=prod to skip all dev-only changesets.
+spring.liquibase.contexts=${LIQUIBASE_CONTEXTS:dev}
 # Rate limiting
 rate-limit.max-requests=10
 rate-limit.window-ms=60000

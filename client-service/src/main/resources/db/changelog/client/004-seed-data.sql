@@ -1,7 +1,10 @@
 -- liquibase formatted sql
 
--- changeset client-service:6
--- password for all seed clients is 'client123'
+-- changeset client-service:6 context:dev
+-- DEV-ONLY seed: 8 test clients (Marko, Ana, Jovana, Stefan, Milica, Nikola, Jelena, Aleksandar).
+-- Password for all seed clients is the plain string 'client123' (Argon2 hash below).
+-- NEVER seed in production — run with spring.liquibase.contexts=prod (or omit dev) to skip.
+-- Real clients are created via the employee-portal account creation flow.
 INSERT INTO clients (ime, prezime, datum_rodjenja, pol, email, broj_telefona, adresa, jmbg, password, role, version, deleted)
 VALUES
     ('Marko',      'Markovic',  694310400000, 'M', 'marko.markovic@banka.com',      '+381641234567', 'Ulica 1, Beograd',    '0107991710025', '$argon2id$v=19$m=65536,t=3,p=1$cml4YnF1MGJOaG5md1cxOQ$kTOwNnDZmFymtQgsCUgpYFUJC9eV8wmpBCEldnS3XeE', 'CLIENT_BASIC', 0, false),
