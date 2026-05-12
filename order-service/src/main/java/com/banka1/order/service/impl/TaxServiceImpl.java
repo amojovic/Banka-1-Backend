@@ -88,7 +88,14 @@ import java.util.Set;
 @Slf4j
 public class TaxServiceImpl implements TaxService {
 
-    private static final BigDecimal TAX_RATE = new BigDecimal("0.15");
+    /**
+     * Stopa poreza na kapitalnu dobit, defaultno 15% po vazecem zakonu (spec Celina 3).
+     * Citana iz banka.tax.capital-gains-rate kako bi se mogla menjati bez deploy-a
+     * u slucaju regulatorne promene.
+     */
+    @org.springframework.beans.factory.annotation.Value("${banka.tax.capital-gains-rate:0.15}")
+    private BigDecimal taxRate;
+
     private static final LocalDateTime HISTORY_START = LocalDateTime.of(1970, 1, 1, 0, 0);
     private static final int TRACKING_PAGE_SIZE = 100;
 
@@ -444,7 +451,7 @@ public class TaxServiceImpl implements TaxService {
                         sellTransaction.getId(),
                         lot.buyTransactionId(),
                         lot.sourceAccountId(),
-                        taxableGain.multiply(TAX_RATE).setScale(2, RoundingMode.HALF_UP)
+                        taxableGain.multiply(taxRate).setScale(2, RoundingMode.HALF_UP)
                 ));
             }
 

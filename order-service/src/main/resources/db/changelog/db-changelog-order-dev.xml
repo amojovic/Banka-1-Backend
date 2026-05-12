@@ -6,5 +6,5 @@
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.17.xsd">
 
     <include file="db/changelog/db.changelog-master.xml"/>
-    <include file="db/changelog/008-dev-order-seed.sql"/>
+    <include file="db/changelog/order/008-dev-order-seed.sql"/>
 </databaseChangeLog>

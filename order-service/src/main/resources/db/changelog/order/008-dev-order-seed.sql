@@ -1,7 +1,7 @@
 -- liquibase formatted sql
 
--- changeset order:8-dev-order-seed
--- comment: Dev-profile sample orders for manual endpoint testing.
+-- changeset order:8-dev-order-seed context:dev
+-- comment: DEV-ONLY — sample orders for manual endpoint testing. Skipped in production.
 
 INSERT INTO orders (
     id,

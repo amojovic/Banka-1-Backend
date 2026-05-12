@@ -244,7 +244,14 @@ public class OrderCreationServiceImpl implements OrderCreationService {
                 : determineOrderStatusAndReserveExposure(user.userId(), approximatePrice, listing.getCurrency());
         reserveSellQuantityIfNeeded(order);
         if (decision.status() == OrderStatus.APPROVED) {
-            transferFee(user, fundingAccountId, fee, listing.getCurrency());
+            // Fee se na confirm naplata samo za BUY (klijent placa banci provizijuza nabavku).
+            // Za SELL fee se prebija iz proceeds-a u execute fazi (banking-core kreditira
+            // klijenta umanjeni iznos i debituje banku za commission). Ranije je
+            // transferFee bezuslovno skidao fee sa klijentskog racuna pre proceeds-a, sto
+            // je padalo 422 "Nema dovoljno novca" kad je RSD/USD account prazan.
+            if (order.getDirection() == OrderDirection.BUY) {
+                transferFee(user, fundingAccountId, fee, listing.getCurrency());
+            }
             // Pull fresh quote data so the async executor (60s later) sees a non-zero
             // ask/volume even on weekends, when ListingMarketDataScheduler skips refresh
             // for closed exchanges. StockClient.refreshListing swallows upstream errors

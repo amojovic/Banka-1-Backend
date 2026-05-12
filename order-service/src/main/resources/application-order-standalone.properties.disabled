@@ -9,11 +9,11 @@ banka.security.id=id
 banka.security.roles-claim=roles
 banka.security.permissions-claim=permissions
 banka.security.expiration-time=3600000
-banka.security.permit-all=/v3/api-docs/**, /v3/api-docs.yaml, /swagger-ui/**, /swagger-ui.html, /actuator/**, /hello
+banka.security.permit-all=/v3/api-docs/**, /v3/api-docs.yaml, /swagger-ui/**, /swagger-ui.html, /actuator/health/liveness, /actuator/health/readiness, /actuator/info, /hello
 
 # Swagger / OpenAPI
-springdoc.api-docs.enabled=true
-springdoc.swagger-ui.enabled=true
+springdoc.api-docs.enabled=${SWAGGER_ENABLED:true}
+springdoc.swagger-ui.enabled=${SWAGGER_ENABLED:true}
 
 # Gateway integracija
 server.forward-headers-strategy=FRAMEWORK
@@ -48,7 +48,10 @@ spring.jpa.show-sql=true
 
 # Liquibase
 spring.liquibase.enabled=true
-spring.liquibase.change-log=classpath:db/changelog/db.changelog-master.xml
+spring.liquibase.change-log=classpath:db/changelog/db-changelog-order.xml
+# Default "dev" context runs 008-dev-order-seed (sample orders for endpoint testing).
+# Production deploy: set LIQUIBASE_CONTEXTS=prod to skip dev seed.
+spring.liquibase.contexts=${LIQUIBASE_CONTEXTS:dev}
 
 # External service URLs
 services.account.url=http://${ACCOUNT_SERVICE_HOST:localhost}:${ACCOUNT_SERVER_PORT:8084}
