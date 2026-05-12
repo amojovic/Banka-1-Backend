@@ -8,17 +8,17 @@ banka.security.id=id
 banka.security.roles-claim=roles
 banka.security.permissions-claim=permissions
 banka.security.expiration-time=3600000
-banka.security.permit-all=/v3/api-docs/**, /v3/api-docs.yaml, /swagger-ui/**, /swagger-ui.html, /actuator/**, /hello
+banka.security.permit-all=/v3/api-docs/**, /v3/api-docs.yaml, /swagger-ui/**, /swagger-ui.html, /actuator/health/liveness, /actuator/health/readiness, /actuator/info, /hello
 
 # Swagger / OpenAPI - Prilago?eno za Gateway rute
-springdoc.api-docs.enabled=true
-springdoc.swagger-ui.enabled=true
+springdoc.api-docs.enabled=${SWAGGER_ENABLED:true}
+springdoc.swagger-ui.enabled=${SWAGGER_ENABLED:true}
 
 # Gateway integracija
 server.forward-headers-strategy=FRAMEWORK
 
 # Observability (OTEL) - Ako si podigao setup/docker-compose, ovo ?e raditi
-management.endpoints.web.exposure.include=*
+management.endpoints.web.exposure.include=health,info,prometheus
 management.endpoint.health.probes.enabled=true
 management.tracing.sampling.probability=1.0
 management.opentelemetry.tracing.export.otlp.endpoint=${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
@@ -47,7 +47,7 @@ spring.jpa.show-sql=true
 
 # Liquibase - Mora? napraviti folder src/main/resources/db/changelog/
 spring.liquibase.enabled=true
-spring.liquibase.change-log=classpath:db/changelog/db.changelog-master.xml
+spring.liquibase.change-log=classpath:db/changelog/db-changelog-transfer.xml
 
 # Za skipovanje verifikacije
 transfer.verification.skip=${SKIP_VERIFICATION:true}
