@@ -2,11 +2,13 @@ package com.banka1.account_service.service.implementation;
 
 import com.banka1.account_service.domain.Account;
 import com.banka1.account_service.domain.Currency;
+import com.banka1.account_service.domain.SystemAccountIds;
 import com.banka1.account_service.domain.enums.CurrencyCode;
 import com.banka1.account_service.domain.enums.Status;
 import com.banka1.account_service.dto.request.BankPaymentDto;
 import com.banka1.account_service.dto.request.CreditDebitAccountDto;
 import com.banka1.account_service.dto.request.CreditDebitBankDto;
+import com.banka1.account_service.dto.request.OneSidedTransactionDto;
 import com.banka1.account_service.dto.request.PaymentDto;
 import com.banka1.account_service.dto.response.InfoResponseDto;
 import com.banka1.account_service.dto.response.InternalAccountDetailsDto;
@@ -62,7 +64,8 @@ public class AccountServiceImplementation implements AccountService {
     /**
      * Pronalazi i validira banka-račun u tražnoj valuti.
      * <p>
-     * Banka-računi se identifikuju po vlasnikuID=-1L i valuti računa.
+     * Banka-računi se identifikuju po {@link SystemAccountIds#BANK} (vlasnikID=-1L)
+     * i valuti računa. PR_29: zamenjen magic broj {@code -1L} konstantom.
      *
      * @param to račun čija valuta se koristi za pronalaženje odgovarajućeg banka-računa
      * @return validiran Account banka-račun
@@ -70,7 +73,7 @@ public class AccountServiceImplementation implements AccountService {
      */
     private Account validateBank(Account to)
     {
-        Account account=accountRepository.findByVlasnikAndCurrency(-1L,to.getCurrency()).orElse(null);
+        Account account=accountRepository.findByVlasnikAndCurrency(SystemAccountIds.BANK,to.getCurrency()).orElse(null);
         if(account==null)
             throw new IllegalStateException("Greska u sistemu fali banka");
         if(account.getStatus()== Status.INACTIVE)
@@ -85,7 +88,7 @@ public class AccountServiceImplementation implements AccountService {
         Currency currency=currencyRepository.findByOznaka(currencyCode).orElse(null);
         if(currency==null)
             throw new IllegalArgumentException("Ne postoji ovaj currency "+currencyCode);
-        Account account=accountRepository.findByVlasnikAndCurrency(-1L,currency).orElse(null);
+        Account account=accountRepository.findByVlasnikAndCurrency(SystemAccountIds.BANK,currency).orElse(null);
         if(account==null)
             throw new IllegalStateException("Greska u sistemu fali banka");
         if(account.getStatus()== Status.INACTIVE)
@@ -279,6 +282,50 @@ public class AccountServiceImplementation implements AccountService {
     }
 
     @Override
+    public UpdatedBalanceResponseDto exchangeBuy(OneSidedTransactionDto request) {
+        Account account = resolveAccountForOneSided(request);
+        if (request.getAmount() == null || request.getAmount().signum() <= 0) {
+            throw new IllegalArgumentException("Iznos mora biti pozitivan");
+        }
+        transactionalService.withdrawOneSided(account, request.getAmount());
+        return new UpdatedBalanceResponseDto(account.getRaspolozivoStanje(), null);
+    }
+
+    @Override
+    public UpdatedBalanceResponseDto exchangeSell(OneSidedTransactionDto request) {
+        Account account = resolveAccountForOneSided(request);
+        if (request.getAmount() == null || request.getAmount().signum() <= 0) {
+            throw new IllegalArgumentException("Iznos mora biti pozitivan");
+        }
+        transactionalService.depositOneSided(account, request.getAmount());
+        return new UpdatedBalanceResponseDto(account.getRaspolozivoStanje(), null);
+    }
+
+    /**
+     * Razresava racun iz {@link OneSidedTransactionDto}: prvo probaj po
+     * {@code accountNumber}, fallback na {@code accountId}. Validacija je ista
+     * kao u {@link #validate(String)}.
+     */
+    private Account resolveAccountForOneSided(OneSidedTransactionDto request) {
+        if (request == null) {
+            throw new IllegalArgumentException("Request ne sme biti null");
+        }
+        if (request.getAccountNumber() != null && !request.getAccountNumber().isBlank()) {
+            return validate(request.getAccountNumber());
+        }
+        if (request.getAccountId() != null) {
+            Account account = accountRepository.findById(request.getAccountId()).orElseThrow(
+                    () -> new IllegalArgumentException("Ne postoji racun za id:" + request.getAccountId()));
+            if (account.getStatus() == Status.INACTIVE)
+                throw new IllegalArgumentException("Racun je neaktivan:" + account.getBrojRacuna());
+            if (account.getDatumIsteka() != null && account.getDatumIsteka().isBefore(LocalDate.now()))
+                throw new IllegalArgumentException("Racun je istekao:" + account.getBrojRacuna());
+            return account;
+        }
+        throw new IllegalArgumentException("OneSidedTransactionDto mora imati accountNumber ili accountId");
+    }
+
+    @Override
     public InternalAccountDetailsDto getStateAccountDetails(CurrencyCode currencyCode) {
         Account account = accountRepository.findStateAccountByCurrencyCode(currencyCode).orElse(null);
         if (account == null)
@@ -300,5 +347,45 @@ public class AccountServiceImplementation implements AccountService {
             throw new IllegalArgumentException("ToAccount nije aktivan");
         return new InfoResponseDto(fromAccount.getCurrency().getOznaka(), toAccount.getCurrency().getOznaka(), fromAccount.getVlasnik(), toAccount.getVlasnik(),fromAccount.getEmail(),fromAccount.getUsername());
 
+    }
+
+    @Override
+    public InternalAccountDetailsDto createSystemAccount(com.banka1.account_service.dto.request.CreateSystemAccountDto dto) {
+        // Idempotentnost: ako sistem racun sa zadatim brojem vec postoji, vrati ga.
+        Account existing = accountRepository.findByBrojRacuna(dto.getAccountNumber()).orElse(null);
+        if (existing != null) {
+            return InternalAccountDetailsDto.from(existing);
+        }
+
+        Currency currency = currencyRepository.findByOznaka(dto.getCurrencyCode())
+                .orElseThrow(() -> new IllegalArgumentException("Valuta " + dto.getCurrencyCode() + " ne postoji."));
+
+        java.math.BigDecimal initialBalance = dto.getInitialBalance() != null
+                ? dto.getInitialBalance()
+                : java.math.BigDecimal.ZERO;
+
+        Account account;
+        if (dto.getAccountConcrete().getAccountOwnershipType() == com.banka1.account_service.domain.enums.AccountOwnershipType.PERSONAL) {
+            account = new com.banka1.account_service.domain.CheckingAccount(dto.getAccountConcrete());
+        } else {
+            // BUSINESS — koristi se za fond/sistemske racune (FONDACIJA, DOO, AD).
+            account = new com.banka1.account_service.domain.CheckingAccount(dto.getAccountConcrete());
+        }
+
+        account.setBrojRacuna(dto.getAccountNumber());
+        account.setNazivRacuna(dto.getDisplayName());
+        account.setVlasnik(dto.getOwnerId());
+        account.setImeVlasnikaRacuna("SYSTEM");
+        account.setPrezimeVlasnikaRacuna(dto.getDisplayName());
+        account.setUsername("system-" + dto.getOwnerId());
+        account.setEmail("system+" + dto.getOwnerId() + "@banka1.local");
+        account.setDatumIVremeKreiranja(java.time.LocalDateTime.now());
+        account.setCurrency(currency);
+        account.setStanje(initialBalance);
+        account.setRaspolozivoStanje(initialBalance);
+        account.setDatumIsteka(LocalDate.now().plusYears(50));  // efektivno bez isteka
+
+        Account saved = accountRepository.save(account);
+        return InternalAccountDetailsDto.from(saved);
     }
 }

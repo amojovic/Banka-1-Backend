@@ -1,7 +1,7 @@
 -- liquibase formatted sql
 
--- changeset account-service:3
--- comment: Seed checking and FX accounts for the 8 test clients (IDs 1-8 from client-service)
+-- changeset account-service:3 context:dev
+-- comment: DEV-ONLY — seed checking and FX accounts for the 8 test clients (IDs 1-8 from client-service). Production sistem ima samo Banka1 + Naša država seed (002, 005); pravi klijenti se kreiraju kroz employee portal.
 -- Account number format: 111(bank) + 0001(branch) + 10 random digits + 2-digit type code = 19 digits
 -- Type codes: STANDARDNI=11, STEDNI=13, ZA_MLADE=15, FX_PERSONAL=21, FX_BUSINESS=22
 

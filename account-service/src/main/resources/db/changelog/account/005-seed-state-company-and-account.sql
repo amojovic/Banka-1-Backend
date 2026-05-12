@@ -72,7 +72,9 @@ INSERT INTO account_table (
 SELECT
     0,
     'CHECKING',
-    '1110002000000000011',
+    -- Spec Celina 3: Drzava = Firma sa RSD tekucim racunom (tip 12 = poslovni tekuci),
+    -- broj racuna mora prolaziti mod-11. Stari '1110002000000000011' (sum=7, tip=11=licni) je krsio oba.
+    '111000200000003012',
     'Republika',
     'Srbija',
     'State RSD Account',

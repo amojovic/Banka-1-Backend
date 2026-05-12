@@ -7,38 +7,48 @@
 
     <changeSet id="001-initial-schema" author="ognjen">
         <sqlFile
-                path="db/changelog/001-initial-schema.sql"
+                path="db/changelog/account/001-initial-schema.sql"
                 splitStatements="false"/>
     </changeSet>
 
     <changeSet id="002-seed-data" author="ognjen">
         <sqlFile
-                path="db/changelog/002-seed-data.sql"
+                path="db/changelog/account/002-seed-data.sql"
                 splitStatements="true"/>
     </changeSet>
 
     <changeSet id="003-seed-client-accounts" author="account-service">
         <sqlFile
-                path="db/changelog/003-seed-client-accounts.sql"
+                path="db/changelog/account/003-seed-client-accounts.sql"
                 splitStatements="true"/>
     </changeSet>
 
     <changeSet id="004-fix-bank-account-concrete" author="account-service">
         <sqlFile
-                path="db/changelog/004-fix-bank-account-concrete.sql"
+                path="db/changelog/account/004-fix-bank-account-concrete.sql"
                 splitStatements="true"/>
     </changeSet>
 
     <changeSet id="005-seed-state-company-and-account" author="account-service">
         <sqlFile
-                path="db/changelog/005-seed-state-company-and-account.sql"
+                path="db/changelog/account/005-seed-state-company-and-account.sql"
                 splitStatements="true"/>
     </changeSet>
 
     <changeSet id="006-seed-subin-accounts" author="account-service">
         <sqlFile
-                path="db/changelog/006-seed-subin-accounts.sql"
+                path="db/changelog/account/006-seed-subin-accounts.sql"
                 splitStatements="true"/>
     </changeSet>
+
+    <!-- PR_14 C14.2: migracije premestene iz banking-core jer modifikuju accounts/cards tabele -->
+    <include file="db/changelog/account/009-soft-delete-cascade.sql"/>
+    <include file="db/changelog/account/011-add-daily-limit-remaining.sql"/>
+    <include file="db/changelog/account/012-seed-bank-exchange-accounts.sql"/>
+    <include file="db/changelog/account/013-mile-interbank-test-accounts.sql"/>
+
+    <!-- PR_33 follow-up bugfix: Mile FX accounts (013) imali pogresne vrednosti za
+         account_concrete / account_ownership_type → NPE u AccountResponseDto. -->
+    <include file="db/changelog/account/014-fix-mile-fx-accounts-ownership.sql"/>
 
 </databaseChangeLog>

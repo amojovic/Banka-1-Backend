@@ -462,12 +462,12 @@ class AccountServiceImplementationTest {
 
     @Test
     void getStateAccountDetailsReturnsStateRsdAccount() {
-        CheckingAccount state = checkingAccount("1110002000000000011", -2L, RSD);
+        CheckingAccount state = checkingAccount("111000200000003012", -2L, RSD);
         when(accountRepository.findStateAccountByCurrencyCode(CurrencyCode.RSD)).thenReturn(Optional.of(state));
 
         InternalAccountDetailsDto result = service.getStateAccountDetails(CurrencyCode.RSD);
 
-        assertThat(result.accountNumber()).isEqualTo("1110002000000000011");
+        assertThat(result.accountNumber()).isEqualTo("111000200000003012");
         assertThat(result.ownerId()).isEqualTo(-2L);
         assertThat(result.currency()).isEqualTo("RSD");
     }

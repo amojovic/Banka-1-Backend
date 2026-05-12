@@ -119,7 +119,9 @@ INSERT INTO account_table (
 SELECT
     0,
     'CHECKING',
-    '1110001000000000012',
+    -- Spec Celina 2 ("(zbir cifara) % 11"): bank RSD broj racuna mora prolaziti mod-11.
+    -- Stari broj '1110001000000000012' (digit-sum=7) je krsio invariant.
+    '111000110000000312',
     'Banka',
     'Banka',
     'Bank RSD Account',
@@ -172,13 +174,15 @@ SELECT
     0,
     'FX',
     CASE c.oznaka
-        WHEN 'EUR' THEN '1110001000000000021'
-        WHEN 'CHF' THEN '1110001000000000022'
-        WHEN 'USD' THEN '1110001000000000023'
-        WHEN 'GBP' THEN '1110001000000000024'
-        WHEN 'JPY' THEN '1110001000000000025'
-        WHEN 'CAD' THEN '1110001000000000026'
-        WHEN 'AUD' THEN '1110001000000000027'
+        -- Spec Celina 2: poslovni devizni racun ima tip-kod 22 i mod-11 mora prolaziti.
+        -- Stari brojevi (...021/...022/.../027) su mesali tip-kodove i krsili mod-11.
+        WHEN 'EUR' THEN '111000100000000322'
+        WHEN 'CHF' THEN '111000100000003022'
+        WHEN 'USD' THEN '111000100000300022'
+        WHEN 'GBP' THEN '111000100003000022'
+        WHEN 'JPY' THEN '111000100030000022'
+        WHEN 'CAD' THEN '111000100300000022'
+        WHEN 'AUD' THEN '111000103000000022'
         END,
     'Banka',
     'Banka',

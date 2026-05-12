@@ -1,7 +1,7 @@
 -- liquibase formatted sql
 
--- changeset account-service:6
--- comment: Seed RSD and EUR accounts for Mateja Subin (subin.mateja@gmail.com, client_id=9)
+-- changeset account-service:6 context:dev
+-- comment: DEV-ONLY — seed RSD and EUR accounts for Mateja Subin (subin.mateja@gmail.com, client_id=9). Skipped in production.
 
 -- CHECKING account, RSD, 100 billion balance
 INSERT INTO account_table (
