@@ -171,7 +171,8 @@ class AccountNumberGeneratorTest {
 
     @Test
     void digitSumComputesUnweightedSum() {
-        assertThat(AccountNumberGenerator.digitSum("111000100000000011")).isEqualTo(5);
+        // 1+1+1+0+0+0+1+0+0+0+0+0+0+0+0+0+1+1 = 6
+        assertThat(AccountNumberGenerator.digitSum("111000100000000011")).isEqualTo(6);
         assertThat(AccountNumberGenerator.digitSum("999")).isEqualTo(27);
         assertThat(AccountNumberGenerator.digitSum("")).isEqualTo(0);
     }

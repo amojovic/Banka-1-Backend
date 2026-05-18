@@ -3,6 +3,7 @@ package com.banka1.tradingservice.otc.scheduler;
 import com.banka1.tradingservice.otc.domain.OptionContract;
 import com.banka1.tradingservice.otc.domain.OptionContractStatus;
 import com.banka1.tradingservice.otc.repository.OptionContractRepository;
+import com.banka1.tradingservice.otc.service.OtcPortfolioService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -30,6 +31,7 @@ import static org.mockito.Mockito.when;
 class ExpireOverdueContractsSchedulerTest {
 
     @Mock private OptionContractRepository contractRepo;
+    @Mock private OtcPortfolioService portfolioService;
 
     @InjectMocks private ExpireOverdueContractsScheduler scheduler;
 
@@ -48,6 +50,9 @@ class ExpireOverdueContractsSchedulerTest {
         List<OptionContract> saved = captor.getAllValues();
         assertThat(saved).hasSize(2);
         assertThat(saved).allMatch(c -> c.getStatus() == OptionContractStatus.EXPIRED);
+
+        // Svaki isteknuti ugovor oslobadja rezervisane akcije prodavca.
+        verify(portfolioService, times(2)).releaseForContract(eq(200L), eq("AAPL"), eq(10));
     }
 
     @Test

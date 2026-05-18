@@ -58,6 +58,8 @@ dependencies {
     annotationProcessor 'org.projectlombok:lombok'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    // Spring Boot 4 split @WebMvcTest/@AutoConfigureMockMvc into a dedicated artifact.
+    testImplementation 'org.springframework.boot:spring-boot-webmvc-test'
     testImplementation 'org.springframework.amqp:spring-rabbit-test'
     testImplementation "org.testcontainers:junit-jupiter:${testcontainersVersion}"
     testImplementation "org.testcontainers:rabbitmq:${testcontainersVersion}"

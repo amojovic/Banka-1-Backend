@@ -35,6 +35,7 @@ dependencies {
 	implementation 'io.opentelemetry:opentelemetry-exporter-otlp'
 	compileOnly 'org.springframework.security:spring-security-core'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'org.springframework.boot:spring-boot-webmvc-test'
 	testImplementation 'org.springframework.security:spring-security-core'
 	// Provide a concrete logging implementation for tests (align with encoder)
 	testRuntimeOnly 'ch.qos.logback:logback-classic:1.5.32'

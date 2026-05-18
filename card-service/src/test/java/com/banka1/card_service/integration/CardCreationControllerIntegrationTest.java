@@ -100,7 +100,7 @@ class CardCreationControllerIntegrationTest {
                 }
                 """;
 
-        String responseBody = mockMvc.perform(post("/auto")
+        String responseBody = mockMvc.perform(post("/api/cards/auto")
                         .with(serviceJwt())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(requestBody))
@@ -152,7 +152,7 @@ class CardCreationControllerIntegrationTest {
                 }
                 """;
 
-        String responseBody = mockMvc.perform(post("/request")
+        String responseBody = mockMvc.perform(post("/api/cards/request")
                         .with(clientJwt(OWNER_CLIENT_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestPayload))
@@ -199,7 +199,7 @@ class CardCreationControllerIntegrationTest {
                 }
                 """;
 
-        String responseBody = mockMvc.perform(post("/request")
+        String responseBody = mockMvc.perform(post("/api/cards/request")
                         .with(adminJwt(999L))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(requestPayload))
@@ -243,7 +243,7 @@ class CardCreationControllerIntegrationTest {
                 }
                 """;
 
-        String responseBody = mockMvc.perform(post("/request/business")
+        String responseBody = mockMvc.perform(post("/api/cards/request/business")
                         .with(clientJwt(OWNER_CLIENT_ID))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(requestPayload))
@@ -299,7 +299,7 @@ class CardCreationControllerIntegrationTest {
                 }
                 """;
 
-        String responseBody = mockMvc.perform(post("/request/business")
+        String responseBody = mockMvc.perform(post("/api/cards/request/business")
                         .with(clientJwt(OWNER_CLIENT_ID))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(requestPayload))

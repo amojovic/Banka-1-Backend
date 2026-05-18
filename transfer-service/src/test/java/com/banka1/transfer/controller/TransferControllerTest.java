@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.http.MediaType;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -24,6 +25,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(TransferController.class)
+@Import(TestSecurityConfig.class)
 class TransferControllerTest {
 
     @Autowired
@@ -47,7 +49,7 @@ class TransferControllerTest {
 
         when(transferService.executeTransfer(any(Jwt.class), any())).thenReturn(response);
 
-        mockMvc.perform(post("/")
+        mockMvc.perform(post("/transfers")
                         .with(jwt()) // Simulira JWT bez posebnih claimova za POST jer ih kontroler ne koristi za logiku
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
@@ -64,7 +66,7 @@ class TransferControllerTest {
         when(transferService.getClientTransfers(eq(clientId), any()))
                 .thenReturn(new PageImpl<>(List.of(new TransferResponseDto())));
 
-        mockMvc.perform(get("/")
+        mockMvc.perform(get("/transfers")
                         .param("clientId", clientId.toString())
                         .with(jwtPostProcessor))
                 .andExpect(status().isOk());
@@ -76,7 +78,7 @@ class TransferControllerTest {
         // Korisnik 11 pokušava da gleda istoriju korisnika 10
         var jwtPostProcessor = jwt().jwt(builder -> builder.claim("id", "11").claim("roles", List.of("ROLE_USER")));
 
-        mockMvc.perform(get("/")
+        mockMvc.perform(get("/transfers")
                         .param("clientId", clientId.toString())
                         .with(jwtPostProcessor))
                 .andExpect(status().isForbidden());
@@ -91,7 +93,7 @@ class TransferControllerTest {
         when(transferService.getClientTransfers(eq(clientId), any()))
                 .thenReturn(new PageImpl<>(List.of(new TransferResponseDto())));
 
-        mockMvc.perform(get("/")
+        mockMvc.perform(get("/transfers")
                         .param("clientId", clientId.toString())
                         .with(jwtPostProcessor))
                 .andExpect(status().isOk());
@@ -105,7 +107,7 @@ class TransferControllerTest {
 
         when(transferService.getTransferDetails(any(Jwt.class), eq(orderNo))).thenReturn(response);
 
-        mockMvc.perform(get("/{orderNumber}", orderNo).with(jwt()))
+        mockMvc.perform(get("/transfers/{orderNumber}", orderNo).with(jwt()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.orderNumber").value(orderNo));
     }
@@ -116,7 +118,7 @@ class TransferControllerTest {
         when(transferService.getTransfersByAccountNumber(any(Jwt.class), eq(accNo), any()))
                 .thenReturn(new PageImpl<>(List.of(new TransferResponseDto())));
 
-        mockMvc.perform(get("/accounts/{accountNumber}", accNo)
+        mockMvc.perform(get("/transfers/accounts/{accountNumber}", accNo)
                         .with(jwt().jwt(builder -> builder.claim("id", "10").claim("roles", List.of("ROLE_USER")))))
                 .andExpect(status().isOk());
     }
@@ -126,7 +128,7 @@ class TransferControllerTest {
         TransferRequestDto request = new TransferRequestDto();
         request.setAmount(new BigDecimal("-10.00")); // Nevalidno!
 
-        mockMvc.perform(post("/")
+        mockMvc.perform(post("/transfers")
                         .with(jwt())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))

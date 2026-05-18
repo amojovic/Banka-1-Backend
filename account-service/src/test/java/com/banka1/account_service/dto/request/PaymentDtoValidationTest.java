@@ -30,13 +30,19 @@ class PaymentDtoValidationTest {
     }
 
     @Test
-    void accountNumbersAccept19DigitsAndReject18Digits() {
-        PaymentDto valid = validDto();
-        Set<ConstraintViolation<PaymentDto>> validViolations = validator.validate(valid);
-        assertThat(validViolations).isEmpty();
+    void accountNumbersAccept18And19DigitsAndRejectWrongLength() {
+        // Produkcijski PaymentDto regex je ^\d{18,19}$ — prihvata i 18 i 19 cifara
+        // (18 je aktuelni format po Celini 2, 19 ostavljen radi tranzicione kompatibilnosti).
+        PaymentDto valid19 = validDto();
+        assertThat(validator.validate(valid19)).isEmpty();
+
+        PaymentDto valid18 = validDto();
+        valid18.setFromAccountNumber("111000100000000011");  // 18 digits — valid
+        valid18.setToAccountNumber("111000100000000219");    // 18 digits — valid
+        assertThat(validator.validate(valid18)).isEmpty();
 
         PaymentDto invalid = validDto();
-        invalid.setFromAccountNumber("111000100000000011");  // 18 digits — should fail
+        invalid.setFromAccountNumber("11100010000000011");  // 17 digits — should fail
         Set<ConstraintViolation<PaymentDto>> violations = validator.validate(invalid);
 
         assertThat(violations)

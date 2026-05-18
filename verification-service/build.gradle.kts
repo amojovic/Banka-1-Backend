@@ -49,6 +49,9 @@ dependencies {
 	annotationProcessor("org.projectlombok:lombok")
 	// PR_16 C16.1: phantom test starter-i uklonjeni.
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
+	// Spring Boot 4 split test autoconfigure module-e u zasebne starter-e — moramo
+	// eksplicitno povuci WebMvc test slice (@WebMvcTest, @AutoConfigureMockMvc).
+	testImplementation("org.springframework.boot:spring-boot-webmvc-test")
 	testImplementation("org.springframework.security:spring-security-test")
 	testRuntimeOnly("com.h2database:h2")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")

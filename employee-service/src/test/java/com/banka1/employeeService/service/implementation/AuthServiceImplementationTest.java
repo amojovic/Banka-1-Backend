@@ -121,7 +121,7 @@ class AuthServiceImplementationTest {
 
         assertThatThrownBy(() -> authService.login(new LoginRequestDto("pera@banka.com", "WrongPassword")))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("Greska pri loginovanju");
+                .hasMessage("Neispravni unos");
     }
 
     @Test
@@ -144,7 +144,7 @@ class AuthServiceImplementationTest {
 
         assertThatThrownBy(() -> authService.login(new LoginRequestDto("ghost@banka.com", "Password12")))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("Greska pri loginovanju");
+                .hasMessage("Korisnik ne postoji");
     }
 
     @Test
@@ -185,7 +185,7 @@ class AuthServiceImplementationTest {
 
         assertThatThrownBy(() -> authService.check(plainToken))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("Pogresan token");
+                .hasMessage("Link za aktivaciju je istekao");
     }
 
     @Test

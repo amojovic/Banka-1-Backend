@@ -37,7 +37,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(CardManagementController.class)
 @AutoConfigureMockMvc
-@Import({GlobalExceptionHandler.class, CardControllerSupport.class})
+@Import({GlobalExceptionHandler.class, CardControllerSupport.class, TestSecurityConfig.class})
 @ActiveProfiles("test")
 class CardManagementControllerWebMvcTest {
 
@@ -53,7 +53,7 @@ class CardManagementControllerWebMvcTest {
     void getCardsForClientReturnsMaskedCardsForOwner() throws Exception {
         when(cardLifecycleService.getCardsForClient(1L)).thenReturn(List.of(new CardSummaryDTO(card())));
 
-        mockMvc.perform(get("/client/1")
+        mockMvc.perform(get("/api/cards/client/1")
                         .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_CLIENT_BASIC"))
                                 .jwt(jwt -> jwt.claim("id", 1L))))
                 .andExpect(status().isOk())
@@ -65,7 +65,7 @@ class CardManagementControllerWebMvcTest {
     void getCardsForClientAllowsEmployeeForAnyClient() throws Exception {
         when(cardLifecycleService.getCardsForClient(2L)).thenReturn(List.of(new CardSummaryDTO(card())));
 
-        mockMvc.perform(get("/client/2")
+        mockMvc.perform(get("/api/cards/client/2")
                         .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_BASIC"))
                                 .jwt(jwt -> jwt.claim("id", 100L))))
                 .andExpect(status().isOk())
@@ -77,7 +77,7 @@ class CardManagementControllerWebMvcTest {
 
     @Test
     void getCardsForClientReturnsForbiddenForDifferentClient() throws Exception {
-        mockMvc.perform(get("/client/2")
+        mockMvc.perform(get("/api/cards/client/2")
                         .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_CLIENT_BASIC"))
                                 .jwt(jwt -> jwt.claim("id", 1L))))
                 .andExpect(status().isForbidden())
@@ -90,7 +90,7 @@ class CardManagementControllerWebMvcTest {
     void getCardDetailsReturnsForbiddenForDifferentClient() throws Exception {
         when(cardLifecycleService.getClientIdByCardId(15L)).thenReturn(2L);
 
-        mockMvc.perform(get("/id/15")
+        mockMvc.perform(get("/api/cards/id/15")
                         .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_CLIENT_BASIC"))
                                 .jwt(jwt -> jwt.claim("id", 1L))))
                 .andExpect(status().isForbidden())
@@ -104,7 +104,7 @@ class CardManagementControllerWebMvcTest {
         when(cardLifecycleService.getCardById(15L))
                 .thenReturn(new CardDetailDTO(card()));
 
-        mockMvc.perform(get("/id/15")
+        mockMvc.perform(get("/api/cards/id/15")
                         .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_BASIC"))
                                 .jwt(jwt -> jwt.claim("id", 100L))))
                 .andExpect(status().isOk())
@@ -119,7 +119,7 @@ class CardManagementControllerWebMvcTest {
         when(cardLifecycleService.getCardsByAccountNumber("265000000000123456"))
                 .thenReturn(List.of(new CardSummaryDTO(card())));
 
-        mockMvc.perform(get("/account/265000000000123456")
+        mockMvc.perform(get("/api/cards/account/265000000000123456")
                         .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_BASIC"))
                                 .jwt(jwt -> jwt.claim("id", 100L))))
                 .andExpect(status().isOk())
@@ -132,7 +132,7 @@ class CardManagementControllerWebMvcTest {
         when(cardLifecycleService.getInternalCardsByAccountNumber("265000000000123456"))
                 .thenReturn(List.of(new CardInternalSummaryDTO(card())));
 
-        mockMvc.perform(get("/internal/account/265000000000123456")
+        mockMvc.perform(get("/api/cards/internal/account/265000000000123456")
                         .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_SERVICE"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].cardNumber").value("5798********5571"))
@@ -144,7 +144,7 @@ class CardManagementControllerWebMvcTest {
 
     @Test
     void blockCardAllowsEmployeeOnSharedRoute() throws Exception {
-        mockMvc.perform(put("/id/15/block")
+        mockMvc.perform(put("/api/cards/id/15/block")
                         .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_BASIC"))
                                 .jwt(jwt -> jwt.claim("id", 100L))))
                 .andExpect(status().isOk());
@@ -155,7 +155,7 @@ class CardManagementControllerWebMvcTest {
 
     @Test
     void unblockCardUsesCardIdEmployeeRoute() throws Exception {
-        mockMvc.perform(put("/id/15/unblock")
+        mockMvc.perform(put("/api/cards/id/15/unblock")
                         .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_BASIC"))
                                 .jwt(jwt -> jwt.claim("id", 100L))))
                 .andExpect(status().isOk());
@@ -165,7 +165,7 @@ class CardManagementControllerWebMvcTest {
 
     @Test
     void deactivateCardUsesCardIdEmployeeRoute() throws Exception {
-        mockMvc.perform(put("/id/15/deactivate")
+        mockMvc.perform(put("/api/cards/id/15/deactivate")
                         .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_BASIC"))
                                 .jwt(jwt -> jwt.claim("id", 100L))))
                 .andExpect(status().isOk());
@@ -180,7 +180,7 @@ class CardManagementControllerWebMvcTest {
 
         when(cardLifecycleService.getClientIdByCardId(15L)).thenReturn(1L);
 
-        mockMvc.perform(put("/id/15/limit")
+        mockMvc.perform(put("/api/cards/id/15/limit")
                         .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_CLIENT_BASIC"))
                                 .jwt(jwt -> jwt.claim("id", 1L)))
                         .contentType(MediaType.APPLICATION_JSON)
