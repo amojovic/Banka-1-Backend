@@ -6,6 +6,7 @@ import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.core5.util.Timeout;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
@@ -54,6 +55,24 @@ public class RestClientConfig {
     }
 
     /**
+     * Creates a dedicated {@link RestClient} for the InfluxDB HTTP API.
+     *
+     * <p>InfluxDB is optional for local/test runs, so a default localhost URL is used when the
+     * integration is disabled and no URL is configured.
+     *
+     * @param properties InfluxDB market-data configuration
+     * @return configured RestClient with token authorization
+     */
+    @Bean
+    public RestClient influxDbRestClient(StockInfluxProperties properties) {
+        return RestClient.builder()
+                .baseUrl(hasText(properties.url()) ? properties.url() : "http://localhost:8086")
+                .defaultHeader(HttpHeaders.AUTHORIZATION, "Token " + nullToEmpty(properties.token()))
+                .requestFactory(buildRequestFactory(3, 10))
+                .build();
+    }
+
+    /**
      * Builds an {@link HttpComponentsClientHttpRequestFactory} with explicit connect and
      * response timeouts.
      *
@@ -73,5 +92,13 @@ public class RestClientConfig {
                 .setDefaultRequestConfig(requestConfig)
                 .build();
         return new HttpComponentsClientHttpRequestFactory(httpClient);
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private String nullToEmpty(String value) {
+        return value == null ? "" : value;
     }
 }
