@@ -29,7 +29,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         "spring.datasource.password=",
         "spring.jpa.hibernate.ddl-auto=create-drop",
         "management.endpoint.health.group.readiness.include=readinessState,db,rabbit",
-        "spring.autoconfigure.exclude=org.springdoc.webmvc.ui.SwaggerConfig"
+        "spring.autoconfigure.exclude=org.springdoc.webmvc.ui.SwaggerConfig,com.banka1.security_lib.SecurityConfig",
+        "jwt.secret=test-secret-key-for-notification-service-tests-32-chars-min"
 })
 class RoutingKeysConfigValidationTest {
 

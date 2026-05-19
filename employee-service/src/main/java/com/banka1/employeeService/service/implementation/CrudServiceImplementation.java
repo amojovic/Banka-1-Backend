@@ -1,5 +1,7 @@
 package com.banka1.employeeService.service.implementation;
 
+import com.banka1.employeeService.audit.AuditEventDto;
+import com.banka1.employeeService.audit.AuditPublisher;
 import com.banka1.employeeService.domain.ConfirmationToken;
 import com.banka1.employeeService.domain.Zaposlen;
 import com.banka1.employeeService.domain.enums.Permission;
@@ -34,6 +36,7 @@ import java.time.Period;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * Implementacija {@link CrudService} koja upravlja CRUD operacijama nad entitetom zaposlenog.
@@ -69,6 +72,11 @@ public class CrudServiceImplementation implements CrudService {
      * Mapper za konverziju izmedju DTO i JPA entiteta zaposlenog.
      */
     private final EmployeeMapper employeeMapper;
+
+    /**
+     * WP-12: producer za centralizovani audit log (Celina 3.5).
+     */
+    private final AuditPublisher auditPublisher;
 
     /**
      * Naziv JWT claim-a koji nosi naziv uloge korisnika.
@@ -141,6 +149,9 @@ public class CrudServiceImplementation implements CrudService {
                 zaposlen.getEmail(),
                 EmailType.EMPLOYEE_CREATED,
                 activateAccount + generated);
+        // WP-7: in-app notifikacija ide zaposlenom koji je upravo kreiran.
+        emailDto.setRecipientUserId(savedEmployee.getId());
+        emailDto.setRecipientType("EMPLOYEE");
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
@@ -210,8 +221,12 @@ public class CrudServiceImplementation implements CrudService {
 
         List<String> list=jwt.getClaim(permission);
         Set<Permission> permissions=new HashSet<>(list.stream().map(Permission::valueOf).toList());
+        // WP-12: snimi skup permisija pre izmene da bismo mogli da detektujemo
+        // da li je izmena entiteta zaista promenila permisije zaposlenog.
+        Set<Permission> permissionsBefore = new HashSet<>(zaposlen.getPermissionSet());
         employeeMapper.updateEntityFromDto(zaposlen, dto, role1,permissions);
         Zaposlen updated = zaposlenRepository.save(zaposlen);
+        publishPermissionAuditEventIfChanged(jwt, callerId, updated, permissionsBefore);
 
         Boolean aktivan = dto.getAktivan();
         if (aktivan != null && !aktivan) {
@@ -220,6 +235,9 @@ public class CrudServiceImplementation implements CrudService {
                     zaposlen.getEmail(),
                     EmailType.EMPLOYEE_ACCOUNT_DEACTIVATED
             );
+            // WP-7: in-app notifikacija ide deaktiviranom zaposlenom.
+            emailDto.setRecipientUserId(zaposlen.getId());
+            emailDto.setRecipientType("EMPLOYEE");
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
@@ -229,6 +247,84 @@ public class CrudServiceImplementation implements CrudService {
         }
 
         return employeeMapper.toDto(updated);
+    }
+
+    /**
+     * WP-12: ako je izmena entiteta promenila skup permisija zaposlenog,
+     * publikuje {@code EMPLOYEE_PERMISSIONS_CHANGED} audit dogadjaj na
+     * centralizovani audit log. Salje se strogo posle commita transakcije,
+     * tako da rollback-ovana izmena ne ostavlja audit red.
+     *
+     * @param jwt                JWT administratora koji je doneo izmenu
+     * @param actorId            id administratora
+     * @param edited             izmenjeni zaposleni
+     * @param permissionsBefore  skup permisija pre izmene
+     */
+    private void publishPermissionAuditEventIfChanged(Jwt jwt, Long actorId, Zaposlen edited,
+                                                      Set<Permission> permissionsBefore) {
+        Set<Permission> permissionsAfter = edited.getPermissionSet() == null
+                ? Set.of()
+                : new HashSet<>(edited.getPermissionSet());
+        if (permissionsBefore.equals(permissionsAfter)) {
+            return;
+        }
+        String details = "Permisije promenjene: " + sortedPermissions(permissionsBefore)
+                + " -> " + sortedPermissions(permissionsAfter);
+        AuditEventDto event = new AuditEventDto(
+                actorId,
+                resolveActorName(jwt, actorId),
+                "EMPLOYEE_PERMISSIONS_CHANGED",
+                "EMPLOYEE",
+                String.valueOf(edited.getId()),
+                details,
+                System.currentTimeMillis());
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                auditPublisher.publish(event);
+            }
+        });
+    }
+
+    /**
+     * Vraca permisije sortirane po imenu radi deterministickog audit zapisa.
+     *
+     * @param permissions skup permisija
+     * @return sortirani skup kao string
+     */
+    private String sortedPermissions(Set<Permission> permissions) {
+        return new TreeSet<>(permissions).toString();
+    }
+
+    /**
+     * Razresava citljivo ime aktora — prvenstveno iz baze po {@code actorId},
+     * fallback je {@code username}/{@code sub} klejm iz JWT-a, pa string id.
+     *
+     * @param jwt     JWT administratora
+     * @param actorId id administratora
+     * @return citljivo ime aktora
+     */
+    private String resolveActorName(Jwt jwt, Long actorId) {
+        if (actorId != null) {
+            Zaposlen actor = zaposlenRepository.findById(actorId).orElse(null);
+            if (actor != null) {
+                String firstName = actor.getIme() == null ? "" : actor.getIme().trim();
+                String lastName = actor.getPrezime() == null ? "" : actor.getPrezime().trim();
+                String fullName = (firstName + " " + lastName).trim();
+                if (!fullName.isEmpty()) {
+                    return fullName;
+                }
+            }
+        }
+        Object username = jwt.getClaim("username");
+        if (username != null) {
+            return String.valueOf(username);
+        }
+        String subject = jwt.getSubject();
+        if (subject != null) {
+            return subject;
+        }
+        return actorId == null ? "SYSTEM" : String.valueOf(actorId);
     }
 
     /**
@@ -280,6 +376,7 @@ public class CrudServiceImplementation implements CrudService {
         if (role1.getPower() <= zaposlen.getRole().getPower())
             throw new BusinessException(ErrorCode.NOT_STRONG_ROLE, "Slab si");
 
+        Long deletedEmployeeId = zaposlen.getId();
         zaposlenRepository.delete(zaposlen);
 
         EmailDto emailDto = new EmailDto(
@@ -287,6 +384,9 @@ public class CrudServiceImplementation implements CrudService {
                 zaposlen.getEmail(),
                 EmailType.EMPLOYEE_ACCOUNT_DEACTIVATED
         );
+        // WP-7: in-app notifikacija ide obrisanom zaposlenom.
+        emailDto.setRecipientUserId(deletedEmployeeId);
+        emailDto.setRecipientType("EMPLOYEE");
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override

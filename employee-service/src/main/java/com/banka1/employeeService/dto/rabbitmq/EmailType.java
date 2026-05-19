@@ -13,7 +13,10 @@ public enum EmailType {
     EMPLOYEE_PASSWORD_RESET("employee.password_reset"),
 
     /** Obaveštenje o deaktivaciji korisnickog naloga. */
-    EMPLOYEE_ACCOUNT_DEACTIVATED("employee.account_deactivated");
+    EMPLOYEE_ACCOUNT_DEACTIVATED("employee.account_deactivated"),
+
+    /** Obaveštenje da je nalog zaposlenog privremeno zakljucan zbog vise neuspesnih pokusaja prijave. */
+    EMPLOYEE_ACCOUNT_LOCKED("employee.account_locked");
 
     private final String routingKey;
 

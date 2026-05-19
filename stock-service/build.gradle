@@ -26,6 +26,11 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-liquibase'
+    // WP-9 (W9): Price Alert publishes price.alert_triggered notifications over AMQP.
+    // The RabbitTemplate bean is provided by market-service RabbitConfig in the
+    // consolidated deployment; this dependency only puts the AMQP API on the
+    // stock-service compile classpath.
+    implementation 'org.springframework.boot:spring-boot-starter-amqp'
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
@@ -39,8 +44,9 @@ dependencies {
     annotationProcessor 'org.projectlombok:lombok'
     annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
 
-    // PR_16 C16.1: phantom starter-webmvc-test uklonjen.
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    // Spring Boot 4 split @WebMvcTest/@AutoConfigureMockMvc into a separate artifact.
+    testImplementation 'org.springframework.boot:spring-boot-webmvc-test'
     testImplementation 'org.springframework.security:spring-security-test'
     testRuntimeOnly 'com.h2database:h2'
 }

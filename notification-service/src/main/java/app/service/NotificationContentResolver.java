@@ -43,7 +43,12 @@ final class NotificationContentResolver {
     }
 
     /**
-     * Resolves a notification payload into the final `email recipient` + `subject` + `body`.
+     * Resolves a notification payload into the final `email recipient` + `subject` + `body`,
+     * enforcing that a deliverable email address is present.
+     *
+     * <p>This is the email-delivery path: it is the same as {@link #render} but additionally
+     * requires {@code userEmail}. The in-app channel must NOT go through here — it carries no
+     * email address and must not be suppressed by a missing one; use {@link #render} instead.
      *
      * @param request incoming notification payload
      * @param notificationType resolved notification type used for template selection
@@ -51,6 +56,33 @@ final class NotificationContentResolver {
      * @return fully rendered email content ready for delivery
      */
     static ResolvedEmail resolve(
+            NotificationRequest request,
+            String notificationType,
+            NotificationTemplateFactory templateFactory
+    ) {
+        requireUserEmail(request);
+        return render(request, notificationType, templateFactory);
+    }
+
+    /**
+     * Renders a notification payload into {@code subject} + {@code body} without requiring an
+     * email address.
+     *
+     * <p>The template content is rendered purely from {@code templateVariables} (and the
+     * {@code username} aliases) — it never needs the recipient email. Only the email-delivery
+     * leg needs {@code userEmail}; the in-app notification channel uses this method so a
+     * missing/blank email can never suppress the in-app row.
+     *
+     * <p>The notification {@code type} is still validated here: an absent type is a hard error
+     * because no template can be selected without it.
+     *
+     * @param request incoming notification payload
+     * @param notificationType resolved notification type used for template selection
+     * @param templateFactory template source for the notification type
+     * @return rendered content; {@link ResolvedEmail#recipientEmail()} mirrors the payload email
+     *         and may be {@code null}/blank when no email was supplied
+     */
+    static ResolvedEmail render(
             NotificationRequest request,
             String notificationType,
             NotificationTemplateFactory templateFactory
@@ -149,7 +181,11 @@ final class NotificationContentResolver {
     }
 
     /**
-     * Validates the minimum payload fields required for email rendering.
+     * Validates the minimum payload fields required for template rendering.
+     *
+     * <p>This intentionally does NOT validate the email address — rendering needs only the
+     * payload itself and a notification type. Email-address validation is a separate concern
+     * handled by {@link #requireUserEmail} and only gates the email-delivery leg.
      *
      * @param request incoming notification payload
      */
@@ -157,9 +193,21 @@ final class NotificationContentResolver {
         if (request == null) {
             throw new BusinessException(ErrorCode.NOTIFICATION_PAYLOAD_REQUIRED, NOTIFICATION_PAYLOAD_REQUIRED);
         }
+    }
+
+    /**
+     * Validates that a deliverable recipient email address is present.
+     *
+     * <p>This gates only the email-delivery leg. It is deliberately kept out of
+     * {@link #validateRequest} so a missing email never blocks template rendering or the
+     * in-app notification channel.
+     *
+     * @param request incoming notification payload
+     */
+    private static void requireUserEmail(NotificationRequest request) {
+        validateRequest(request);
         if (request.getUserEmail() == null || request.getUserEmail().isBlank()) {
             throw new BusinessException(ErrorCode.RECIPIENT_EMAIL_REQUIRED, USER_EMAIL_REQUIRED);
         }
-
     }
 }

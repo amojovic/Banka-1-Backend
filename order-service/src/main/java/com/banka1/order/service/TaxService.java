@@ -55,8 +55,13 @@ public interface TaxService {
      * Intended for supervisor usage via API.
      * Executes the same logic as the scheduled monthly job.
      * </p>
+     *
+     * <p>WP-12: publikuje {@code TAX_RUN_MANUAL} audit dogadjaj sa supervizorom
+     * koji je pokrenuo obracun kao aktorom.</p>
+     *
+     * @param actorId id supervizora koji je pokrenuo obracun (za audit log)
      */
-    void collectMonthlyTaxManually();
+    void collectMonthlyTaxManually(Long actorId);
 
     /**
      * Calculates and collects capital gains tax for all eligible trades
@@ -66,8 +71,20 @@ public interface TaxService {
      * Intended for supervisor usage via API when mid-month collection is needed.
      * Idempotent: already-charged entries are skipped via duplicate-check on transaction IDs.
      * </p>
+     *
+     * <p>WP-12: publikuje {@code TAX_RUN_MANUAL} audit dogadjaj sa supervizorom
+     * koji je pokrenuo obracun kao aktorom.</p>
+     *
+     * @param actorId id supervizora koji je pokrenuo obracun (za audit log)
      */
-    void collectCurrentMonthTax();
+    void collectCurrentMonthTax(Long actorId);
+
+    /**
+     * WP-12: zakazani (cron) obracun poreza za prethodni mesec. Identican
+     * {@link #collectMonthlyTax()}, ali dodatno publikuje {@code TAX_RUN_SCHEDULED}
+     * audit dogadjaj sa SYSTEM aktorom. Poziva ga iskljucivo {@code TaxScheduler}.
+     */
+    void collectMonthlyTaxScheduled();
 
     /**
      * Retrieves aggregated tax debt per user in RSD.

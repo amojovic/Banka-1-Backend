@@ -14,6 +14,7 @@ import lombok.Setter;
 import org.hibernate.annotations.SQLDelete;
 import org.hibernate.annotations.SQLRestriction;
 
+import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -124,6 +125,21 @@ public class Klijent extends BaseEntity {
      */
     @Column(nullable = false)
     private boolean aktivan = false;
+
+    /**
+     * Brojac neuspesnih pokusaja prijave; resetuje se na 0 nakon uspesne prijave
+     * ili reseta lozinke. Koristi se za zakljucavanje naloga posle vise neuspeha
+     * (Celina 1, Scenario 5).
+     */
+    @Column(name = "failed_login_attempts", nullable = false)
+    private int failedLoginAttempts = 0;
+
+    /**
+     * Trenutak do kog je nalog zakljucan zbog vise neuspesnih pokusaja prijave;
+     * {@code null} kada nalog nije zakljucan.
+     */
+    @Column(name = "locked_until")
+    private LocalDateTime lockedUntil;
 
     /**
      * Aktivacioni / reset token vezan za klijenta (opcioni).

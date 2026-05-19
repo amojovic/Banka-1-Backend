@@ -34,9 +34,9 @@ public class ResetLinkDto {
      */
     public ResetLinkDto(String email, EmailType emailType) {
         switch (emailType) {
-            case EmailType.EMPLOYEE_PASSWORD_RESET -> resetLink = email;
+            case EmailType.EMPLOYEE_PASSWORD_RESET, EmailType.EMPLOYEE_ACCOUNT_LOCKED -> resetLink = email;
             case EmailType.EMPLOYEE_CREATED -> activationLink = email;
-            default -> throw new IllegalStateException("Kako si ovo uspeo majke ti");
+            default -> throw new IllegalStateException("Unsupported EmailType: " + emailType);
         }
     }
 }

@@ -7,6 +7,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -56,8 +58,8 @@ public class TaxController {
      */
     @PostMapping("/tax/collect")
     @PreAuthorize("hasRole('SUPERVISOR')")
-    public ResponseEntity<Void> collectTax() {
-        taxService.collectMonthlyTaxManually();
+    public ResponseEntity<Void> collectTax(@AuthenticationPrincipal Jwt jwt) {
+        taxService.collectMonthlyTaxManually(callerId(jwt));
         return ResponseEntity.ok().build();
     }
 
@@ -71,8 +73,8 @@ public class TaxController {
      */
     @PostMapping("/tax/collect/current-month")
     @PreAuthorize("hasRole('SUPERVISOR')")
-    public ResponseEntity<Void> collectCurrentMonthTax() {
-        taxService.collectCurrentMonthTax();
+    public ResponseEntity<Void> collectCurrentMonthTax(@AuthenticationPrincipal Jwt jwt) {
+        taxService.collectCurrentMonthTax(callerId(jwt));
         return ResponseEntity.ok().build();
     }
 
@@ -154,5 +156,25 @@ public class TaxController {
             @RequestParam(defaultValue = "10") @Min(1) @Max(100) int size
     ) {
         return ResponseEntity.ok(taxService.getTaxTracking(userType, firstName, lastName, PageRequest.of(page, size)));
+    }
+
+    /**
+     * WP-12: izvlaci id pozivaoca iz JWT-a za audit log. Klejm {@code id} nosi
+     * numericki identifikator; fallback je {@code sub}. {@code null} kada JWT
+     * nije prisutan (npr. test bez security konteksta).
+     *
+     * @param jwt JWT prijavljenog supervizora
+     * @return id pozivaoca ili {@code null}
+     */
+    private Long callerId(Jwt jwt) {
+        if (jwt == null) {
+            return null;
+        }
+        Object idClaim = jwt.getClaim("id");
+        if (idClaim instanceof Number number) {
+            return number.longValue();
+        }
+        String subject = jwt.getSubject();
+        return subject == null ? null : Long.valueOf(subject);
     }
 }

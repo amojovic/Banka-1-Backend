@@ -66,6 +66,22 @@ public class NotificationRequest implements Serializable {
     private String sessionId;
 
     /**
+     * Identifier of the user the in-app notification belongs to (nullable,
+     * backward-compatible). When null the consumer skips the in-app row and
+     * email delivery remains the only channel.
+     */
+    @Schema(description = "Recipient user id for the in-app notification feed")
+    private Long recipientUserId;
+
+    /**
+     * Recipient id space discriminator — {@code CLIENT} or {@code EMPLOYEE}
+     * (nullable, backward-compatible). Required together with
+     * {@code recipientUserId} for an in-app row to be created.
+     */
+    @Schema(description = "Recipient type: CLIENT or EMPLOYEE", example = "CLIENT")
+    private String recipientType;
+
+    /**
      * Convenience constructor for tests and manual object creation.
      *
      * @param reqName          display username

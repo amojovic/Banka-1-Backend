@@ -74,6 +74,12 @@ class OrderExecutionServiceTest {
     private OrderExecutionService self;
     @Mock
     private TaskScheduler orderExecutionTaskScheduler;
+    @Mock
+    private com.banka1.order.client.TradingServiceClient tradingServiceClient;
+    @Mock
+    private com.banka1.order.rabbitmq.OrderNotificationProducer orderNotificationProducer;
+    @Mock
+    private com.banka1.order.rabbitmq.OrderNotificationFactory orderNotificationFactory;
 
     @InjectMocks
     private OrderExecutionServiceImpl service;
@@ -164,6 +170,12 @@ class OrderExecutionServiceTest {
                 .thenReturn(mock(ScheduledFuture.class));
         lenient().when(selfProvider.getObject()).thenReturn(self);
         lenient().when(actuaryInfoRepository.findByEmployeeIdForUpdate(1L)).thenReturn(Optional.empty());
+        // The factory has its own unit test; here it only needs to yield a non-null
+        // payload so the producer is invoked with a concrete argument.
+        lenient().when(orderNotificationFactory.build(any(Order.class), any(OrderStatus.class)))
+                .thenReturn(new com.banka1.order.dto.OrderNotificationPayload());
+        lenient().when(orderNotificationFactory.buildPartialFill(any(Order.class), any()))
+                .thenReturn(new com.banka1.order.dto.OrderNotificationPayload());
     }
 
     @Test
@@ -460,5 +472,52 @@ class OrderExecutionServiceTest {
         long delay = (long) ReflectionTestUtils.invokeMethod(service, "calculateExecutionDelay", order);
 
         assertThat(delay).isEqualTo(1000L);
+    }
+
+    @Test
+    void fullFillPublishesOrderExecutedNotificationNotPartialFill() {
+        // AON market buy with capacity covering the whole order — single full fill.
+        order.setAllOrNone(true);
+        order.setQuantity(1);
+        order.setRemainingPortions(1);
+        when(portfolioRepository.findByUserIdAndListingIdForUpdate(1L, 42L)).thenReturn(Optional.empty());
+
+        service.executeOrderPortion(order);
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.DONE);
+        verify(orderNotificationProducer).sendOrderExecuted(any());
+        verify(orderNotificationFactory).build(eq(order), eq(OrderStatus.DONE));
+        verify(orderNotificationProducer, never()).sendOrderPartialFill(any());
+    }
+
+    @Test
+    void partialFillPublishesOrderPartialFillNotificationWithFilledQuantity() {
+        // Volume (4) below remaining portions (10) forces a partial fill that leaves
+        // the order APPROVED. Non-AON so a sub-remaining fill is allowed.
+        order.setQuantity(10);
+        order.setRemainingPortions(10);
+        order.setAllOrNone(false);
+        listing.setVolume(4L);
+
+        service.executeOrderPortion(order);
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.APPROVED);
+        assertThat(order.getRemainingPortions()).isPositive();
+        ArgumentCaptor<Integer> filledCaptor = ArgumentCaptor.forClass(Integer.class);
+        verify(orderNotificationFactory).buildPartialFill(eq(order), filledCaptor.capture());
+        assertThat(filledCaptor.getValue()).isBetween(1, 4);
+        verify(orderNotificationProducer).sendOrderPartialFill(any());
+        verify(orderNotificationProducer, never()).sendOrderExecuted(any());
+    }
+
+    @Test
+    void skippedExecutionAttemptPublishesNoNotification() {
+        // No quote data — executeOrderPortion returns before any fill.
+        listing.setAsk(null);
+
+        service.executeOrderPortion(order);
+
+        verify(orderNotificationProducer, never()).sendOrderPartialFill(any());
+        verify(orderNotificationProducer, never()).sendOrderExecuted(any());
     }
 }

@@ -181,7 +181,11 @@ public class EmployeeServiceImplementation implements EmployeeService {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                rabbitClient.sendEmailNotification(new EmailDto(clientInfoResponseDto.getUsername(),clientInfoResponseDto.getEmail(), EmailType.ACCOUNT_CREATED));
+                EmailDto emailDto = new EmailDto(clientInfoResponseDto.getUsername(),clientInfoResponseDto.getEmail(), EmailType.ACCOUNT_CREATED);
+                // WP-7: in-app notifikacija ide klijentu-vlasniku racuna.
+                emailDto.setRecipientUserId(account.getVlasnik());
+                emailDto.setRecipientType("CLIENT");
+                rabbitClient.sendEmailNotification(emailDto);
                 if (Boolean.TRUE.equals(fxDto.getCreateCard())) {
                     rabbitClient.sendCardEvent(new CardEventDto(clientInfoResponseDto.getId(), account.getBrojRacuna(), CardEventType.CARD_CREATE));
                 }
@@ -204,7 +208,11 @@ public class EmployeeServiceImplementation implements EmployeeService {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                rabbitClient.sendEmailNotification(new EmailDto(clientInfoResponseDto.getUsername(),clientInfoResponseDto.getEmail(), EmailType.ACCOUNT_CREATED));
+                EmailDto emailDto = new EmailDto(clientInfoResponseDto.getUsername(),clientInfoResponseDto.getEmail(), EmailType.ACCOUNT_CREATED);
+                // WP-7: in-app notifikacija ide klijentu-vlasniku racuna.
+                emailDto.setRecipientUserId(account.getVlasnik());
+                emailDto.setRecipientType("CLIENT");
+                rabbitClient.sendEmailNotification(emailDto);
                 if (Boolean.TRUE.equals(checkingDto.getCreateCard())) {
                     rabbitClient.sendCardEvent(new CardEventDto(clientInfoResponseDto.getId(), account.getBrojRacuna(), CardEventType.CARD_CREATE));
                 }

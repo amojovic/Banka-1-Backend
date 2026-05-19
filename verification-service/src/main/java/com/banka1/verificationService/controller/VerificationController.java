@@ -18,6 +18,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Map;
+
 /**
  * REST controller for managing verification session operations.
  * Provides endpoints for generating, validating, and checking verification codes.
@@ -35,12 +37,12 @@ public class VerificationController {
     private final VerificationService verificationService;
 
     /**
-     * Generates a new verification session and sends a one-time password (OTP) code.
+     * Generates a new verification session and sends the current TOTP code.
      *
      * Cancels any existing PENDING sessions for the same client, operation type,
-     * and related entity, then creates a new session with a freshly generated
-     * 6-digit OTP code that will be hashed and stored. The raw code is sent
-     * via RabbitMQ to the notification service for email delivery.
+     * and related entity, then creates a new session with a per-session TOTP
+     * secret (RFC 6238). The current 30-second code is computed and sent via
+     * RabbitMQ to the notification service for email/FCM delivery.
      *
      * @param jwt JWT token containing authenticated user information (not currently used)
      * @param request contains clientId, operationType, relatedEntityId, and clientEmail
@@ -87,5 +89,23 @@ public class VerificationController {
     @GetMapping("/{sessionId}/status")
     public ResponseEntity<StatusResponse> getStatus(@AuthenticationPrincipal Jwt jwt, @PathVariable Long sessionId) {
         return ResponseEntity.ok(verificationService.getStatus(sessionId));
+    }
+
+    /**
+     * Returns the current server time, for client/server clock synchronization.
+     *
+     * <p>WP-6 (Celina 2.1): the verification code is a 30-second TOTP, so the
+     * client must be aware of any clock skew against the server. A client can
+     * call this endpoint to compute the offset and display/submit a code aligned
+     * to the server's time window. The TOTP verification itself still tolerates
+     * +/-{@code verification.otp.window} steps, so this is an aid, not a hard
+     * requirement.
+     *
+     * @param jwt JWT token containing authenticated user information (not used)
+     * @return a JSON object {@code { "epochMillis": <long> }} with server time
+     */
+    @GetMapping("/time")
+    public ResponseEntity<Map<String, Long>> getServerTime(@AuthenticationPrincipal Jwt jwt) {
+        return ResponseEntity.ok(Map.of("epochMillis", System.currentTimeMillis()));
     }
 }

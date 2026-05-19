@@ -45,6 +45,15 @@ public interface KlijentRepository extends JpaRepository<Klijent, Long> {
     boolean existsByEmailAndIdNot(String email, Long id);
 
     /**
+     * Proverava da li vec postoji aktivan klijent sa zadatim emailom.
+     * Koristi se pre kreiranja radi rane detekcije duplikata emaila (cist 409 umesto DB greske).
+     *
+     * @param email email adresa koju treba proveriti
+     * @return true ako klijent sa istim emailom vec postoji
+     */
+    boolean existsByEmail(String email);
+
+    /**
      * Pretrazuje klijente po kombinaciji filtera sa paginacijom.
      * Svaki filter koristi case-insensitive LIKE pretragu; prazan string se ponasa kao wildcard.
      *

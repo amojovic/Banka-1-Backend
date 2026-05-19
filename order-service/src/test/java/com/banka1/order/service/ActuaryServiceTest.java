@@ -1,5 +1,7 @@
 package com.banka1.order.service;
 
+import com.banka1.order.audit.AuditEventDto;
+import com.banka1.order.audit.AuditPublisher;
 import com.banka1.order.client.EmployeeClient;
 import com.banka1.order.dto.EmployeeDto;
 import com.banka1.order.dto.EmployeePageResponse;
@@ -12,6 +14,7 @@ import com.banka1.order.service.impl.ActuaryServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -38,6 +41,9 @@ class ActuaryServiceTest {
 
     @Mock
     private EmployeeClient employeeClient;
+
+    @Mock
+    private AuditPublisher auditPublisher;
 
     @InjectMocks
     private ActuaryServiceImpl actuaryService;
@@ -157,7 +163,7 @@ class ActuaryServiceTest {
         when(actuaryInfoRepository.findByEmployeeId(1L)).thenReturn(Optional.of(actuaryInfo));
         when(actuaryInfoRepository.save(any())).thenReturn(actuaryInfo);
 
-        actuaryService.setLimit(1L, request);
+        actuaryService.setLimit(88L, 1L, request);
 
         assertThat(actuaryInfo.getLimit()).isEqualByComparingTo("50000.00");
         verify(actuaryInfoRepository).save(actuaryInfo);
@@ -170,7 +176,7 @@ class ActuaryServiceTest {
 
         when(employeeClient.getEmployee(2L)).thenReturn(adminEmployee);
 
-        assertThatThrownBy(() -> actuaryService.setLimit(2L, request))
+        assertThatThrownBy(() -> actuaryService.setLimit(88L, 2L, request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("admin");
     }
@@ -181,7 +187,7 @@ class ActuaryServiceTest {
         when(actuaryInfoRepository.findByEmployeeId(1L)).thenReturn(Optional.of(actuaryInfo));
         when(actuaryInfoRepository.save(any())).thenReturn(actuaryInfo);
 
-        actuaryService.resetLimit(1L);
+        actuaryService.resetLimit(88L, 1L);
 
         assertThat(actuaryInfo.getUsedLimit()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(actuaryInfo.getReservedLimit()).isEqualByComparingTo(BigDecimal.ZERO);
@@ -192,7 +198,7 @@ class ActuaryServiceTest {
     void resetLimit_throwsWhenTargetIsAdmin() {
         when(employeeClient.getEmployee(2L)).thenReturn(adminEmployee);
 
-        assertThatThrownBy(() -> actuaryService.resetLimit(2L))
+        assertThatThrownBy(() -> actuaryService.resetLimit(88L, 2L))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -204,7 +210,7 @@ class ActuaryServiceTest {
 
         when(employeeClient.getEmployee(3L)).thenReturn(supervisor);
 
-        assertThatThrownBy(() -> actuaryService.resetLimit(3L))
+        assertThatThrownBy(() -> actuaryService.resetLimit(88L, 3L))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("AGENT");
         verify(actuaryInfoRepository, never()).save(any());
@@ -219,7 +225,7 @@ class ActuaryServiceTest {
         when(actuaryInfoRepository.findByEmployeeId(1L)).thenReturn(Optional.of(actuaryInfo));
         when(actuaryInfoRepository.save(any())).thenReturn(actuaryInfo);
 
-        actuaryService.setNeedApproval(1L, request);
+        actuaryService.setNeedApproval(88L, 1L, request);
 
         assertThat(actuaryInfo.getNeedApproval()).isTrue();
         verify(actuaryInfoRepository).save(actuaryInfo);
@@ -235,7 +241,7 @@ class ActuaryServiceTest {
         when(actuaryInfoRepository.findByEmployeeId(1L)).thenReturn(Optional.of(actuaryInfo));
         when(actuaryInfoRepository.save(any())).thenReturn(actuaryInfo);
 
-        actuaryService.setNeedApproval(1L, request);
+        actuaryService.setNeedApproval(88L, 1L, request);
 
         assertThat(actuaryInfo.getNeedApproval()).isFalse();
     }
@@ -255,7 +261,7 @@ class ActuaryServiceTest {
         when(actuaryInfoRepository.findByEmployeeId(1L)).thenReturn(Optional.empty());
         when(actuaryInfoRepository.save(any())).thenReturn(defaultInfo);
 
-        actuaryService.setNeedApproval(1L, request);
+        actuaryService.setNeedApproval(88L, 1L, request);
 
         verify(actuaryInfoRepository, times(2)).save(any(ActuaryInfo.class));
     }
@@ -267,7 +273,7 @@ class ActuaryServiceTest {
 
         when(employeeClient.getEmployee(2L)).thenReturn(adminEmployee);
 
-        assertThatThrownBy(() -> actuaryService.setNeedApproval(2L, request))
+        assertThatThrownBy(() -> actuaryService.setNeedApproval(88L, 2L, request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("admin");
     }
@@ -283,7 +289,7 @@ class ActuaryServiceTest {
 
         when(employeeClient.getEmployee(3L)).thenReturn(supervisor);
 
-        assertThatThrownBy(() -> actuaryService.setNeedApproval(3L, request))
+        assertThatThrownBy(() -> actuaryService.setNeedApproval(88L, 3L, request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("AGENT");
     }
@@ -296,7 +302,7 @@ class ActuaryServiceTest {
         when(employeeClient.getEmployee(999999L))
                 .thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found", HttpHeaders.EMPTY, new byte[0], null));
 
-        assertThatThrownBy(() -> actuaryService.setLimit(999999L, request))
+        assertThatThrownBy(() -> actuaryService.setLimit(88L, 999999L, request))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("999999");
         verify(actuaryInfoRepository, never()).save(any());
@@ -307,7 +313,7 @@ class ActuaryServiceTest {
         when(employeeClient.getEmployee(999999L))
                 .thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found", HttpHeaders.EMPTY, new byte[0], null));
 
-        assertThatThrownBy(() -> actuaryService.resetLimit(999999L))
+        assertThatThrownBy(() -> actuaryService.resetLimit(88L, 999999L))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("999999");
         verify(actuaryInfoRepository, never()).save(any());
@@ -321,10 +327,79 @@ class ActuaryServiceTest {
         when(employeeClient.getEmployee(999999L))
                 .thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found", HttpHeaders.EMPTY, new byte[0], null));
 
-        assertThatThrownBy(() -> actuaryService.setNeedApproval(999999L, request))
+        assertThatThrownBy(() -> actuaryService.setNeedApproval(88L, 999999L, request))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("999999");
         verify(actuaryInfoRepository, never()).save(any());
+    }
+
+    @Test
+    void setLimit_publishesAgentLimitChangedAuditEvent() {
+        SetLimitRequestDto request = new SetLimitRequestDto();
+        request.setLimit(new BigDecimal("50000.00"));
+
+        when(employeeClient.getEmployee(1L)).thenReturn(agentEmployee);
+        when(actuaryInfoRepository.findByEmployeeId(1L)).thenReturn(Optional.of(actuaryInfo));
+        when(actuaryInfoRepository.save(any())).thenReturn(actuaryInfo);
+
+        actuaryService.setLimit(88L, 1L, request);
+
+        ArgumentCaptor<AuditEventDto> captor = ArgumentCaptor.forClass(AuditEventDto.class);
+        verify(auditPublisher).publish(captor.capture());
+        AuditEventDto event = captor.getValue();
+        assertThat(event.actionType()).isEqualTo("AGENT_LIMIT_CHANGED");
+        assertThat(event.actorId()).isEqualTo(88L);
+        assertThat(event.targetType()).isEqualTo("AGENT");
+        assertThat(event.targetId()).isEqualTo("1");
+        assertThat(event.details()).contains("50000.00");
+    }
+
+    @Test
+    void resetLimit_publishesAgentUsedLimitResetAuditEvent() {
+        when(employeeClient.getEmployee(1L)).thenReturn(agentEmployee);
+        when(actuaryInfoRepository.findByEmployeeId(1L)).thenReturn(Optional.of(actuaryInfo));
+        when(actuaryInfoRepository.save(any())).thenReturn(actuaryInfo);
+
+        actuaryService.resetLimit(88L, 1L);
+
+        ArgumentCaptor<AuditEventDto> captor = ArgumentCaptor.forClass(AuditEventDto.class);
+        verify(auditPublisher).publish(captor.capture());
+        AuditEventDto event = captor.getValue();
+        assertThat(event.actionType()).isEqualTo("AGENT_USED_LIMIT_RESET");
+        assertThat(event.actorId()).isEqualTo(88L);
+        assertThat(event.targetId()).isEqualTo("1");
+    }
+
+    @Test
+    void setNeedApproval_publishesAgentNeedApprovalChangedAuditEvent() {
+        SetNeedApprovalRequestDto request = new SetNeedApprovalRequestDto();
+        request.setNeedApproval(true);
+
+        when(employeeClient.getEmployee(1L)).thenReturn(agentEmployee);
+        when(actuaryInfoRepository.findByEmployeeId(1L)).thenReturn(Optional.of(actuaryInfo));
+        when(actuaryInfoRepository.save(any())).thenReturn(actuaryInfo);
+
+        actuaryService.setNeedApproval(88L, 1L, request);
+
+        ArgumentCaptor<AuditEventDto> captor = ArgumentCaptor.forClass(AuditEventDto.class);
+        verify(auditPublisher).publish(captor.capture());
+        AuditEventDto event = captor.getValue();
+        assertThat(event.actionType()).isEqualTo("AGENT_NEED_APPROVAL_CHANGED");
+        assertThat(event.actorId()).isEqualTo(88L);
+        assertThat(event.targetId()).isEqualTo("1");
+        assertThat(event.details()).contains("false -> true");
+    }
+
+    @Test
+    void setLimit_doesNotPublishAuditEventWhenValidationFails() {
+        when(employeeClient.getEmployee(2L)).thenReturn(adminEmployee);
+        SetLimitRequestDto request = new SetLimitRequestDto();
+        request.setLimit(new BigDecimal("50000.00"));
+
+        assertThatThrownBy(() -> actuaryService.setLimit(88L, 2L, request))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        verify(auditPublisher, never()).publish(any());
     }
 
     @Test

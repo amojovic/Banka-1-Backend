@@ -14,6 +14,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -100,7 +101,15 @@ class TransferServiceImplTest {
 
         List<TransactionSynchronization> synchronizations = TransactionSynchronizationManager.getSynchronizations();
         synchronizations.forEach(TransactionSynchronization::afterCommit);
-        verify(rabbitClient, times(1)).sendEmailNotification(any(EmailDto.class));
+
+        ArgumentCaptor<EmailDto> emailCaptor = ArgumentCaptor.forClass(EmailDto.class);
+        verify(rabbitClient, times(1)).sendEmailNotification(emailCaptor.capture());
+        EmailDto sentEmail = emailCaptor.getValue();
+        // WP-7b: ime primaoca se serijalizuje kao username (potrosac -> {{name}}).
+        assertEquals("Pera", sentEmail.getIme());
+        assertEquals("pera@gmail.com", sentEmail.getEmail());
+        // WP-7b: TRANSFER_COMPLETED sablon renderuje {{amount}}.
+        assertEquals("100", sentEmail.getTemplateVariables().get("amount"));
     }
 
     @Test

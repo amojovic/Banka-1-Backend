@@ -99,6 +99,19 @@ public class AuthServiceImplementation implements AuthService {
     private Long confirmationTokenExpiration;
 
     /**
+     * Maksimalan broj uzastopnih neuspesnih pokusaja prijave pre privremenog zakljucavanja naloga.
+     * Spec (Celina 1, Scenario 5) trazi zakljucavanje "nakon vise neuspesnih pokusaja".
+     */
+    @Value("${account.lockout.max-attempts:5}")
+    private int accountLockoutMaxAttempts;
+
+    /**
+     * Trajanje zakljucavanja naloga u minutima nakon prekoracenja broja pokusaja.
+     */
+    @Value("${account.lockout.duration-minutes:10}")
+    private long accountLockoutDurationMinutes;
+
+    /**
      * Kreira instancu servisa injektovanjem repozitorijuma, enkodera lozinki i JWT tajne.
      * {@link MACSigner} se inicijalizuje ovde jer zahteva tajnu vrednost pri konstruisanju.
      *
@@ -126,10 +139,17 @@ public class AuthServiceImplementation implements AuthService {
      * @throws BusinessException ako su kredencijali neispravni ili nalog nije aktivan
      */
     @Override
-    @Transactional(readOnly = true)
+    @Transactional(noRollbackFor = BusinessException.class)
     public LoginResponseDto login(LoginRequestDto dto) {
         Klijent klijent = klijentRepository.findByEmail(dto.getEmail())
                 .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_CREDENTIALS, ""));
+
+        // Celina 1, Scenario 5: provera privremenog zakljucavanja naloga.
+        LocalDateTime lockedUntil = klijent.getLockedUntil();
+        if (lockedUntil != null && lockedUntil.isAfter(LocalDateTime.now())) {
+            throw new BusinessException(ErrorCode.ACCOUNT_LOCKED,
+                    "Nalog je privremeno zaključan zbog previše neuspešnih pokušaja");
+        }
 
         if (!klijent.isAktivan()) {
             throw new BusinessException(ErrorCode.USER_INACTIVE, "");
@@ -137,7 +157,38 @@ public class AuthServiceImplementation implements AuthService {
 
         if (klijent.getPassword() == null
                 || !passwordEncoder.matches(dto.getPassword(), klijent.getPassword())) {
+            int attempts = klijent.getFailedLoginAttempts() + 1;
+            klijent.setFailedLoginAttempts(attempts);
+            boolean justLocked = attempts >= accountLockoutMaxAttempts;
+            if (justLocked) {
+                klijent.setLockedUntil(LocalDateTime.now().plusMinutes(accountLockoutDurationMinutes));
+            }
+            klijentRepository.save(klijent);
+            if (justLocked) {
+                // Login tx je noRollbackFor — commituje se i posle BusinessException-a, pa se
+                // afterCommit sinhronizacija registruje PRE bacanja izuzetka kako bi mejl
+                // pouzdano otisao tek nakon sto je locked_until upisan u bazu.
+                EmailDto lockedEmail = new EmailDto(
+                        klijent.getIme(), klijent.getEmail(),
+                        EmailType.CLIENT_ACCOUNT_LOCKED, urlResetPassword);
+                // WP-7: in-app notifikacija ide zakljucanom klijentu.
+                lockedEmail.setRecipientUserId(klijent.getId());
+                lockedEmail.setRecipientType("CLIENT");
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        rabbitClient.sendEmailNotification(lockedEmail);
+                    }
+                });
+            }
             throw new BusinessException(ErrorCode.INVALID_CREDENTIALS, "");
+        }
+
+        // Uspesna prijava — resetujemo brojac i otkljucavamo nalog.
+        if (klijent.getFailedLoginAttempts() != 0 || klijent.getLockedUntil() != null) {
+            klijent.setFailedLoginAttempts(0);
+            klijent.setLockedUntil(null);
+            klijentRepository.save(klijent);
         }
 
         List<String> permissions = new ArrayList<>();
@@ -219,6 +270,9 @@ public class AuthServiceImplementation implements AuthService {
         }
 
         klijent.setPassword(passwordEncoder.encode(activateDto.getPassword()));
+        // Celina 1, Scenario 5: reset lozinke otkljucava nalog i ponistava brojac neuspeha.
+        klijent.setFailedLoginAttempts(0);
+        klijent.setLockedUntil(null);
         if (aktiviraj) {
             klijent.setAktivan(true);
         }
@@ -258,12 +312,16 @@ public class AuthServiceImplementation implements AuthService {
             confirmationTokenRepository.save(confirmationToken);
         }
 
+        EmailDto resetEmail = new EmailDto(
+                klijent.getIme(), klijent.getEmail(),
+                EmailType.CLIENT_PASSWORD_RESET, urlResetPassword + generated);
+        // WP-7: in-app notifikacija ide klijentu koji je trazio reset lozinke.
+        resetEmail.setRecipientUserId(klijent.getId());
+        resetEmail.setRecipientType("CLIENT");
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                rabbitClient.sendEmailNotification(new EmailDto(
-                        klijent.getIme(), klijent.getEmail(),
-                        EmailType.CLIENT_PASSWORD_RESET, urlResetPassword + generated));
+                rabbitClient.sendEmailNotification(resetEmail);
             }
         });
         return "Poslat mejl";
@@ -299,12 +357,16 @@ public class AuthServiceImplementation implements AuthService {
             confirmationTokenRepository.save(confirmationToken);
         }
 
+        EmailDto activationEmail = new EmailDto(
+                klijent.getIme(), klijent.getEmail(),
+                EmailType.CLIENT_CREATED, urlActivateAccount + generated);
+        // WP-7: in-app notifikacija ide klijentu kome se ponovo salje aktivacioni mejl.
+        activationEmail.setRecipientUserId(klijent.getId());
+        activationEmail.setRecipientType("CLIENT");
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                rabbitClient.sendEmailNotification(new EmailDto(
-                        klijent.getIme(), klijent.getEmail(),
-                        EmailType.CLIENT_CREATED, urlActivateAccount + generated));
+                rabbitClient.sendEmailNotification(activationEmail);
             }
         });
         return "Poslat mejl";

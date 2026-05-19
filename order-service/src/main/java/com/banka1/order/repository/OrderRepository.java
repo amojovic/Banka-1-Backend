@@ -4,6 +4,7 @@ import com.banka1.order.entity.Order;
 import com.banka1.order.entity.enums.OrderDirection;
 import com.banka1.order.entity.enums.OrderStatus;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -18,7 +19,7 @@ import java.util.Set;
  * Repository for {@link Order} entities.
  */
 @Repository
-public interface OrderRepository extends JpaRepository<Order, Long> {
+public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecificationExecutor<Order> {
 
     /**
      * Loads an order row under a write lock so execution/cancel cannot mutate it concurrently.
@@ -60,4 +61,5 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     List<Order> findByUserIdAndDirection(Long userId, OrderDirection direction);
 
     List<Order> findByUserIdIn(Set<Long> userIds);
+
 }

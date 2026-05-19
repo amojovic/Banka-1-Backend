@@ -95,6 +95,8 @@ class TaxServiceTest {
     private PortfolioRepository portfolioRepository;
     @Mock
     private JdbcTemplate jdbcTemplate;
+    @Mock
+    private com.banka1.order.audit.AuditPublisher auditPublisher;
 
     @InjectMocks
     private TaxServiceImpl taxService;
@@ -324,7 +326,7 @@ class TaxServiceTest {
         when(accountClient.transaction(any(PaymentDto.class)))
                 .thenReturn(new UpdatedBalanceResponseDto(new BigDecimal("900.00"), new BigDecimal("2925.00")));
 
-        taxService.collectMonthlyTaxManually();
+        taxService.collectMonthlyTaxManually(88L);
 
         verify(accountClient).transaction(any(PaymentDto.class));
         verify(notificationProducer).sendTaxCollected(any());
@@ -383,10 +385,69 @@ class TaxServiceTest {
                 .thenReturn(new UpdatedBalanceResponseDto(new BigDecimal("900.00"), new BigDecimal("2925.00")));
 
         taxService.collectMonthlyTax();
-        taxService.collectMonthlyTaxManually();
+        taxService.collectMonthlyTaxManually(88L);
 
         verify(accountClient).transaction(any(PaymentDto.class));
         verify(notificationProducer).sendTaxCollected(any());
+    }
+
+    @Test
+    void collectMonthlyTaxManually_publishesTaxRunManualAuditEvent() {
+        EmployeeDto supervisor = new EmployeeDto();
+        supervisor.setId(88L);
+        supervisor.setIme("Sava");
+        supervisor.setPrezime("Supervizor");
+        lenient().when(employeeClient.getEmployee(88L)).thenReturn(supervisor);
+
+        taxService.collectMonthlyTaxManually(88L);
+
+        ArgumentCaptor<com.banka1.order.audit.AuditEventDto> captor =
+                ArgumentCaptor.forClass(com.banka1.order.audit.AuditEventDto.class);
+        verify(auditPublisher).publish(captor.capture());
+        com.banka1.order.audit.AuditEventDto event = captor.getValue();
+        assertThat(event.actionType()).isEqualTo("TAX_RUN_MANUAL");
+        assertThat(event.actorId()).isEqualTo(88L);
+        assertThat(event.targetType()).isEqualTo("TAX");
+    }
+
+    @Test
+    void collectCurrentMonthTax_publishesTaxRunManualAuditEvent() {
+        EmployeeDto supervisor = new EmployeeDto();
+        supervisor.setId(88L);
+        supervisor.setIme("Sava");
+        supervisor.setPrezime("Supervizor");
+        lenient().when(employeeClient.getEmployee(88L)).thenReturn(supervisor);
+
+        taxService.collectCurrentMonthTax(88L);
+
+        ArgumentCaptor<com.banka1.order.audit.AuditEventDto> captor =
+                ArgumentCaptor.forClass(com.banka1.order.audit.AuditEventDto.class);
+        verify(auditPublisher).publish(captor.capture());
+        com.banka1.order.audit.AuditEventDto event = captor.getValue();
+        assertThat(event.actionType()).isEqualTo("TAX_RUN_MANUAL");
+        assertThat(event.actorId()).isEqualTo(88L);
+        assertThat(event.targetType()).isEqualTo("TAX");
+    }
+
+    @Test
+    void collectMonthlyTaxScheduled_publishesTaxRunScheduledAuditEventWithSystemActor() {
+        taxService.collectMonthlyTaxScheduled();
+
+        ArgumentCaptor<com.banka1.order.audit.AuditEventDto> captor =
+                ArgumentCaptor.forClass(com.banka1.order.audit.AuditEventDto.class);
+        verify(auditPublisher).publish(captor.capture());
+        com.banka1.order.audit.AuditEventDto event = captor.getValue();
+        assertThat(event.actionType()).isEqualTo("TAX_RUN_SCHEDULED");
+        assertThat(event.actorId()).isNull();
+        assertThat(event.actorName()).isEqualTo("SYSTEM");
+        assertThat(event.targetType()).isEqualTo("TAX");
+    }
+
+    @Test
+    void collectMonthlyTax_doesNotPublishAuditEvent() {
+        taxService.collectMonthlyTax();
+
+        verify(auditPublisher, never()).publish(any());
     }
 
     @Test
@@ -498,14 +559,19 @@ class TaxServiceTest {
     }
 
     @Test
-    void getCurrentYearPaidTax_shouldSumTaxBeforeCurrentMonth() {
-        lenient().when(orderRepository.findById(10L)).thenReturn(Optional.of(buyOrder));
-        lenient().when(orderRepository.findById(11L)).thenReturn(Optional.of(sellOrder));
-        when(stockClient.getListing(100L)).thenReturn(stockListing);
+    void getCurrentYearPaidTax_shouldSumChargedTaxFromCurrentCalendarYear() {
+        // Paid tax is sourced from CHARGED TaxCharge records (actual collected charges),
+        // not from raw sell transactions. Two charges both dated within the current year.
+        TaxCharge yearStartCharge = chargedTaxCharge(5L,
+                new BigDecimal("37.50"), LocalDate.now().withDayOfYear(1).atStartOfDay());
+        TaxCharge todayCharge = chargedTaxCharge(5L,
+                new BigDecimal("12.50"), LocalDate.now().atStartOfDay());
+        when(taxChargeRepository.findByUserIdAndStatus(5L, TaxChargeStatus.CHARGED))
+                .thenReturn(List.of(yearStartCharge, todayCharge));
 
         BigDecimal paidTax = taxService.getCurrentYearPaidTax(5L);
 
-        assertThat(paidTax).isEqualByComparingTo("37.50");
+        assertThat(paidTax).isEqualByComparingTo("50.00");
     }
 
     @Test
@@ -522,32 +588,15 @@ class TaxServiceTest {
     }
 
     @Test
-    void getCurrentYearPaidTax_shouldUseHistoricalBuyTransactionsInsteadOfCurrentPortfolioState() {
-        Transaction expensiveBuyTx = new Transaction();
-        expensiveBuyTx.setId(4L);
-        expensiveBuyTx.setOrderId(12L);
-        expensiveBuyTx.setQuantity(4);
-        expensiveBuyTx.setPricePerUnit(new BigDecimal("300.00"));
-        expensiveBuyTx.setTimestamp(LocalDate.now().minusDays(5).atStartOfDay());
-
-        Order expensiveBuyOrder = new Order();
-        expensiveBuyOrder.setId(12L);
-        expensiveBuyOrder.setUserId(5L);
-        expensiveBuyOrder.setListingId(100L);
-        expensiveBuyOrder.setAccountId(55L);
-        expensiveBuyOrder.setDirection(OrderDirection.BUY);
-
-        when(orderRepository.findByUserId(5L)).thenReturn(List.of(buyOrder, sellOrder, expensiveBuyOrder));
-        when(transactionRepository.findByOrderIdInAndTimestampBefore(eq(List.of(10L, 11L, 12L)), any()))
-                .thenAnswer(invocation -> filterTransactionsByOrderIdsBefore(
-                        List.of(expensiveBuyTx, sellTx, buyTx),
-                        invocation.getArgument(0),
-                        invocation.getArgument(1)
-                ));
-        lenient().when(orderRepository.findById(10L)).thenReturn(Optional.of(buyOrder));
-        lenient().when(orderRepository.findById(11L)).thenReturn(Optional.of(sellOrder));
-        lenient().when(orderRepository.findById(12L)).thenReturn(Optional.of(expensiveBuyOrder));
-        when(stockClient.getListing(100L)).thenReturn(stockListing);
+    void getCurrentYearPaidTax_shouldExcludeChargesOutsideCurrentCalendarYear() {
+        // Only CHARGED records actually charged within the current calendar year count.
+        TaxCharge thisYearCharge = chargedTaxCharge(5L,
+                new BigDecimal("37.50"), LocalDate.now().withDayOfYear(1).atStartOfDay());
+        TaxCharge lastYearCharge = chargedTaxCharge(5L,
+                new BigDecimal("99.99"), LocalDate.now().withDayOfYear(1).atStartOfDay().minusDays(1));
+        TaxCharge neverChargedRecord = chargedTaxCharge(5L, new BigDecimal("88.88"), null);
+        when(taxChargeRepository.findByUserIdAndStatus(5L, TaxChargeStatus.CHARGED))
+                .thenReturn(List.of(thisYearCharge, lastYearCharge, neverChargedRecord));
 
         BigDecimal paidTax = taxService.getCurrentYearPaidTax(5L);
 
@@ -619,10 +668,8 @@ class TaxServiceTest {
         lenient().when(orderRepository.findById(11L)).thenReturn(Optional.of(sellOrder));
         when(stockClient.getListing(100L)).thenReturn(stockListing);
 
-        AccountDetailsDto buyAccount = new AccountDetailsDto();
-        buyAccount.setAccountNumber("ACC-BUY-ORIGINAL");
-        buyAccount.setCurrency("USD");
-        when(accountClient.getAccountDetailsById(21L)).thenReturn(buyAccount);
+        // getTaxTracking derives the source currency from the stock listing (defaults to USD),
+        // not from the buy account, so no accountClient stub is required here.
         ExchangeRateDto conversion = new ExchangeRateDto();
         conversion.setConvertedAmount(new BigDecimal("2925.00"));
         when(exchangeClient.calculateWithoutCommission("USD", "RSD", new BigDecimal("37.50"))).thenReturn(conversion);
@@ -819,10 +866,8 @@ class TaxServiceTest {
         lenient().when(orderRepository.findById(11L)).thenReturn(Optional.of(sellOrder));
         when(stockClient.getListing(100L)).thenReturn(stockListing);
 
-        AccountDetailsDto buyAccount = new AccountDetailsDto();
-        buyAccount.setAccountNumber("ACC-BUY-ORIGINAL");
-        buyAccount.setCurrency("USD");
-        when(accountClient.getAccountDetailsById(21L)).thenReturn(buyAccount);
+        // getTaxTracking derives the source currency from the stock listing (defaults to USD),
+        // not from the buy account, so no accountClient stub is required here.
         when(exchangeClient.calculateWithoutCommission("USD", "RSD", new BigDecimal("37.50")))
                 .thenThrow(new RuntimeException("exchange unavailable"));
 
@@ -831,6 +876,20 @@ class TaxServiceTest {
                 .hasMessageContaining("Failed to convert tax tracking debt to RSD");
 
         verify(exchangeClient).calculateWithoutCommission("USD", "RSD", new BigDecimal("37.50"));
+    }
+
+    /**
+     * Builds a CHARGED TaxCharge with the given RSD amount and chargedAt timestamp,
+     * mirroring what {@code collectMonthlyTax} persists after a successful debit.
+     */
+    private TaxCharge chargedTaxCharge(Long userId, BigDecimal taxAmountRsd, LocalDateTime chargedAt) {
+        TaxCharge charge = new TaxCharge();
+        charge.setUserId(userId);
+        charge.setTaxAmount(taxAmountRsd);
+        charge.setTaxAmountRsd(taxAmountRsd);
+        charge.setStatus(TaxChargeStatus.CHARGED);
+        charge.setChargedAt(chargedAt);
+        return charge;
     }
 
     private List<Transaction> filterTransactionsByOrderIdsAndRange(

@@ -35,18 +35,20 @@ public interface ActuaryService {
      * Throws {@link IllegalArgumentException} if the target employee is an ADMIN
      * or does not have the AGENT role.
      *
+     * @param actorId    WP-12: id supervizora koji vrsi izmenu (za audit log)
      * @param employeeId the employee's identifier
      * @param request    new limit value in RSD
      */
-    void setLimit(Long employeeId, SetLimitRequestDto request);
+    void setLimit(Long actorId, Long employeeId, SetLimitRequestDto request);
 
     /**
      * Resets the consumed daily limit ({@code usedLimit}) to zero for the specified agent.
      * Throws {@link IllegalArgumentException} if the target employee is an ADMIN.
      *
+     * @param actorId    WP-12: id supervizora koji vrsi reset (za audit log)
      * @param employeeId the employee's identifier
      */
-    void resetLimit(Long employeeId);
+    void resetLimit(Long actorId, Long employeeId);
 
     /**
      * Toggles the {@code needApproval} flag for the specified agent.
@@ -57,10 +59,11 @@ public interface ActuaryService {
      * Throws {@link IllegalArgumentException} if the target employee is an ADMIN
      * or does not have the AGENT role (supervisors always have {@code needApproval = false}).
      *
+     * @param actorId    WP-12: id supervizora koji vrsi izmenu (za audit log)
      * @param employeeId the employee's identifier
      * @param request    request body carrying the new flag value
      */
-    void setNeedApproval(Long employeeId, SetNeedApprovalRequestDto request);
+    void setNeedApproval(Long actorId, Long employeeId, SetNeedApprovalRequestDto request);
 
     /**
      * Resets {@code usedLimit} to zero for every actuary record in the database.

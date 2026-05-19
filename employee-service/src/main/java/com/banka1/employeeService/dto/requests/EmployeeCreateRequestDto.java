@@ -5,6 +5,7 @@ import com.banka1.employeeService.domain.enums.Role;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.PastOrPresent;
 import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
@@ -25,8 +26,9 @@ public class EmployeeCreateRequestDto {
     @NotBlank(message = "Prezime je obavezno")
     private String prezime;
 
-    /** Datum rodjenja zaposlenog. */
+    /** Datum rodjenja zaposlenog; ne sme biti u buducnosti. */
     @NotNull(message = "Datum rođenja je obavezan")
+    @PastOrPresent(message = "Datum rođenja ne sme biti u budućnosti")
     private LocalDate datumRodjenja;
 
     /** Pol zaposlenog. */

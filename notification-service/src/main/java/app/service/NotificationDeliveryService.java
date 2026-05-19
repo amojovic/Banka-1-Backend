@@ -26,6 +26,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -37,17 +38,23 @@ import java.util.UUID;
  * <ol>
  *     <li>Stigne poruka sa RabbitMQ-a.</li>
  *     <li>Na osnovu routing key-a odredi se tip notifikacije.</li>
- *     <li>Proveri se da li je payload ispravan i da li moze da se napravi email.</li>
- *     <li>Ako je sve ispravno, u bazi se pravi zapis sa statusom {@code PENDING}.</li>
+ *     <li>Proveri se da li je payload ispravan i renderuje se subject/body.</li>
+ *     <li>Upise se in-app notifikacija (ako poruka ima primaoca).</li>
+ *     <li>Ako poruka ima email adresu, u bazi se pravi zapis sa statusom {@code PENDING}.</li>
  *     <li>Tek nakon commit-a transakcije pokusava se stvarno slanje email-a.</li>
  *     <li>Ako slanje uspe, zapis prelazi u {@code SUCCEEDED}.</li>
  *     <li>Ako slanje ne uspe, zapis prelazi u {@code RETRY_SCHEDULED} ili {@code FAILED}.</li>
  * </ol>
  *
- * <p>Bitna razlika:
+ * <p>In-app feed i email su nezavisni kanali — poruka sa primaocem ali bez (ili sa
+ * praznom) email adresom i dalje dobija in-app notifikaciju; samo se email kanal
+ * preskace. Slicno, poruka sa email adresom ali bez {@code recipientUserId}-a salje
+ * samo email. Nepoznat tip notifikacije i dalje prekida celu obradu.
+ *
+ * <p>Bitna razlika kod gresaka:
  * <ul>
  *     <li>Ako greska nastane pre samog slanja email-a
- *     (na primer los payload, nedostaje email ili ne postoji template),
+ *     (na primer los payload ili ne postoji template),
  *     email jos nije usao u delivery retry tok i u tim slucajevima se ovde ne kreira
  *     {@code PENDING} zapis.</li>
  *     <li>Ako greska nastane tek kada servis proba da posalje email,
@@ -64,6 +71,14 @@ public class NotificationDeliveryService {
     private static final String UNKNOWN_RECIPIENT = "unknown";
     /** Placeholder text stored when email content could not be rendered. */
     private static final String EMPTY_CONTENT = "";
+    /**
+     * Conventional template-variable keys producers use to carry the id of the
+     * originating domain object; used as the in-app notification deep link.
+     */
+    private static final List<String> REFERENCE_ID_KEYS = List.of(
+            "referenceId", "transactionId", "transferId", "accountNumber",
+            "creditId", "orderId", "negotiationId", "contractId"
+    );
 
     /**
      * Persistence layer for delivery state transitions.
@@ -85,6 +100,11 @@ public class NotificationDeliveryService {
      * FCM token lookup service.
      */
     private final FcmTokenService fcmTokenService;
+
+    /**
+     * In-app notification feed persistence.
+     */
+    private final InAppNotificationService inAppNotificationService;
 
     /**
      * Configured routing keys map.
@@ -157,22 +177,24 @@ public class NotificationDeliveryService {
     }
 
     /**
-     * Validates, renders, and persists a new pending delivery.
+     * Validates, renders, and dispatches a consumed notification across its
+     * independent channels (in-app feed, email, FCM push).
      *
      * <p>IMPORTANT: this method never sends email directly. It only registers the
      * send attempt to run after the surrounding transaction commits successfully.
      *
-     * <p>Drugim recima:
+     * <p>Kanali su nezavisni:
      * <ul>
-     *     <li>ovde se proverava da li poruka ima smisla,</li>
-     *     <li>ovde se pravi finalni subject/body,</li>
-     *     <li>ovde se cuva novi delivery u bazi kao {@code PENDING},</li>
-     *     <li>ali se ovde jos ne salje email.</li>
+     *     <li>tip notifikacije se uvek validira — nepoznat tip prekida obradu;</li>
+     *     <li>subject/body se renderuju iz {@code templateVariables}
+     *     (ne treba im email adresa);</li>
+     *     <li>in-app red se uvek upisuje kada postoji {@code recipientUserId},
+     *     bez obzira na to da li je email prisutan;</li>
+     *     <li>email delivery zapis ({@code PENDING}) se pravi samo kada poruka
+     *     nosi ispravnu email adresu — ako je nema, email kanal se preskace
+     *     (ne baca se greska, ostali kanali rade normalno);</li>
+     *     <li>FCM push je fire-and-forget kao i pre.</li>
      * </ul>
-     *
-     * <p>Ako validacija padne ili email sadrzaj ne moze da se izrenderuje,
-     * metoda prekida obradu pre nego sto se napravi {@code PENDING} zapis.
-     * To znaci da takve greske ne ulaze u retry lifecycle koji koristi bazu.
      *
      * @param req incoming notification payload
      * @param notificationType resolved notification type
@@ -183,13 +205,37 @@ public class NotificationDeliveryService {
     ) {
         validateIncoming(req);
         validateNotificationType(notificationType);
-        ResolvedEmail resolvedEmail = notificationService.resolveEmailContent(req, notificationType);
-        String deliveryId = UUID.randomUUID().toString();
-        NotificationDelivery delivery = buildPendingDelivery(
-                deliveryId, resolvedEmail, notificationType
+
+        // Render subject/body from templateVariables — this needs the notification
+        // type but NOT the recipient email, so it is shared by every channel.
+        ResolvedEmail resolvedContent = notificationService.renderContent(req, notificationType);
+
+        // In-app notification row — an independent channel. Created whenever the
+        // payload carries a recipient, regardless of whether an email address is
+        // present or valid. Skipped (no-op) only when recipientUserId is null.
+        inAppNotificationService.createForRecipient(
+                req.getRecipientUserId(),
+                req.getRecipientType(),
+                notificationType,
+                resolvedContent.subject(),
+                resolvedContent.body(),
+                resolveReferenceId(req)
         );
-        notificationDeliveryTxService.createPendingDelivery(delivery);
-        runAfterCommit(() -> attemptDelivery(deliveryId));
+
+        // Email delivery — an independent channel. A missing/blank email address
+        // skips only this leg; it must never abort the message or suppress the
+        // in-app row created above.
+        if (hasDeliverableEmail(req)) {
+            String deliveryId = UUID.randomUUID().toString();
+            NotificationDelivery delivery = buildPendingDelivery(
+                    deliveryId, resolvedContent, notificationType
+            );
+            notificationDeliveryTxService.createPendingDelivery(delivery);
+            runAfterCommit(() -> attemptDelivery(deliveryId));
+        } else {
+            log.info("No deliverable email on message type={}, skipping email channel "
+                    + "(in-app notification still recorded)", notificationType);
+        }
 
         // FCM push for verification OTPs (fire-and-forget, email is authoritative)
         if ("VERIFICATION_OTP".equals(notificationType) && req.getClientId() != null) {
@@ -198,7 +244,51 @@ public class NotificationDeliveryService {
             String opType = req.getOperationType();
             String sessId = req.getSessionId();
             runAfterCommit(() -> attemptFcmPush(clientId, rawCode, opType, sessId));
+        } else if (req.getClientId() != null) {
+            // Generic FCM push for every other consumed event (fire-and-forget).
+            Long clientId = req.getClientId();
+            String subject = resolvedContent.subject();
+            String body = resolvedContent.body();
+            runAfterCommit(() -> attemptGenericFcmPush(clientId, notificationType, subject, body));
         }
+    }
+
+    /**
+     * Checks whether the incoming payload carries a deliverable email address.
+     *
+     * <p>This gates only the email-delivery channel. When it returns {@code false}
+     * the email leg is skipped, but the in-app channel and FCM push are unaffected.
+     *
+     * @param req incoming notification payload
+     * @return {@code true} when a non-blank recipient email is present
+     */
+    private boolean hasDeliverableEmail(NotificationRequest req) {
+        String email = req.getUserEmail();
+        return email != null && !email.isBlank();
+    }
+
+    /**
+     * Extracts an optional deep-link reference id from the incoming payload.
+     *
+     * <p>Producers carry the originating domain object id under one of a few
+     * conventional template-variable keys; the first present non-blank value
+     * wins. A missing reference is fine — the in-app row simply has none.
+     *
+     * @param req incoming notification payload
+     * @return reference id when present, otherwise {@code null}
+     */
+    private String resolveReferenceId(NotificationRequest req) {
+        Map<String, String> vars = req.getTemplateVariables();
+        if (vars == null) {
+            return null;
+        }
+        for (String key : REFERENCE_ID_KEYS) {
+            String value = vars.get(key);
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 
     /**
@@ -473,6 +563,30 @@ public class NotificationDeliveryService {
                 return;
             }
             fcmPushService.sendVerificationPush(token.get(), code, operationType, sessionId);
+        } catch (Exception e) {
+            log.warn("FCM push failed for clientId={}: {}", clientId, e.getMessage());
+        }
+    }
+
+    /**
+     * Attempts a generic FCM push for a non-verification notification.
+     * Fire-and-forget: when no token is registered or sending fails, email
+     * delivery remains the authoritative channel.
+     *
+     * @param clientId client whose device should receive the push
+     * @param type notification type resolved from the routing key
+     * @param title rendered email subject reused as the push headline
+     * @param body rendered email body reused as the push message
+     */
+    private void attemptGenericFcmPush(Long clientId, String type,
+                                       String title, String body) {
+        try {
+            Optional<String> token = fcmTokenService.findToken(clientId);
+            if (token.isEmpty()) {
+                log.debug("No FCM token for clientId={}, skipping push type={}", clientId, type);
+                return;
+            }
+            fcmPushService.sendPush(token.get(), type, title, body);
         } catch (Exception e) {
             log.warn("FCM push failed for clientId={}: {}", clientId, e.getMessage());
         }

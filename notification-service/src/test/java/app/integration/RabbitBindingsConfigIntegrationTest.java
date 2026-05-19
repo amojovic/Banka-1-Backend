@@ -22,7 +22,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
         "notification.rabbit.card-routing-key=card.#",
         "notification.rabbit.credit-routing-key=credit.#",
         "notification.rabbit.order-routing-key=order.#",
-        "notification.rabbit.tax-routing-key=tax.#"
+        "notification.rabbit.tax-routing-key=tax.#",
+        "notification.rabbit.transaction-routing-key=transaction.#",
+        "notification.rabbit.transfer-routing-key=transfer.#",
+        "notification.rabbit.account-routing-key=account.#",
+        "notification.rabbit.otc-routing-key=otc.#",
+        "notification.rabbit.price-routing-key=price.#"
 })
 class RabbitBindingsConfigIntegrationTest {
 
@@ -38,6 +43,26 @@ class RabbitBindingsConfigIntegrationTest {
     @Qualifier("taxNotificationBinding")
     private Binding taxNotificationBinding;
 
+    @Autowired
+    @Qualifier("transactionNotificationBinding")
+    private Binding transactionNotificationBinding;
+
+    @Autowired
+    @Qualifier("transferNotificationBinding")
+    private Binding transferNotificationBinding;
+
+    @Autowired
+    @Qualifier("accountNotificationBinding")
+    private Binding accountNotificationBinding;
+
+    @Autowired
+    @Qualifier("otcNotificationBinding")
+    private Binding otcNotificationBinding;
+
+    @Autowired
+    @Qualifier("priceNotificationBinding")
+    private Binding priceNotificationBinding;
+
     @Test
     void orderBindingUsesOrderWildcardRoutingKey() {
         assertEquals("order.#", orderNotificationBinding.getRoutingKey());
@@ -51,5 +76,30 @@ class RabbitBindingsConfigIntegrationTest {
     @Test
     void taxBindingUsesTaxWildcardRoutingKey() {
         assertEquals("tax.#", taxNotificationBinding.getRoutingKey());
+    }
+
+    @Test
+    void transactionBindingUsesTransactionWildcardRoutingKey() {
+        assertEquals("transaction.#", transactionNotificationBinding.getRoutingKey());
+    }
+
+    @Test
+    void transferBindingUsesTransferWildcardRoutingKey() {
+        assertEquals("transfer.#", transferNotificationBinding.getRoutingKey());
+    }
+
+    @Test
+    void accountBindingUsesAccountWildcardRoutingKey() {
+        assertEquals("account.#", accountNotificationBinding.getRoutingKey());
+    }
+
+    @Test
+    void otcBindingUsesOtcWildcardRoutingKey() {
+        assertEquals("otc.#", otcNotificationBinding.getRoutingKey());
+    }
+
+    @Test
+    void priceBindingUsesPriceWildcardRoutingKey() {
+        assertEquals("price.#", priceNotificationBinding.getRoutingKey());
     }
 }

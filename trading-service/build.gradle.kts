@@ -67,6 +67,12 @@ dependencies {
     // PR_16 C16.1: phantom test starter-i uklonjeni (ne postoje u Maven Central).
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.security:spring-security-test")
+    // WP-2: Spring Boot 4 split test-autoconfigure module-e u zasebne starter-e —
+    // eksplicitno povlacimo JPA + JDBC + WebMvc test slice-ove (DataJpaTest,
+    // AutoConfigureTestDatabase, WebMvcTest) za audit infrastrukturu.
+    testImplementation("org.springframework.boot:spring-boot-data-jpa-test")
+    testImplementation("org.springframework.boot:spring-boot-jdbc-test")
+    testImplementation("org.springframework.boot:spring-boot-webmvc-test")
     testRuntimeOnly("com.h2database:h2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

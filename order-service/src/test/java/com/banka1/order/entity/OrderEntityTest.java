@@ -86,6 +86,17 @@ class OrderEntityTest {
     }
 
     @Test
+    void createdAt_isNullByDefaultAndSettable() {
+        Order order = new Order();
+        assertThat(order.getCreatedAt()).isNull();
+
+        java.time.LocalDateTime created = java.time.LocalDateTime.of(2026, 5, 19, 12, 0);
+        order.setCreatedAt(created);
+
+        assertThat(order.getCreatedAt()).isEqualTo(created);
+    }
+
+    @Test
     void allOrderStatusValues_exist() {
         assertThat(OrderStatus.values()).containsExactlyInAnyOrder(
                 OrderStatus.PENDING_CONFIRMATION,

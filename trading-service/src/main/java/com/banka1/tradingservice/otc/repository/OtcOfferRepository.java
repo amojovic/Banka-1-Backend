@@ -4,6 +4,7 @@ import com.banka1.tradingservice.otc.domain.OtcOffer;
 import com.banka1.tradingservice.otc.domain.OtcOfferStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
@@ -11,8 +12,14 @@ import org.springframework.stereotype.Repository;
 import java.time.LocalDate;
 import java.util.List;
 
+/**
+ * WP-16 (Celina 4.2): {@link JpaSpecificationExecutor} omogucava dinamicki
+ * filtriran upit nad istorijom pregovora ({@code GET /otc/offers/history}) —
+ * ucesnik + status + vremenski opseg + druga strana — bez rucnih JPQL kombinacija.
+ */
 @Repository
-public interface OtcOfferRepository extends JpaRepository<OtcOffer, Long> {
+public interface OtcOfferRepository
+        extends JpaRepository<OtcOffer, Long>, JpaSpecificationExecutor<OtcOffer> {
 
     /** Pesimisticki lock za accept — sprecava race condition dva istovremena prihvatanja. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)

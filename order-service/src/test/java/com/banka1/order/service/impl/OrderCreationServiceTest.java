@@ -13,6 +13,7 @@ import com.banka1.order.dto.CreateSellOrderRequest;
 import com.banka1.order.dto.EmployeeDto;
 import com.banka1.order.dto.ExchangeRateDto;
 import com.banka1.order.dto.ExchangeStatusDto;
+import com.banka1.order.dto.MyOrdersFilter;
 import com.banka1.order.dto.OrderNotificationPayload;
 import com.banka1.order.dto.OrderOverviewResponse;
 import com.banka1.order.dto.OrderResponse;
@@ -44,7 +45,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -57,6 +61,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -86,6 +92,10 @@ class OrderCreationServiceTest {
     private OrderExecutionService orderExecutionService;
     @Mock
     private OrderNotificationProducer orderNotificationProducer;
+    @Mock
+    private com.banka1.order.rabbitmq.OrderNotificationFactory orderNotificationFactory;
+    @Mock
+    private com.banka1.order.audit.AuditPublisher auditPublisher;
 
     @InjectMocks
     private OrderCreationServiceImpl service;
@@ -106,7 +116,7 @@ class OrderCreationServiceTest {
     @BeforeEach
     void setUp() {
         clientUser = new AuthenticatedUser(1L, Set.of("CLIENT_TRADING"), Set.of("TRADING"));
-        marginClient = new AuthenticatedUser(1L, Set.of("CLIENT_TRADING"), Set.of("TRADING", "MARGIN_TRADING"));
+        marginClient = new AuthenticatedUser(1L, Set.of("CLIENT_TRADING"), Set.of("TRADING", "MARGIN_TRADE"));
         actuaryUser = new AuthenticatedUser(2L, Set.of("AGENT"), Set.of("MARGIN_TRADING"));
         supervisorUser = new AuthenticatedUser(3L, Set.of("SUPERVISOR"), Set.of("MARGIN_TRADING"));
 
@@ -209,6 +219,10 @@ class OrderCreationServiceTest {
         lenient().when(orderRepository.findById(100L)).thenAnswer(invocation -> Optional.ofNullable(storedOrder.get()));
         lenient().when(orderRepository.findByIdForUpdate(100L)).thenAnswer(invocation -> Optional.ofNullable(storedOrder.get()));
         lenient().when(portfolioRepository.findByUserIdAndListingIdForUpdate(1L, 42L)).thenReturn(Optional.empty());
+        // The factory is exercised in its own unit test; here it just needs to yield
+        // a non-null payload so the producer receives a concrete argument.
+        lenient().when(orderNotificationFactory.build(any(Order.class), any(OrderStatus.class)))
+                .thenReturn(new OrderNotificationPayload());
     }
 
 //    @Test
@@ -285,6 +299,39 @@ class OrderCreationServiceTest {
     }
 
     @Test
+    void confirmFundBuyOrder_doesNotChargeCommissionToFundAccount() {
+        // Issue #255: when buying securities for an investment fund, only the security
+        // price may leave the fund's account — the brokerage commission must not.
+        AccountDetailsDto fundAccount = new AccountDetailsDto();
+        fundAccount.setAccountNumber("FUND-ACC");
+        fundAccount.setBalance(new BigDecimal("100000.00"));
+        fundAccount.setCurrency("USD");
+        fundAccount.setOwnerId(7777L);
+        when(accountClient.getAccountDetails(5L)).thenReturn(fundAccount);
+
+        CreateBuyOrderRequest fundRequest = new CreateBuyOrderRequest();
+        fundRequest.setListingId(42L);
+        fundRequest.setQuantity(10);
+        fundRequest.setAccountId(5L);
+        fundRequest.setAllOrNone(false);
+        fundRequest.setMargin(false);
+        fundRequest.setPurchaseFor("INVESTMENT_FUND");
+        fundRequest.setFundId(55L);
+
+        service.createBuyOrder(supervisorUser, fundRequest);
+        OrderResponse response = service.confirmOrder(supervisorUser, 100L);
+
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.APPROVED);
+        // The only money movement confirmOrder performs is the fee leg; for a fund order
+        // it must be skipped entirely, so no settlement payment may be issued.
+        verify(accountClient, never()).transaction(any(PaymentDto.class));
+        verify(accountClient, never()).transfer(any(AccountTransactionRequest.class));
+        // The confirmation response must not advertise a fee the fund is never charged.
+        assertThat(response.getFee()).isEqualByComparingTo("0");
+        verify(orderExecutionService).executeOrderAsync(100L);
+    }
+
+    @Test
     void approveOrder_updatesApprovedByChargesFeeAndStartsExecution() {
         ActuaryInfo agent = new ActuaryInfo();
         agent.setEmployeeId(2L);
@@ -349,12 +396,14 @@ class OrderCreationServiceTest {
         ExchangeRateDto conversion = new ExchangeRateDto();
         conversion.setConvertedAmount(new BigDecimal("6.50"));
         conversion.setCommission(BigDecimal.ZERO);
-        lenient().when(exchangeClient.calculateWithoutCommission("EUR", "USD", new BigDecimal("7.00"))).thenReturn(conversion);
+        // The fee leg converts the fee amount (in USD) into the funding account's
+        // currency (EUR) to know how much to debit — i.e. the conversion is USD -> EUR.
+        lenient().when(exchangeClient.calculateWithoutCommission("USD", "EUR", new BigDecimal("7.00"))).thenReturn(conversion);
 
         service.approveOrder(88L, 100L);
 
-        verify(exchangeClient).calculateWithoutCommission(org.mockito.ArgumentMatchers.eq("EUR"), org.mockito.ArgumentMatchers.eq("USD"), any(BigDecimal.class));
-        verify(exchangeClient, never()).calculate(org.mockito.ArgumentMatchers.eq("EUR"), org.mockito.ArgumentMatchers.eq("USD"), any(BigDecimal.class));
+        verify(exchangeClient, atLeastOnce()).calculateWithoutCommission(org.mockito.ArgumentMatchers.eq("USD"), org.mockito.ArgumentMatchers.eq("EUR"), any(BigDecimal.class));
+        verify(exchangeClient, never()).calculate(org.mockito.ArgumentMatchers.eq("USD"), org.mockito.ArgumentMatchers.eq("EUR"), any(BigDecimal.class));
         verify(accountClient).transaction(any(PaymentDto.class));
         verify(accountClient, never()).transfer(any(AccountTransactionRequest.class));
     }
@@ -472,6 +521,101 @@ class OrderCreationServiceTest {
         assertThat(payloadCaptor.getValue().getStatus()).isEqualTo(OrderStatus.DECLINED);
         assertThat(payloadCaptor.getValue().getSupervisorId()).isEqualTo(77L);
         assertThat(payloadCaptor.getValue().getUserEmail()).isEqualTo("ana.agent@example.com");
+    }
+
+    @Test
+    void approveOrder_publishesOrderApprovedAuditEvent() {
+        ActuaryInfo agent = new ActuaryInfo();
+        agent.setEmployeeId(2L);
+        agent.setNeedApproval(true);
+        agent.setLimit(new BigDecimal("2000.00"));
+        agent.setUsedLimit(BigDecimal.ZERO);
+        when(actuaryInfoRepository.findByEmployeeId(2L)).thenReturn(Optional.of(agent));
+        when(actuaryInfoRepository.findByEmployeeIdForUpdate(2L)).thenReturn(Optional.of(agent));
+        EmployeeDto supervisor = new EmployeeDto();
+        supervisor.setId(88L);
+        supervisor.setIme("Sava");
+        supervisor.setPrezime("Supervizor");
+        lenient().when(employeeClient.getEmployee(88L)).thenReturn(supervisor);
+
+        service.createBuyOrder(actuaryUser, buyRequest);
+        service.confirmOrder(actuaryUser, 100L);
+        service.approveOrder(88L, 100L);
+
+        ArgumentCaptor<com.banka1.order.audit.AuditEventDto> captor =
+                ArgumentCaptor.forClass(com.banka1.order.audit.AuditEventDto.class);
+        verify(auditPublisher).publish(captor.capture());
+        com.banka1.order.audit.AuditEventDto event = captor.getValue();
+        assertThat(event.actionType()).isEqualTo("ORDER_APPROVED");
+        assertThat(event.actorId()).isEqualTo(88L);
+        assertThat(event.targetType()).isEqualTo("ORDER");
+        assertThat(event.targetId()).isEqualTo("100");
+    }
+
+    @Test
+    void declineOrder_publishesOrderDeclinedAuditEventWithSupervisorActor() {
+        ActuaryInfo agent = new ActuaryInfo();
+        agent.setEmployeeId(2L);
+        agent.setNeedApproval(true);
+        agent.setLimit(new BigDecimal("2000.00"));
+        agent.setUsedLimit(BigDecimal.ZERO);
+        when(actuaryInfoRepository.findByEmployeeId(2L)).thenReturn(Optional.of(agent));
+        when(actuaryInfoRepository.findByEmployeeIdForUpdate(2L)).thenReturn(Optional.of(agent));
+
+        service.createBuyOrder(actuaryUser, buyRequest);
+        service.confirmOrder(actuaryUser, 100L);
+        service.declineOrder(77L, 100L);
+
+        ArgumentCaptor<com.banka1.order.audit.AuditEventDto> captor =
+                ArgumentCaptor.forClass(com.banka1.order.audit.AuditEventDto.class);
+        verify(auditPublisher).publish(captor.capture());
+        com.banka1.order.audit.AuditEventDto event = captor.getValue();
+        assertThat(event.actionType()).isEqualTo("ORDER_DECLINED");
+        assertThat(event.actorId()).isEqualTo(77L);
+        assertThat(event.targetType()).isEqualTo("ORDER");
+        assertThat(event.targetId()).isEqualTo("100");
+    }
+
+    @Test
+    void autoDeclineExpiredPendingOrders_publishesOrderDeclinedAuditEventWithSystemActor() {
+        Order expiredPending = new Order();
+        expiredPending.setId(201L);
+        expiredPending.setUserId(2L);
+        expiredPending.setListingId(42L);
+        expiredPending.setOrderType(OrderType.MARKET);
+        expiredPending.setDirection(OrderDirection.BUY);
+        expiredPending.setQuantity(10);
+        expiredPending.setContractSize(1);
+        expiredPending.setPricePerUnit(new BigDecimal("101.00"));
+        expiredPending.setRemainingPortions(10);
+        expiredPending.setStatus(OrderStatus.PENDING);
+        expiredPending.setAccountId(5L);
+
+        StockListingDto expiredListing = new StockListingDto();
+        expiredListing.setId(42L);
+        expiredListing.setSettlementDate(LocalDate.now().minusDays(1));
+
+        EmployeeDto employee = new EmployeeDto();
+        employee.setId(2L);
+        employee.setIme("Ana");
+        employee.setPrezime("Agent");
+        employee.setEmail("ana.agent@example.com");
+
+        when(orderRepository.findByStatus(OrderStatus.PENDING)).thenReturn(List.of(expiredPending));
+        when(orderRepository.findByIdForUpdate(201L)).thenReturn(Optional.of(expiredPending));
+        when(stockClient.getListing(42L)).thenReturn(expiredListing);
+        lenient().when(employeeClient.getEmployee(2L)).thenReturn(employee);
+
+        service.autoDeclineExpiredPendingOrders();
+
+        ArgumentCaptor<com.banka1.order.audit.AuditEventDto> captor =
+                ArgumentCaptor.forClass(com.banka1.order.audit.AuditEventDto.class);
+        verify(auditPublisher).publish(captor.capture());
+        com.banka1.order.audit.AuditEventDto event = captor.getValue();
+        assertThat(event.actionType()).isEqualTo("ORDER_DECLINED");
+        assertThat(event.actorId()).isNull();
+        assertThat(event.actorName()).isEqualTo("SYSTEM");
+        assertThat(event.targetId()).isEqualTo("201");
     }
 
     @Test
@@ -833,7 +977,9 @@ class OrderCreationServiceTest {
         OrderResponse response = service.createBuyOrder(supervisorUser, buyRequest);
 
         assertThat(response.getStatus()).isEqualTo(OrderStatus.PENDING_CONFIRMATION);
-        assertThat(storedOrder.get().getAccountId()).isNull();
+        // A supervisor need not select a client account; the order falls back to the
+        // bank's currency account resolved by determineFundingAccountId.
+        assertThat(storedOrder.get().getAccountId()).isEqualTo(999L);
     }
 
     @Test
@@ -1028,25 +1174,192 @@ class OrderCreationServiceTest {
     void getMyOrders_returnsOnlyOrdersForAuthenticatedClient() {
         Order ownFirst = orderForUser(501L, 1L);
         Order ownSecond = orderForUser(502L, 1L);
-        when(orderRepository.findByUserId(1L)).thenReturn(List.of(ownFirst, ownSecond));
+        when(orderRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(ownFirst, ownSecond)));
         when(stockClient.getListing(42L)).thenReturn(listing);
 
-        List<OrderResponse> response = service.getMyOrders(clientUser);
+        var response = service.getMyOrders(clientUser, MyOrdersFilter.none(), PageRequest.of(0, 20));
 
-        assertThat(response).extracting(OrderResponse::getId).containsExactly(501L, 502L);
-        assertThat(response).extracting(OrderResponse::getUserId).containsOnly(1L);
-        verify(orderRepository).findByUserId(1L);
+        assertThat(response.getContent()).extracting(OrderResponse::getId).containsExactly(501L, 502L);
+        assertThat(response.getContent()).extracting(OrderResponse::getUserId).containsOnly(1L);
+        verify(orderRepository).findAll(any(Specification.class), any(Pageable.class));
         verify(orderRepository, never()).findAll();
     }
 
     @Test
-    void getMyOrders_rejectsNonClientUser() {
-        assertThatThrownBy(() -> service.getMyOrders(actuaryUser))
-                .isInstanceOf(ForbiddenOperationException.class)
-                .hasMessageContaining("Only clients can view their orders");
+    void getMyOrders_carriesPaidCommissionOnEachRow() {
+        Order own = orderForUser(501L, 1L);
+        when(orderRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(own)));
+        when(stockClient.getListing(42L)).thenReturn(listing);
 
-        verify(orderRepository, never()).findByUserId(any());
+        var response = service.getMyOrders(clientUser, MyOrdersFilter.none(), PageRequest.of(0, 20));
+
+        // 10 qty x 1 contractSize x 100.00 = 1000.00 approx; MARKET fee = 14% capped at 7 USD.
+        assertThat(response.getContent().getFirst().getFee()).isEqualByComparingTo("7.00");
+    }
+
+    @Test
+    void getMyOrders_resolvesSecurityTickerNameAndType() {
+        listing.setTicker("AAPL");
+        listing.setName("Apple Inc.");
+        Order own = orderForUser(501L, 1L);
+        when(orderRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(own)));
+        when(stockClient.getListing(42L)).thenReturn(listing);
+
+        OrderResponse row = service.getMyOrders(clientUser, MyOrdersFilter.none(), PageRequest.of(0, 20))
+                .getContent().getFirst();
+
+        assertThat(row.getTicker()).isEqualTo("AAPL");
+        assertThat(row.getSecurityName()).isEqualTo("Apple Inc.");
+        assertThat(row.getListingType()).isEqualTo(ListingType.STOCK);
+        assertThat(row.getCreatedAt()).isNotNull();
+    }
+
+    @Test
+    void getMyOrders_allowsAgentToSeeOwnOrders() {
+        Order agentOrder = orderForUser(601L, 2L);
+        when(orderRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(agentOrder)));
+        when(stockClient.getListing(42L)).thenReturn(listing);
+
+        var response = service.getMyOrders(actuaryUser, MyOrdersFilter.none(), PageRequest.of(0, 20));
+
+        assertThat(response.getContent()).extracting(OrderResponse::getId).containsExactly(601L);
+        // Scoped to the agent's own userId — an agent never sees other users' orders.
+        verify(orderRepository).findAll(any(Specification.class), any(Pageable.class));
+    }
+
+    @Test
+    void getMyOrders_allowsSupervisorToSeeOwnOrders() {
+        when(orderRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        var response = service.getMyOrders(supervisorUser, MyOrdersFilter.none(), PageRequest.of(0, 20));
+
+        assertThat(response.getContent()).isEmpty();
+        verify(orderRepository).findAll(any(Specification.class), any(Pageable.class));
+    }
+
+    @Test
+    void getMyOrders_passesStatusDirectionAndDateRangeFiltersToRepository() {
+        java.time.LocalDateTime from = java.time.LocalDateTime.of(2026, 5, 1, 0, 0);
+        java.time.LocalDateTime to = java.time.LocalDateTime.of(2026, 5, 31, 23, 59);
+        when(orderRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        MyOrdersFilter filter = new MyOrdersFilter(OrderStatus.DONE, OrderDirection.SELL, null, from, to);
+        service.getMyOrders(clientUser, filter, PageRequest.of(0, 20));
+
+        // The filter predicates themselves are exercised end-to-end against H2 in
+        // OrderRepositoryMyOrdersTest; here we only assert the service routed the
+        // call through the Specification overload with the caller's Pageable.
+        verify(orderRepository).findAll(any(Specification.class), eq(PageRequest.of(0, 20)));
+    }
+
+    @Test
+    void getMyOrders_paginatesDbBackedResult() {
+        when(orderRepository.findAll(any(Specification.class), eq(PageRequest.of(1, 2))))
+                .thenReturn(new PageImpl<>(List.of(orderForUser(503L, 1L)), PageRequest.of(1, 2), 5));
+        when(stockClient.getListing(42L)).thenReturn(listing);
+
+        var response = service.getMyOrders(clientUser, MyOrdersFilter.none(), PageRequest.of(1, 2));
+
+        assertThat(response.getContent()).hasSize(1);
+        assertThat(response.getTotalElements()).isEqualTo(5);
+        assertThat(response.getNumber()).isEqualTo(1);
+    }
+
+    @Test
+    void getMyOrders_filtersBySecurityTypeUsingResolvedListings() {
+        StockListingDto futuresListing = new StockListingDto();
+        futuresListing.setId(77L);
+        futuresListing.setPrice(new BigDecimal("100.00"));
+        futuresListing.setCurrency("USD");
+        futuresListing.setContractSize(1);
+        futuresListing.setListingType(ListingType.FUTURES);
+
+        Order stockOrder = orderForUser(701L, 1L);
+        Order futuresOrder = orderForUser(702L, 1L);
+        futuresOrder.setListingId(77L);
+        when(orderRepository.findAll(any(Specification.class)))
+                .thenReturn(List.of(stockOrder, futuresOrder));
+        when(stockClient.getListing(42L)).thenReturn(listing);
+        when(stockClient.getListing(77L)).thenReturn(futuresListing);
+
+        MyOrdersFilter filter = new MyOrdersFilter(null, null, ListingType.FUTURES, null, null);
+        var response = service.getMyOrders(clientUser, filter, PageRequest.of(0, 20));
+
+        assertThat(response.getContent()).extracting(OrderResponse::getId).containsExactly(702L);
+        assertThat(response.getTotalElements()).isEqualTo(1);
+    }
+
+    @Test
+    void getMyOrders_securityTypeFilterPagesInMemory() {
+        Order first = orderForUser(801L, 1L);
+        first.setCreatedAt(java.time.LocalDateTime.of(2026, 5, 3, 9, 0));
+        Order second = orderForUser(802L, 1L);
+        second.setCreatedAt(java.time.LocalDateTime.of(2026, 5, 2, 9, 0));
+        Order third = orderForUser(803L, 1L);
+        third.setCreatedAt(java.time.LocalDateTime.of(2026, 5, 1, 9, 0));
+        when(orderRepository.findAll(any(Specification.class)))
+                .thenReturn(List.of(first, second, third));
+        when(stockClient.getListing(42L)).thenReturn(listing);
+
+        MyOrdersFilter filter = new MyOrdersFilter(null, null, ListingType.STOCK, null, null);
+        var response = service.getMyOrders(clientUser, filter, PageRequest.of(0, 2));
+
+        // 3 STOCK orders matched; page size 2 -> first page newest-first, total 3.
+        assertThat(response.getTotalElements()).isEqualTo(3);
+        assertThat(response.getContent()).extracting(OrderResponse::getId).containsExactly(801L, 802L);
+    }
+
+    @Test
+    void getMyOrders_combinesStatusDirectionAndSecurityTypeFilters() {
+        Order matching = orderForUser(901L, 1L);
+        matching.setStatus(OrderStatus.DONE);
+        matching.setDirection(OrderDirection.BUY);
+        // Repository already applied status+direction; service then narrows by listing type.
+        when(orderRepository.findAll(any(Specification.class)))
+                .thenReturn(List.of(matching));
+        when(stockClient.getListing(42L)).thenReturn(listing);
+
+        MyOrdersFilter filter = new MyOrdersFilter(OrderStatus.DONE, OrderDirection.BUY, ListingType.STOCK, null, null);
+        var response = service.getMyOrders(clientUser, filter, PageRequest.of(0, 20));
+
+        assertThat(response.getContent()).extracting(OrderResponse::getId).containsExactly(901L);
+        // The status/direction predicates are exercised end-to-end against H2 in
+        // OrderRepositoryMyOrdersTest; here we verify the service routed the
+        // listingType branch through the unpaged Specification overload.
+        verify(orderRepository).findAll(any(Specification.class));
+    }
+
+    @Test
+    void getMyOrders_rejectsUserThatIsNeitherClientNorAgent() {
+        AuthenticatedUser stranger = new AuthenticatedUser(9L, Set.of("GUEST"), Set.of());
+
+        assertThatThrownBy(() -> service.getMyOrders(stranger, MyOrdersFilter.none(), PageRequest.of(0, 20)))
+                .isInstanceOf(ForbiddenOperationException.class)
+                .hasMessageContaining("Only clients and agents can view their orders");
+
+        verify(orderRepository, never()).findAll(any(Specification.class), any(Pageable.class));
+        verify(orderRepository, never()).findAll(any(Specification.class));
         verifyNoInteractions(stockClient);
+    }
+
+    @Test
+    void getMyOrders_nullFilterIsTreatedAsNoFilter() {
+        when(orderRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        var response = service.getMyOrders(clientUser, null, PageRequest.of(0, 20));
+
+        assertThat(response.getContent()).isEmpty();
+        // Null filter is normalized to MyOrdersFilter.none() inside the service so the
+        // built Specification carries the userId predicate only; the resulting paged
+        // findAll invocation matches the no-filter case.
+        verify(orderRepository).findAll(any(Specification.class), any(Pageable.class));
     }
 
     @Test
@@ -1200,6 +1513,125 @@ class OrderCreationServiceTest {
         verify(orderNotificationProducer).sendOrderDeclined(any(OrderNotificationPayload.class));
     }
 
+    @Test
+    void createBuyOrder_publishesOrderCreatedNotification() {
+        service.createBuyOrder(clientUser, buyRequest);
+
+        ArgumentCaptor<OrderNotificationPayload> captor = ArgumentCaptor.forClass(OrderNotificationPayload.class);
+        verify(orderNotificationProducer).sendOrderCreated(captor.capture());
+        verify(orderNotificationFactory).build(any(Order.class), org.mockito.ArgumentMatchers.eq(OrderStatus.PENDING_CONFIRMATION));
+        verify(orderNotificationProducer, never()).sendOrderExecuted(any());
+    }
+
+    @Test
+    void createSellOrder_publishesOrderCreatedNotification() {
+        Portfolio portfolio = new Portfolio();
+        portfolio.setUserId(1L);
+        portfolio.setListingId(42L);
+        portfolio.setQuantity(20);
+        portfolio.setAveragePurchasePrice(new BigDecimal("90.00"));
+        when(portfolioRepository.findByUserIdAndListingId(1L, 42L)).thenReturn(Optional.of(portfolio));
+
+        service.createSellOrder(clientUser, sellRequest);
+
+        verify(orderNotificationProducer).sendOrderCreated(any(OrderNotificationPayload.class));
+    }
+
+    @Test
+    void confirmBuyOrder_forClientPublishesOrderCreatedNotificationExactlyOnce() {
+        service.createBuyOrder(clientUser, buyRequest);
+
+        service.confirmOrder(clientUser, 100L);
+
+        // order.created fires exactly once — at creation time. A client confirm
+        // pushing the order straight to APPROVED must NOT re-publish order.created;
+        // doing so double-fired a near-identical message for every client order.
+        verify(orderNotificationProducer, times(1)).sendOrderCreated(any(OrderNotificationPayload.class));
+        verify(orderNotificationFactory).build(any(Order.class), org.mockito.ArgumentMatchers.eq(OrderStatus.PENDING_CONFIRMATION));
+        verify(orderNotificationFactory, never()).build(any(Order.class), org.mockito.ArgumentMatchers.eq(OrderStatus.APPROVED));
+    }
+
+    @Test
+    void confirmBuyOrder_forAgentNeedingApprovalDoesNotPublishCreatedOnConfirm() {
+        ActuaryInfo agent = new ActuaryInfo();
+        agent.setEmployeeId(2L);
+        agent.setNeedApproval(true);
+        agent.setLimit(new BigDecimal("2000.00"));
+        agent.setUsedLimit(BigDecimal.ZERO);
+        when(actuaryInfoRepository.findByEmployeeId(2L)).thenReturn(Optional.of(agent));
+        when(actuaryInfoRepository.findByEmployeeIdForUpdate(2L)).thenReturn(Optional.of(agent));
+
+        service.createBuyOrder(actuaryUser, buyRequest);
+        service.confirmOrder(actuaryUser, 100L);
+
+        // createBuyOrder publishes order.created exactly once; an order moving to
+        // PENDING (awaiting supervisor approval) must not publish a second time.
+        verify(orderNotificationProducer, times(1)).sendOrderCreated(any(OrderNotificationPayload.class));
+    }
+
+    @Test
+    void supervisorCancel_publishesOrderCancelledNotification() {
+        Order order = new Order();
+        order.setId(200L);
+        order.setUserId(2L);
+        order.setListingId(42L);
+        order.setOrderType(OrderType.MARKET);
+        order.setQuantity(10);
+        order.setContractSize(1);
+        order.setPricePerUnit(new BigDecimal("101.00"));
+        order.setDirection(OrderDirection.BUY);
+        order.setRemainingPortions(4);
+        order.setStatus(OrderStatus.APPROVED);
+        order.setIsDone(false);
+        order.setAccountId(5L);
+        when(orderRepository.findByIdForUpdate(200L)).thenReturn(Optional.of(order));
+
+        service.cancelOrder(200L);
+
+        verify(orderNotificationProducer).sendOrderCancelled(any(OrderNotificationPayload.class));
+        verify(orderNotificationFactory).build(any(Order.class), org.mockito.ArgumentMatchers.eq(OrderStatus.CANCELLED));
+    }
+
+    @Test
+    void supervisorPartialCancel_doesNotPublishCancelledNotificationWhenOrderStaysActive() {
+        Order order = new Order();
+        order.setId(210L);
+        order.setUserId(2L);
+        order.setListingId(42L);
+        order.setOrderType(OrderType.LIMIT);
+        order.setQuantity(10);
+        order.setContractSize(1);
+        order.setPricePerUnit(new BigDecimal("101.00"));
+        order.setLimitValue(new BigDecimal("105.00"));
+        order.setDirection(OrderDirection.SELL);
+        order.setRemainingPortions(10);
+        order.setStatus(OrderStatus.PENDING);
+        order.setIsDone(false);
+        order.setAccountId(5L);
+        order.setReservedLimitExposure(new BigDecimal("1000.0000"));
+
+        ActuaryInfo agent = new ActuaryInfo();
+        agent.setEmployeeId(2L);
+        agent.setReservedLimit(new BigDecimal("1000.0000"));
+
+        Portfolio portfolio = new Portfolio();
+        portfolio.setUserId(2L);
+        portfolio.setListingId(42L);
+        portfolio.setQuantity(20);
+        portfolio.setReservedQuantity(10);
+        portfolio.setAveragePurchasePrice(new BigDecimal("90.00"));
+
+        when(orderRepository.findByIdForUpdate(210L)).thenReturn(Optional.of(order));
+        when(actuaryInfoRepository.findByEmployeeIdForUpdate(2L)).thenReturn(Optional.of(agent));
+        when(portfolioRepository.findByUserIdAndListingIdForUpdate(2L, 42L)).thenReturn(Optional.of(portfolio));
+
+        // A partial cancellation that leaves the order PENDING (remainingPortions > 0)
+        // is not a cancellation event — no order.cancelled notification.
+        service.cancelOrder(210L, 4);
+
+        verify(orderNotificationProducer, never()).sendOrderCancelled(any());
+    }
+
     private Order orderForUser(Long orderId, Long userId) {
         Order order = new Order();
         order.setId(orderId);
@@ -1214,6 +1646,7 @@ class OrderCreationServiceTest {
         order.setApprovedBy(OrderCreationServiceImpl.NO_APPROVAL_REQUIRED);
         order.setIsDone(false);
         order.setLastModification(java.time.LocalDateTime.now());
+        order.setCreatedAt(java.time.LocalDateTime.now());
         order.setRemainingPortions(10);
         order.setAfterHours(false);
         order.setExchangeClosed(false);

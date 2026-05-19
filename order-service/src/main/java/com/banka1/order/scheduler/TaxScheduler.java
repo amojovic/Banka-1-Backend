@@ -42,7 +42,9 @@ public class TaxScheduler {
     @Scheduled(cron = "0 0 0 1 * *")
     public void runMonthlyTaxCollection() {
         log.info("Starting monthly tax collection job");
-        taxService.collectMonthlyTax();
+        // WP-12: collectMonthlyTaxScheduled dodatno publikuje TAX_RUN_SCHEDULED
+        // audit dogadjaj sa SYSTEM aktorom.
+        taxService.collectMonthlyTaxScheduled();
     }
 }
 

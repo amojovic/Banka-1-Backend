@@ -9,15 +9,19 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
- * Sends verification OTP pushes to the mobile client via Firebase Cloud Messaging.
+ * Sends pushes to the mobile client via Firebase Cloud Messaging.
+ *
+ * <p>The service handles two send paths: {@link #sendVerificationPush} for
+ * verification OTPs and {@link #sendPush} for any other notification type
+ * mirrored from a consumed RabbitMQ event.
  *
  * <p>This service is deliberately decoupled from the main delivery pipeline:
  * <ul>
- *   <li>Email delivery remains the authoritative channel for verification codes
- *       and is handled by {@link NotificationDeliveryService}.</li>
+ *   <li>Email delivery remains the authoritative channel and is handled by
+ *       {@link NotificationDeliveryService}.</li>
  *   <li>FCM pushes are an additive convenience that lets the mobile app display
- *       the code in a notification. If Firebase is not initialized or the send
- *       fails for any reason the rest of the pipeline is unaffected.</li>
+ *       the notification. If Firebase is not initialized or the send fails for
+ *       any reason the rest of the pipeline is unaffected.</li>
  * </ul>
  *
  * <p>The service captures the initialization state of {@link FirebaseApp} at
@@ -91,9 +95,63 @@ public class FcmPushService {
                         .build())
                 .build();
 
+        send(message, "VERIFICATION_OTP");
+    }
+
+    /**
+     * Sends a generic high-priority data-only FCM push for any notification type.
+     *
+     * <p>This is the channel used by {@link NotificationDeliveryService} to
+     * mirror every consumed RabbitMQ event to a mobile push, not just
+     * verification OTPs. The payload carries the resolved notification
+     * {@code type} together with the rendered {@code title} and {@code body} so
+     * the mobile app can render the notification consistently regardless of app
+     * lifecycle state. No notification block is included — the app builds the
+     * user-visible notification from the data payload itself.
+     *
+     * <p>Failures never propagate: any exception thrown by the FCM SDK is logged
+     * at warn level and swallowed so email delivery (the authoritative channel)
+     * is undisturbed. A {@code null} or blank {@code fcmToken} is a no-op.
+     *
+     * @param fcmToken device token previously registered via
+     *                 {@link FcmTokenService#upsertToken(Long, String)}
+     * @param type notification type resolved from the RabbitMQ routing key
+     * @param title short headline shown on the device
+     * @param body full message shown on the device
+     */
+    public void sendPush(String fcmToken, String type, String title, String body) {
+        if (!firebaseAvailable) {
+            log.debug("Firebase not available, skipping FCM push");
+            return;
+        }
+        if (fcmToken == null || fcmToken.isBlank()) {
+            log.debug("Blank FCM token, skipping push type={}", type);
+            return;
+        }
+
+        Message message = Message.builder()
+                .setToken(fcmToken)
+                .putData("type", type != null ? type : "UNKNOWN")
+                .putData("title", title != null ? title : "")
+                .putData("body", body != null ? body : "")
+                .setAndroidConfig(AndroidConfig.builder()
+                        .setPriority(Priority.HIGH)
+                        .build())
+                .build();
+
+        send(message, type);
+    }
+
+    /**
+     * Performs the actual FCM send, logging the outcome and swallowing failures.
+     *
+     * @param message fully built FCM message
+     * @param type notification type, logged for observability
+     */
+    private void send(Message message, String type) {
         try {
             String messageId = FirebaseMessaging.getInstance().send(message);
-            log.info("FCM push sent: messageId={}, operationType={}", messageId, operationType);
+            log.info("FCM push sent: messageId={}, type={}", messageId, type);
         } catch (Exception e) {
             log.warn("FCM push failed (email delivery is authoritative): {}", e.getMessage());
         }

@@ -1,6 +1,7 @@
 package com.banka1.clientService.dto.requests;
 
 import com.banka1.clientService.domain.enums.Pol;
+import com.banka1.clientService.validation.NotFutureEpochDate;
 import jakarta.validation.constraints.*;
 import lombok.Data;
 
@@ -19,8 +20,9 @@ public class ClientCreateRequestDto {
     @NotBlank(message = "Prezime je obavezno")
     private String prezime;
 
-    /** Datum rodjenja klijenta kao Unix timestamp (milisekunde). */
+    /** Datum rodjenja klijenta kao Unix timestamp (milisekunde); ne sme biti u buducnosti. */
     @NotNull(message = "Datum rodjenja je obavezan")
+    @NotFutureEpochDate(message = "Datum rodjenja ne sme biti u buducnosti")
     private Long datumRodjenja;
 
     /** Pol klijenta. */

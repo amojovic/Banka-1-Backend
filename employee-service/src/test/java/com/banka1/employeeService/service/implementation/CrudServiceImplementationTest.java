@@ -1,7 +1,9 @@
 package com.banka1.employeeService.service.implementation;
 
+import com.banka1.employeeService.audit.AuditEventDto;
 import com.banka1.employeeService.domain.ConfirmationToken;
 import com.banka1.employeeService.domain.Zaposlen;
+import com.banka1.employeeService.domain.enums.Permission;
 import com.banka1.employeeService.domain.enums.Pol;
 import com.banka1.employeeService.domain.enums.Role;
 import com.banka1.employeeService.dto.requests.EmployeeCreateRequestDto;
@@ -19,6 +21,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -39,6 +42,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -62,6 +66,9 @@ class CrudServiceImplementationTest {
     @Mock
     private EmployeeMapper employeeMapper;
 
+    @Mock
+    private com.banka1.employeeService.audit.AuditPublisher auditPublisher;
+
     @InjectMocks
     private CrudServiceImplementation crudService;
 
@@ -70,6 +77,7 @@ class CrudServiceImplementationTest {
         ReflectionTestUtils.setField(crudService, "role", "roles");
         ReflectionTestUtils.setField(crudService, "permission", "permissions");
         ReflectionTestUtils.setField(crudService, "activateAccount", "http://localhost/activate?token=");
+        ReflectionTestUtils.setField(crudService, "confirmationTokenExpiration", 15L);
         TransactionSynchronizationManager.initSynchronization();
     }
 
@@ -121,7 +129,7 @@ class CrudServiceImplementationTest {
         Zaposlen mapped = employee("nikola@banka.com", "nikola", Role.BASIC);
         Zaposlen saved = employee("nikola@banka.com", "nikola", Role.BASIC);
         saved.setId(9L);
-        EmployeeResponseDto responseDto = new EmployeeResponseDto(9L, "Nikola", "Nikolic", "nikola@banka.com", "nikola", "Agent", "Prodaja", true, Role.BASIC);
+        EmployeeResponseDto responseDto = new EmployeeResponseDto(9L, "Nikola", "Nikolic", "nikola@banka.com", "nikola", LocalDate.of(1995, 5, 5), Pol.M, "+381601234567", "Ulica 1", "Agent", "Prodaja", true, Role.BASIC);
 
         when(zaposlenRepository.existsByEmail("nikola@banka.com")).thenReturn(false);
         when(zaposlenRepository.existsByUsername("nikola")).thenReturn(false);
@@ -144,7 +152,7 @@ class CrudServiceImplementationTest {
     @Test
     void searchEmployeesNormalizesNullFiltersToEmptyStrings() {
         Zaposlen emp = employee("ana@banka.com", "ana", Role.AGENT);
-        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", "Broker", "Prodaja", true, Role.AGENT);
+        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", LocalDate.of(1991, 1, 1), Pol.Z, "+381601234567", "Ulica 1", "Broker", "Prodaja", true, Role.AGENT);
         PageRequest pageable = PageRequest.of(0, 10);
 
         when(zaposlenRepository.searchEmployees("", "", "", "", "", pageable))
@@ -172,9 +180,9 @@ class CrudServiceImplementationTest {
 
     @Test
     void updateEmployeeThrowsWhenCallerRoleIsNotStrongEnough() {
-        Zaposlen emp = employee("ana@banka.com", "ana", Role.AGENT);
+        Zaposlen emp = employee("ana@banka.com", "ana", Role.SUPERVISOR);
         EmployeeUpdateRequestDto request = new EmployeeUpdateRequestDto();
-        Jwt jwt = jwtWithClaims(Map.of("roles", "AGENT"));
+        Jwt jwt = jwtWithClaims(Map.of("roles", "AGENT", "id", 99L));
 
         when(zaposlenRepository.findById(1L)).thenReturn(Optional.of(emp));
 
@@ -201,8 +209,8 @@ class CrudServiceImplementationTest {
         Zaposlen emp = employee("ana@banka.com", "ana", Role.BASIC);
         EmployeeUpdateRequestDto request = new EmployeeUpdateRequestDto();
         request.setDepartman("IT");
-        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", "Broker", "IT", true, Role.BASIC);
-        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN", "permissions", List.of()));
+        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", LocalDate.of(1991, 1, 1), Pol.Z, "+381601234567", "Ulica 1", "Broker", "IT", true, Role.BASIC);
+        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN", "permissions", List.of(), "id", 99L));
 
         when(zaposlenRepository.findById(1L)).thenReturn(Optional.of(emp));
         when(zaposlenRepository.save(emp)).thenReturn(emp);
@@ -214,12 +222,62 @@ class CrudServiceImplementationTest {
     }
 
     @Test
+    void updateEmployeePublishesPermissionAuditEventWhenPermissionsChange() {
+        Zaposlen emp = employee("ana@banka.com", "ana", Role.AGENT);
+        EmployeeUpdateRequestDto request = new EmployeeUpdateRequestDto();
+        request.setMargin(true);
+        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", LocalDate.of(1991, 1, 1), Pol.Z, "+381601234567", "Ulica 1", "Broker", "Prodaja", true, Role.AGENT);
+        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN", "permissions", List.of("MARGIN_TRADE"), "id", 99L, "username", "admin"));
+
+        when(zaposlenRepository.findById(1L)).thenReturn(Optional.of(emp));
+        when(zaposlenRepository.findById(99L)).thenReturn(Optional.empty());
+        when(zaposlenRepository.save(emp)).thenReturn(emp);
+        when(employeeMapper.toDto(emp)).thenReturn(responseDto);
+        // Simuliraj da mapper dodaje MARGIN_TRADE permisiju (kao stvarni EmployeeMapper).
+        doAnswer(invocation -> {
+            emp.getPermissionSet().add(Permission.MARGIN_TRADE);
+            return null;
+        }).when(employeeMapper).updateEntityFromDto(eq(emp), eq(request), any(Role.class), any());
+
+        crudService.updateEmployee(jwt, 1L, request);
+
+        // Audit se salje strogo posle commita — odradi registrovane afterCommit callback-e.
+        runAfterCommitCallbacks();
+
+        ArgumentCaptor<AuditEventDto> captor = ArgumentCaptor.forClass(AuditEventDto.class);
+        verify(auditPublisher).publish(captor.capture());
+        AuditEventDto event = captor.getValue();
+        assertThat(event.actionType()).isEqualTo("EMPLOYEE_PERMISSIONS_CHANGED");
+        assertThat(event.actorId()).isEqualTo(99L);
+        assertThat(event.targetType()).isEqualTo("EMPLOYEE");
+        assertThat(event.targetId()).isEqualTo("1");
+        assertThat(event.details()).contains("MARGIN_TRADE");
+    }
+
+    @Test
+    void updateEmployeeDoesNotPublishPermissionAuditEventWhenPermissionsUnchanged() {
+        Zaposlen emp = employee("ana@banka.com", "ana", Role.BASIC);
+        EmployeeUpdateRequestDto request = new EmployeeUpdateRequestDto();
+        request.setDepartman("IT");
+        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", LocalDate.of(1991, 1, 1), Pol.Z, "+381601234567", "Ulica 1", "Broker", "IT", true, Role.BASIC);
+        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN", "permissions", List.of(), "id", 99L));
+
+        when(zaposlenRepository.findById(1L)).thenReturn(Optional.of(emp));
+        when(zaposlenRepository.save(emp)).thenReturn(emp);
+        when(employeeMapper.toDto(emp)).thenReturn(responseDto);
+
+        crudService.updateEmployee(jwt, 1L, request);
+
+        verify(auditPublisher, never()).publish(any());
+    }
+
+    @Test
     void updateEmployeeRegistersAfterCommitCallbackWhenDeactivating() {
         Zaposlen emp = employee("ana@banka.com", "ana", Role.BASIC);
         EmployeeUpdateRequestDto request = new EmployeeUpdateRequestDto();
         request.setAktivan(false);
-        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", "Agent", "Prodaja", false, Role.BASIC);
-        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN", "permissions", List.of()));
+        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", LocalDate.of(1991, 1, 1), Pol.Z, "+381601234567", "Ulica 1", "Agent", "Prodaja", false, Role.BASIC);
+        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN", "permissions", List.of(), "id", 99L));
 
         when(zaposlenRepository.findById(1L)).thenReturn(Optional.of(emp));
         when(zaposlenRepository.save(emp)).thenReturn(emp);
@@ -234,7 +292,7 @@ class CrudServiceImplementationTest {
     void editEmployeeUpdatesCurrentUserByJwtId() {
         Zaposlen emp = employee("ana@banka.com", "ana", Role.AGENT);
         EmployeeEditRequestDto request = new EmployeeEditRequestDto("Ana", "Anic", "123", "Adresa", "Senior Agent", "IT");
-        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", "Senior Agent", "IT", true, Role.AGENT);
+        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", LocalDate.of(1991, 1, 1), Pol.Z, "+381601234567", "Ulica 1", "Senior Agent", "IT", true, Role.AGENT);
         Jwt jwt = jwtWithClaims(Map.of("id", 1L));
 
         when(zaposlenRepository.findById(1L)).thenReturn(Optional.of(emp));
@@ -250,7 +308,7 @@ class CrudServiceImplementationTest {
     @Test
     void globalSearchEmployeesMapsRepositoryResults() {
         Zaposlen emp = employee("ana@banka.com", "ana", Role.AGENT);
-        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", "Broker", "Prodaja", true, Role.AGENT);
+        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", LocalDate.of(1991, 1, 1), Pol.Z, "+381601234567", "Ulica 1", "Broker", "Prodaja", true, Role.AGENT);
         PageRequest pageable = PageRequest.of(0, 10);
 
         when(zaposlenRepository.globalSearchEmployees("ana", pageable))
@@ -316,8 +374,8 @@ class CrudServiceImplementationTest {
         Zaposlen emp = employee("ana@banka.com", "ana", Role.BASIC);
         EmployeeUpdateRequestDto request = new EmployeeUpdateRequestDto();
         request.setDepartman("HR");
-        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", "Broker", "HR", true, Role.BASIC);
-        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN", "permissions", List.of()));
+        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", LocalDate.of(1991, 1, 1), Pol.Z, "+381601234567", "Ulica 1", "Broker", "HR", true, Role.BASIC);
+        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN", "permissions", List.of(), "id", 99L));
 
         when(zaposlenRepository.findById(1L)).thenReturn(Optional.of(emp));
         when(zaposlenRepository.save(emp)).thenReturn(emp);
@@ -333,8 +391,8 @@ class CrudServiceImplementationTest {
         Zaposlen emp = employee("ana@banka.com", "ana", Role.BASIC);
         EmployeeUpdateRequestDto request = new EmployeeUpdateRequestDto();
         request.setAktivan(true);
-        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", "Broker", "Prodaja", true, Role.BASIC);
-        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN", "permissions", List.of()));
+        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", LocalDate.of(1991, 1, 1), Pol.Z, "+381601234567", "Ulica 1", "Broker", "Prodaja", true, Role.BASIC);
+        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN", "permissions", List.of(), "id", 99L));
 
         when(zaposlenRepository.findById(1L)).thenReturn(Optional.of(emp));
         when(zaposlenRepository.save(emp)).thenReturn(emp);
@@ -388,7 +446,7 @@ class CrudServiceImplementationTest {
         Zaposlen mapped = employee("nikola@banka.com", "nikola", Role.BASIC);
         Zaposlen saved = employee("nikola@banka.com", "nikola", Role.BASIC);
         saved.setId(9L);
-        EmployeeResponseDto responseDto = new EmployeeResponseDto(9L, "Nikola", "Nikolic", "nikola@banka.com", "nikola", "Agent", "Prodaja", true, Role.BASIC);
+        EmployeeResponseDto responseDto = new EmployeeResponseDto(9L, "Nikola", "Nikolic", "nikola@banka.com", "nikola", LocalDate.of(1995, 5, 5), Pol.M, "+381601234567", "Ulica 1", "Agent", "Prodaja", true, Role.BASIC);
 
         when(zaposlenRepository.existsByEmail("nikola@banka.com")).thenReturn(false);
         when(zaposlenRepository.existsByUsername("nikola")).thenReturn(false);
@@ -436,5 +494,11 @@ class CrudServiceImplementationTest {
 
     private Jwt jwtWithClaims(Map<String, Object> claims) {
         return new Jwt("token", Instant.now(), Instant.now().plusSeconds(3600), Map.of("alg", "none"), claims);
+    }
+
+    /** Odradjuje {@code afterCommit()} za sve registrovane sinhronizacije — simulira commit transakcije. */
+    private void runAfterCommitCallbacks() {
+        TransactionSynchronizationManager.getSynchronizations()
+                .forEach(org.springframework.transaction.support.TransactionSynchronization::afterCommit);
     }
 }

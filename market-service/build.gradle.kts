@@ -37,6 +37,9 @@ dependencies {
     implementation(project(":exchange-service"))
 
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    // WP-3 (W3): AMQP enablement — market-service mora moci da publish-uje
+    // JSON poruke na `employee.events` topic exchange (WP-9 Price Alert).
+    implementation("org.springframework.boot:spring-boot-starter-amqp")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-liquibase")
     implementation("org.springframework.boot:spring-boot-starter-security")

@@ -95,6 +95,14 @@ public class OptionContract {
     @Column(name = "exercised_at")
     private LocalDateTime exercisedAt;
 
+    /**
+     * WP-15 (Celina 4.1): postavljeno na {@code true} kada
+     * {@code OtcExpiryReminderScheduler} posalje "ugovor uskoro istice"
+     * notifikaciju, da se isti podsetnik ne salje vise puta.
+     */
+    @Column(name = "expiry_reminder_sent", nullable = false)
+    private boolean expiryReminderSent = false;
+
     @Version
     private Long version;
 }

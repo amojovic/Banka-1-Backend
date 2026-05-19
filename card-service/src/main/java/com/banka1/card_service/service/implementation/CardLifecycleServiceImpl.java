@@ -394,11 +394,17 @@ public class CardLifecycleServiceImpl implements CardLifecycleService {
      * @return outbound RabbitMQ payload for the notification consumer
      */
     private CardNotificationDto buildNotificationPayload(Card card, ClientNotificationRecipientDto recipient) {
-        return new CardNotificationDto(
+        CardNotificationDto dto = new CardNotificationDto(
                 recipient.displayName(),
                 recipient.email(),
                 templateVariables(card)
         );
+        // WP-7: in-app notifikacija ide klijentu-primaocu. Kad je primalac ovlasceno
+        // lice (direktan email bez client id-a), recipient.id() je null pa potrosac
+        // graciozno preskace in-app red.
+        dto.setRecipientUserId(recipient.id());
+        dto.setRecipientType("CLIENT");
+        return dto;
     }
 
     /**

@@ -66,4 +66,36 @@ class FcmPushServiceUnitTest {
                 service.sendVerificationPush("fcm-token", "123456", null, null)
         );
     }
+
+    /**
+     * Verifies the generalized {@code sendPush} entry point short-circuits cleanly
+     * when Firebase is unavailable for any notification type.
+     *
+     * <p>This protects the fire-and-forget contract used by
+     * {@link NotificationDeliveryService} to mirror every consumed event to a
+     * mobile push.
+     */
+    @Test
+    void sendPushDoesNothingWhenFirebaseIsUnavailable() {
+        FcmPushService service = new FcmPushService();
+
+        assertDoesNotThrow(() ->
+                service.sendPush("fcm-token", "TRANSACTION_COMPLETED",
+                        "Transakcija", "Vasa transakcija je izvrsena.")
+        );
+    }
+
+    /**
+     * Verifies {@code sendPush} tolerates null/blank tokens and null content
+     * without throwing — the message builder substitutes defaults and a blank
+     * token is a no-op.
+     */
+    @Test
+    void sendPushHandlesNullAndBlankInputsWithoutThrowing() {
+        FcmPushService service = new FcmPushService();
+
+        assertDoesNotThrow(() -> service.sendPush(null, "ORDER_EXECUTED", "T", "B"));
+        assertDoesNotThrow(() -> service.sendPush("  ", "ORDER_EXECUTED", "T", "B"));
+        assertDoesNotThrow(() -> service.sendPush("fcm-token", null, null, null));
+    }
 }

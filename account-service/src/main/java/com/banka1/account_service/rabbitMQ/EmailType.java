@@ -8,7 +8,10 @@ public enum EmailType {
 
     ACCOUNT_CREATED("account.created"),
 
-    ACCOUNT_DEACTIVATED("account.deactivated");
+    ACCOUNT_DEACTIVATED("account.deactivated"),
+
+    /** Email notifikacija o promeni dnevnog/mesecnog limita racuna. */
+    ACCOUNT_LIMIT_CHANGED("account.limit_changed");
 
 
     private final String routingKey;

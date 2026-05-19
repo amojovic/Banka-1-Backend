@@ -13,13 +13,16 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -35,23 +38,28 @@ class TaxControllerTest {
 
     private TaxController controller;
 
+    /** WP-12: JWT supervizora (id=88) prosledjen audit-aware tax endpoint-ima. */
+    private Jwt supervisorJwt;
+
     @BeforeEach
     void setUp() {
         controller = new TaxController(taxService);
+        supervisorJwt = new Jwt("token", Instant.now(), Instant.now().plusSeconds(3600),
+                Map.of("alg", "none"), Map.of("id", 88L, "sub", "88"));
     }
 
     @Test
     void runTaxEndpoints_delegateToTaxService() {
-        ResponseEntity<Void> collectResponse = controller.collectTax();
+        ResponseEntity<Void> collectResponse = controller.collectTax(supervisorJwt);
         ResponseEntity<Void> internalResponse = controller.runTaxCalculationInternal();
-        ResponseEntity<Void> currentMonthResponse = controller.collectCurrentMonthTax();
+        ResponseEntity<Void> currentMonthResponse = controller.collectCurrentMonthTax(supervisorJwt);
 
         assertThat(collectResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(internalResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(currentMonthResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
-        verify(taxService).collectMonthlyTaxManually();
+        verify(taxService).collectMonthlyTaxManually(88L);
         verify(taxService).collectMonthlyTax();
-        verify(taxService).collectCurrentMonthTax();
+        verify(taxService).collectCurrentMonthTax(88L);
     }
 
     @Test
@@ -77,7 +85,7 @@ class TaxControllerTest {
 
     @Test
     void taxEndpointsHaveExpectedMappingsAndSecurity() throws Exception {
-        Method collectTax = TaxController.class.getDeclaredMethod("collectTax");
+        Method collectTax = TaxController.class.getDeclaredMethod("collectTax", Jwt.class);
         assertThat(collectTax.getAnnotation(PostMapping.class).value()).containsExactly("/tax/collect");
         assertThat(collectTax.getAnnotation(PreAuthorize.class).value()).isEqualTo("hasRole('SUPERVISOR')");
 
@@ -93,7 +101,7 @@ class TaxControllerTest {
         assertThat(getTaxTracking.getAnnotation(GetMapping.class).value()).containsExactly("/tax/tracking");
         assertThat(getTaxTracking.getAnnotation(PreAuthorize.class).value()).isEqualTo("hasRole('SUPERVISOR')");
 
-        Method collectCurrentMonth = TaxController.class.getDeclaredMethod("collectCurrentMonthTax");
+        Method collectCurrentMonth = TaxController.class.getDeclaredMethod("collectCurrentMonthTax", Jwt.class);
         assertThat(collectCurrentMonth.getAnnotation(PostMapping.class).value()).containsExactly("/tax/collect/current-month");
         assertThat(collectCurrentMonth.getAnnotation(PreAuthorize.class).value()).isEqualTo("hasRole('SUPERVISOR')");
     }

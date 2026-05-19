@@ -29,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @Service
@@ -138,8 +139,33 @@ public class ClientServiceImplementation implements ClientService {
                 throw new BusinessException(ErrorCode.VERIFICATION_FAILED, ErrorCode.VERIFICATION_FAILED.getTitle());
         }
 
-        account.setDnevniLimit(editAccountLimitDto.getDailyLimit());
-        account.setMesecniLimit(editAccountLimitDto.getMonthlyLimit());
+        // Stare vrednosti se snimaju u final lokale PRE izmene, da bi ih afterCommit callback video.
+        final BigDecimal oldDailyLimit = account.getDnevniLimit();
+        final BigDecimal oldMonthlyLimit = account.getMesecniLimit();
+        final BigDecimal newDailyLimit = editAccountLimitDto.getDailyLimit();
+        final BigDecimal newMonthlyLimit = editAccountLimitDto.getMonthlyLimit();
+
+        account.setDnevniLimit(newDailyLimit);
+        account.setMesecniLimit(newMonthlyLimit);
+
+        // Spec Celina 2: klijent dobija notifikaciju o promeni limita racuna.
+        // Notifikacija se salje tek posle commit-a, kako rollback ne bi izazvao laznu obavest.
+        final String accountNumber = account.getBrojRacuna();
+        final String username = account.getUsername();
+        final String email = account.getEmail();
+        final Long ownerId = account.getVlasnik();
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                if (username != null && email != null) {
+                    EmailDto emailDto = new EmailDto(username, email, accountNumber,
+                            oldDailyLimit, newDailyLimit, oldMonthlyLimit, newMonthlyLimit);
+                    emailDto.setRecipientUserId(ownerId);
+                    emailDto.setRecipientType("CLIENT");
+                    rabbitClient.sendEmailNotification(emailDto);
+                }
+            }
+        });
 
         return "Uspesno setovani limiti";
     }
@@ -193,7 +219,11 @@ public class ClientServiceImplementation implements ClientService {
             public void afterCommit() {
                 if (editStatus.getStatus() == Status.INACTIVE) {
                     if (account.getUsername() != null && account.getEmail() != null) {
-                        rabbitClient.sendEmailNotification(new EmailDto(account.getUsername(), account.getEmail(), EmailType.ACCOUNT_DEACTIVATED));
+                        EmailDto emailDto = new EmailDto(account.getUsername(), account.getEmail(), EmailType.ACCOUNT_DEACTIVATED);
+                        // WP-7: in-app notifikacija ide klijentu-vlasniku racuna.
+                        emailDto.setRecipientUserId(account.getVlasnik());
+                        emailDto.setRecipientType("CLIENT");
+                        rabbitClient.sendEmailNotification(emailDto);
                     }
                     rabbitClient.sendCardEvent(new CardEventDto(account.getVlasnik(), account.getBrojRacuna(), CardEventType.CARD_DEACTIVATE));
                 }

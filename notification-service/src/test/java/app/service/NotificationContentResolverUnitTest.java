@@ -18,6 +18,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -99,6 +100,86 @@ class NotificationContentResolverUnitTest {
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> NotificationContentResolver.resolve(request, null, templateFactory));
         assertEquals(ErrorCode.NOTIFICATION_TYPE_REQUIRED, exception.getErrorCode());
+    }
+
+    // --- render(): email-agnostic rendering for the in-app channel (WP-1b) ---
+
+    /**
+     * WP-1b: verifies that {@code render} produces subject/body even when the payload
+     * carries NO email address.
+     *
+     * <p>Template content depends only on {@code templateVariables}; the email address is
+     * irrelevant to it. The in-app channel uses this path, so a missing email must not block
+     * rendering — only the separate email-delivery leg requires the address.
+     */
+    @Test
+    void renderProducesContentWhenEmailIsNull() {
+        NotificationRequest request = new NotificationRequest("Alice", null, Map.of("name", "Alice"));
+
+        ResolvedEmail resolved = NotificationContentResolver.render(
+                request, "EMPLOYEE_CREATED", templateFactory
+        );
+
+        assertNull(resolved.recipientEmail());
+        assertEquals("Subject", resolved.subject());
+        assertEquals("Hello Alice", resolved.body());
+    }
+
+    /**
+     * WP-1b: verifies that {@code render} produces subject/body when the payload carries a
+     * blank (whitespace-only) email address.
+     */
+    @Test
+    void renderProducesContentWhenEmailIsBlank() {
+        NotificationRequest request = new NotificationRequest("Bob", "   ", Map.of("name", "Bob"));
+
+        ResolvedEmail resolved = NotificationContentResolver.render(
+                request, "EMPLOYEE_CREATED", templateFactory
+        );
+
+        assertEquals("   ", resolved.recipientEmail());
+        assertEquals("Hello Bob", resolved.body());
+    }
+
+    /**
+     * WP-1b: verifies that {@code render} still hard-fails when the notification type is
+     * missing — type validation gates rendering regardless of the email.
+     */
+    @Test
+    void renderThrowsWhenNotificationTypeIsNull() {
+        NotificationRequest request = new NotificationRequest("Alice", null, Map.of());
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> NotificationContentResolver.render(request, null, templateFactory));
+        assertEquals(ErrorCode.NOTIFICATION_TYPE_REQUIRED, exception.getErrorCode());
+    }
+
+    /**
+     * WP-1b: verifies that {@code render} still hard-fails when the payload itself is missing.
+     */
+    @Test
+    void renderThrowsWhenRequestIsNull() {
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> NotificationContentResolver.render(null, "EMPLOYEE_CREATED", templateFactory));
+        assertEquals(ErrorCode.NOTIFICATION_PAYLOAD_REQUIRED, exception.getErrorCode());
+    }
+
+    /**
+     * WP-1b: verifies that {@code render} preserves a present email address in the result —
+     * it carries the payload email through unchanged, it simply does not require one.
+     */
+    @Test
+    void renderCarriesPresentEmailThrough() {
+        NotificationRequest request = new NotificationRequest(
+                "Alice", "alice@example.com", Map.of("name", "Alice")
+        );
+
+        ResolvedEmail resolved = NotificationContentResolver.render(
+                request, "EMPLOYEE_CREATED", templateFactory
+        );
+
+        assertEquals("alice@example.com", resolved.recipientEmail());
+        assertEquals("Hello Alice", resolved.body());
     }
 
     // --- Happy path rendering ---

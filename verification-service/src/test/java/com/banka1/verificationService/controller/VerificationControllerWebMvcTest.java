@@ -10,24 +10,24 @@ import com.banka1.verificationService.model.enums.VerificationStatus;
 import com.banka1.verificationService.service.VerificationService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(VerificationController.class)
-@AutoConfigureMockMvc(addFilters = false)
-@Import(GlobalExceptionHandler.class)
+@Import({GlobalExceptionHandler.class, TestSecurityConfig.class})
 @ActiveProfiles("test")
 class VerificationControllerWebMvcTest {
 
@@ -38,10 +38,11 @@ class VerificationControllerWebMvcTest {
     private VerificationService verificationService;
 
     @Test
-    void generateUsesRootGenerateRoute() throws Exception {
+    void generateUsesVerificationGenerateRoute() throws Exception {
         when(verificationService.generate(any(GenerateRequest.class))).thenReturn(new GenerateResponse(15L));
 
-        mockMvc.perform(post("/generate")
+        mockMvc.perform(post("/verification/generate")
+                        .with(jwt().jwt(jwt -> jwt.claim("id", 12L)))
                         .contentType(APPLICATION_JSON)
                         .content("""
                                 {
@@ -56,11 +57,12 @@ class VerificationControllerWebMvcTest {
     }
 
     @Test
-    void validateUsesRootValidateRoute() throws Exception {
+    void validateUsesVerificationValidateRoute() throws Exception {
         when(verificationService.validate(any(ValidateRequest.class)))
                 .thenReturn(new ValidateResponse(true, VerificationStatus.VERIFIED, 0));
 
-        mockMvc.perform(post("/validate")
+        mockMvc.perform(post("/verification/validate")
+                        .with(jwt().jwt(jwt -> jwt.claim("id", 12L)))
                         .contentType(APPLICATION_JSON)
                         .content("""
                                 {
@@ -77,15 +79,35 @@ class VerificationControllerWebMvcTest {
     void getStatusReturnsSessionIdAndStatus() throws Exception {
         when(verificationService.getStatus(15L)).thenReturn(new StatusResponse(15L, VerificationStatus.PENDING));
 
-        mockMvc.perform(get("/15/status"))
+        mockMvc.perform(get("/verification/15/status")
+                        .with(jwt().jwt(jwt -> jwt.claim("id", 12L))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sessionId").value(15))
                 .andExpect(jsonPath("$.status").value("PENDING"));
     }
 
     @Test
+    void getServerTimeReturnsEpochMillisForClockSync() throws Exception {
+        // WP-6 (Celina 2.1): klijent koristi /verification/time da uskladi
+        // casovnik sa serverom radi 30-sekundnog TOTP prozora.
+        long before = System.currentTimeMillis();
+
+        String body = mockMvc.perform(get("/verification/time")
+                        .with(jwt().jwt(jwt -> jwt.claim("id", 12L))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.epochMillis").isNumber())
+                .andReturn().getResponse().getContentAsString();
+
+        long after = System.currentTimeMillis();
+        long epochMillis = com.fasterxml.jackson.databind.json.JsonMapper.builder().build()
+                .readTree(body).get("epochMillis").asLong();
+        assertThat(epochMillis).isBetween(before, after);
+    }
+
+    @Test
     void validateRejectsNonSixDigitCode() throws Exception {
-        mockMvc.perform(post("/validate")
+        mockMvc.perform(post("/verification/validate")
+                        .with(jwt().jwt(jwt -> jwt.claim("id", 12L)))
                         .contentType(APPLICATION_JSON)
                         .content("""
                                 {
@@ -100,7 +122,8 @@ class VerificationControllerWebMvcTest {
 
     @Test
     void generateRejectsMissingFields() throws Exception {
-        mockMvc.perform(post("/generate")
+        mockMvc.perform(post("/verification/generate")
+                        .with(jwt().jwt(jwt -> jwt.claim("id", 12L)))
                         .contentType(APPLICATION_JSON)
                         .content("""
                                 {

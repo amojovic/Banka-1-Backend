@@ -5,17 +5,21 @@ import com.banka1.tradingservice.funds.client.UserServiceClient;
 import com.banka1.tradingservice.funds.domain.ClientFundPosition;
 import com.banka1.tradingservice.funds.domain.ClientFundTransaction;
 import com.banka1.tradingservice.funds.domain.ClientFundTransactionStatus;
-import com.banka1.tradingservice.funds.domain.FundHolding;
+import com.banka1.tradingservice.funds.domain.FundDividendPolicy;
 import com.banka1.tradingservice.funds.domain.InvestmentFund;
 import com.banka1.tradingservice.funds.dto.ClientFundPositionDto;
 import com.banka1.tradingservice.funds.dto.CreateFundRequest;
 import com.banka1.tradingservice.funds.dto.FundHoldingDto;
 import com.banka1.tradingservice.funds.dto.FundPerformancePointDto;
+import com.banka1.tradingservice.funds.dto.FundStatisticsDto;
+import com.banka1.tradingservice.funds.dto.FundValueSnapshotDto;
 import com.banka1.tradingservice.funds.dto.InvestmentFundDto;
 import com.banka1.tradingservice.funds.dto.InvestmentRequest;
 import com.banka1.tradingservice.funds.dto.RedemptionRequest;
+import com.banka1.tradingservice.funds.domain.FundValueSnapshot;
 import com.banka1.tradingservice.funds.repository.ClientFundPositionRepository;
 import com.banka1.tradingservice.funds.repository.ClientFundTransactionRepository;
+import com.banka1.tradingservice.funds.repository.FundValueSnapshotRepository;
 import com.banka1.tradingservice.funds.repository.InvestmentFundRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,7 +33,11 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -45,6 +53,8 @@ public class InvestmentFundService {
     private final RabbitTemplate rabbitTemplate;
     private final FundAccountNumberGenerator accountNumberGenerator;
     private final FundHoldingService fundHoldingService;
+    private final FundValueSnapshotRepository snapshotRepository;
+    private final FundStatisticsService fundStatisticsService;
     private final ObjectProvider<AccountServiceClient> accountServiceClientProvider;
     private final ObjectProvider<UserServiceClient> userServiceClientProvider;
 
@@ -81,7 +91,11 @@ public class InvestmentFundService {
                 throw new IllegalStateException("Account fonda nije kreiran.", ex);
             }
         } else {
-            throw new IllegalStateException("AccountServiceClient nije dostupan. Fond nije kreiran.");
+            // account-service bean nije dostupan (local/test profil) — preskoci REST
+            // poziv, kao i ensureFundAccountExists / resolveFundAccountId. Racun fonda
+            // se kreira lazy preko ensureFundAccountExists kad bean postane dostupan.
+            log.warn("AccountServiceClient nije dostupan — account fonda {} (id={}) nije kreiran u account-service-u",
+                    accountNumber, saved.getId());
         }
 
         log.info("Created InvestmentFund {} ('{}') by manager {}", saved.getId(), saved.getNaziv(), managerId);
@@ -90,10 +104,90 @@ public class InvestmentFundService {
 
     // ----------------------------- read ------------------------------
 
+    /**
+     * Discovery lista fondova. WP-18 (Celina 4.4): sortabilna po novim metrikama
+     * statistike (kao i po nazivu/vrednosti/profitu).
+     *
+     * @param sort      polje sortiranja; {@code null} -> {@link FundSortField#NAZIV}
+     * @param ascending smer sortiranja
+     * @return lista {@link InvestmentFundDto} (sa popunjenim metrikama statistike)
+     */
+    @Transactional(readOnly = true)
+    public List<InvestmentFundDto> discovery(FundSortField sort, boolean ascending) {
+        FundSortField field = sort != null ? sort : FundSortField.NAZIV;
+        List<InvestmentFundDto> dtos = fundRepository.findByDeletedFalseOrderByNazivAsc()
+                .stream().map(this::toDto).collect(Collectors.toCollection(java.util.ArrayList::new));
+        dtos.sort(field.comparator(ascending));
+        return dtos;
+    }
+
+    /** Discovery sa podrazumevanim sortiranjem (naziv rastuce) — WP-18 backward-compatible overload. */
     @Transactional(readOnly = true)
     public List<InvestmentFundDto> discovery() {
-        return fundRepository.findByDeletedFalseOrderByNazivAsc()
-                .stream().map(this::toDto).toList();
+        return discovery(FundSortField.NAZIV, true);
+    }
+
+    /**
+     * WP-18 (Celina 4.4): polja po kojima se Discovery lista fondova moze
+     * sortirati. Metricka polja ({@code ANNUALIZED_RETURN}, {@code REWARD_TO_VARIABILITY},
+     * {@code MAX_DRAWDOWN}, {@code VOLATILITY}) su {@code null} dok fond nema
+     * dovoljno snapshot-a — {@code null} se UVEK sortira na kraj liste (bez
+     * obzira na smer), tako da fondovi sa izracunatim metrikama uvek dolaze prvi.
+     */
+    public enum FundSortField {
+        NAZIV(byString(InvestmentFundDto::getNaziv)),
+        TOTAL_VALUE(byDecimal(InvestmentFundDto::getTotalValue)),
+        PROFIT(byDecimal(InvestmentFundDto::getProfit)),
+        MINIMUM_CONTRIBUTION(byDecimal(InvestmentFundDto::getMinimumContribution)),
+        ANNUALIZED_RETURN(byDecimal(InvestmentFundDto::getAnnualizedReturn)),
+        REWARD_TO_VARIABILITY(byDecimal(InvestmentFundDto::getRewardToVariabilityRatio)),
+        MAX_DRAWDOWN(byDecimal(InvestmentFundDto::getMaxDrawdown)),
+        VOLATILITY(byDecimal(InvestmentFundDto::getVolatility));
+
+        /** Komparator za rastuci smer sa ne-null vrednostima (null se hendluje zasebno). */
+        private final Comparator<InvestmentFundDto> ascendingNonNull;
+
+        FundSortField(Comparator<InvestmentFundDto> ascendingNonNull) {
+            this.ascendingNonNull = ascendingNonNull;
+        }
+
+        /**
+         * @param ascending smer sortiranja
+         * @return komparator koji {@code null} kljuceve UVEK stavlja na kraj, a
+         *         ne-null kljuceve poredi rastuce ili opadajuce
+         */
+        Comparator<InvestmentFundDto> comparator(boolean ascending) {
+            Comparator<InvestmentFundDto> directional =
+                    ascending ? ascendingNonNull : ascendingNonNull.reversed();
+            // null kljuc -> uvek na kraj, nezavisno od smera; tie-break po id-u radi stabilnosti
+            return Comparator.comparing((InvestmentFundDto d) -> sortKeyIsNull(d) ? 1 : 0)
+                    .thenComparing(directional)
+                    .thenComparing(InvestmentFundDto::getId, Comparator.nullsLast(Comparator.naturalOrder()));
+        }
+
+        /** Da li je sort-kljuc ovog polja null za dati fond (metrika nedostupna itd.). */
+        private boolean sortKeyIsNull(InvestmentFundDto d) {
+            return switch (this) {
+                case NAZIV -> d.getNaziv() == null;
+                case TOTAL_VALUE -> d.getTotalValue() == null;
+                case PROFIT -> d.getProfit() == null;
+                case MINIMUM_CONTRIBUTION -> d.getMinimumContribution() == null;
+                case ANNUALIZED_RETURN -> d.getAnnualizedReturn() == null;
+                case REWARD_TO_VARIABILITY -> d.getRewardToVariabilityRatio() == null;
+                case MAX_DRAWDOWN -> d.getMaxDrawdown() == null;
+                case VOLATILITY -> d.getVolatility() == null;
+            };
+        }
+
+        private static Comparator<InvestmentFundDto> byString(
+                java.util.function.Function<InvestmentFundDto, String> key) {
+            return Comparator.comparing(key, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
+        }
+
+        private static Comparator<InvestmentFundDto> byDecimal(
+                java.util.function.Function<InvestmentFundDto, BigDecimal> key) {
+            return Comparator.comparing(key, Comparator.nullsLast(Comparator.naturalOrder()));
+        }
     }
 
     @Transactional(readOnly = true)
@@ -151,35 +245,119 @@ public class InvestmentFundService {
         return transactionRepository.findByFundIdOrderByOccurredAtDesc(fundId);
     }
 
+    /**
+     * Serija performansi fonda.
+     *
+     * <p>WP-18 (Celina 4.4): RANIJE je ova metoda vracala LAZNU ravnu liniju —
+     * trenutnu vrednost fonda zigosanu na timestamp svake transakcije, tako da je
+     * svaka tacka bila identicna. Sada serija dolazi iz stvarnih
+     * {@link FundValueSnapshot} redova (jedan po mesecu, upisuje ih
+     * {@code FundSnapshotScheduler}).
+     *
+     * <p>Ako fond jos nema nijedan snapshot, vraca jednu tacku sa trenutnom
+     * (izvedenom) valuacijom na danasnji datum, da grafikon ne bude prazan.
+     *
+     * @param fundId ID fonda
+     * @return hronoloska serija tacaka performansi (najstarija prva)
+     * @throws IllegalArgumentException ako fond ne postoji
+     */
     @Transactional(readOnly = true)
     public List<FundPerformancePointDto> fundPerformance(Long fundId) {
         InvestmentFund fund = fundRepository.findById(fundId)
                 .orElseThrow(() -> new IllegalArgumentException("Fond " + fundId + " ne postoji."));
-        BigDecimal totalValue = computeFundValue(fund);
-        BigDecimal investedSum = positionRepository.findByFundId(fundId).stream()
-                .map(ClientFundPosition::getTotalInvested)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal profit = totalValue.subtract(investedSum);
-
-        List<ClientFundTransaction> transactions = transactionRepository.findByFundIdOrderByOccurredAtDesc(fundId);
-        if (transactions.isEmpty()) {
+        List<FundValueSnapshot> snapshots = snapshotRepository.findByFundIdOrderBySnapshotDateAsc(fundId);
+        if (snapshots.isEmpty()) {
+            FundValuation now = computeFundValuation(fundId);
             return List.of(FundPerformancePointDto.builder()
                     .timestamp(fund.getDatumKreiranja().atStartOfDay())
-                    .totalValue(totalValue)
-                    .profit(profit)
+                    .totalValue(now.totalValue())
+                    .profit(now.profit())
                     .build());
         }
-        return transactions.stream()
-                .map(tx -> FundPerformancePointDto.builder()
-                        .timestamp(tx.getOccurredAt())
-                        .transactionId(tx.getId())
-                        .amount(tx.getAmount())
-                        .inflow(tx.isInflow())
-                        .status(tx.getStatus())
-                        .totalValue(totalValue)
-                        .profit(profit)
+        return snapshots.stream()
+                .map(s -> FundPerformancePointDto.builder()
+                        .timestamp(s.getSnapshotDate().atStartOfDay())
+                        .totalValue(s.getTotalValue())
+                        .profit(s.getProfit())
                         .build())
                 .toList();
+    }
+
+    /**
+     * WP-18 (Celina 4.4): stvarna serija istorijske vrednosti jednog fonda —
+     * podaci za grafikon vrednosti fonda. Direktan {@link FundValueSnapshot}
+     * red po tacki.
+     *
+     * @param fundId ID fonda
+     * @return hronoloska serija {@link FundValueSnapshotDto} (najstarija prva)
+     * @throws IllegalArgumentException ako fond ne postoji
+     */
+    @Transactional(readOnly = true)
+    public List<FundValueSnapshotDto> fundValueHistory(Long fundId) {
+        if (!fundRepository.existsById(fundId)) {
+            throw new IllegalArgumentException("Fond " + fundId + " ne postoji.");
+        }
+        return snapshotRepository.findByFundIdOrderBySnapshotDateAsc(fundId).stream()
+                .map(s -> FundValueSnapshotDto.builder()
+                        .fundId(s.getFundId())
+                        .snapshotDate(s.getSnapshotDate())
+                        .totalValue(s.getTotalValue())
+                        .profit(s.getProfit())
+                        .build())
+                .toList();
+    }
+
+    /**
+     * WP-18 (Celina 4.4): sistemska prosecna serija — za svaki datum snapshot-a,
+     * prosek {@code totalValue}-a i {@code profit}-a preko svih fondova koji
+     * imaju snapshot tog datuma. Podaci za poredbeni grafikon (fond vs prosek
+     * svih fondova).
+     *
+     * @return hronoloska serija prosecnih tacaka ({@code fundId=null})
+     */
+    @Transactional(readOnly = true)
+    public List<FundValueSnapshotDto> averageValueHistory() {
+        Map<java.time.LocalDate, List<FundValueSnapshot>> byDate = snapshotRepository
+                .findAllByOrderBySnapshotDateAsc().stream()
+                .collect(Collectors.groupingBy(FundValueSnapshot::getSnapshotDate,
+                        TreeMap::new, Collectors.toList()));
+        return byDate.entrySet().stream()
+                .map(e -> {
+                    List<FundValueSnapshot> dayRows = e.getValue();
+                    BigDecimal count = BigDecimal.valueOf(dayRows.size());
+                    BigDecimal avgValue = dayRows.stream()
+                            .map(FundValueSnapshot::getTotalValue)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add)
+                            .divide(count, 4, RoundingMode.HALF_UP);
+                    BigDecimal avgProfit = dayRows.stream()
+                            .map(FundValueSnapshot::getProfit)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add)
+                            .divide(count, 4, RoundingMode.HALF_UP);
+                    return FundValueSnapshotDto.builder()
+                            .fundId(null)
+                            .snapshotDate(e.getKey())
+                            .totalValue(avgValue)
+                            .profit(avgProfit)
+                            .build();
+                })
+                .toList();
+    }
+
+    /**
+     * WP-18 (Celina 4.4): statistika performansi fonda — godisnji prinos,
+     * reward-to-variability, max drawdown, volatilnost. Ispod minimalnog broja
+     * snapshot-a metrike su {@code null} i {@code metricsAvailable=false}.
+     *
+     * @param fundId ID fonda
+     * @return {@link FundStatisticsDto}
+     * @throws IllegalArgumentException ako fond ne postoji
+     */
+    @Transactional(readOnly = true)
+    public FundStatisticsDto fundStatistics(Long fundId) {
+        if (!fundRepository.existsById(fundId)) {
+            throw new IllegalArgumentException("Fond " + fundId + " ne postoji.");
+        }
+        return fundStatisticsService.computeStatistics(fundId);
     }
 
     @Transactional
@@ -434,6 +612,59 @@ public class InvestmentFundService {
         log.info("Reassigned {} fund(s) from manager {} to {}", funds.size(), oldManagerId, newManagerId);
     }
 
+    /**
+     * WP-17 (Celina 4.3): supervizor menja politiku obrade dividende fonda
+     * ({@link com.banka1.tradingservice.funds.domain.FundDividendPolicy}).
+     *
+     * <p>Politika vazi za buduce dividende — vec obradjene isplate se ne diraju.
+     *
+     * @param fundId ID fonda
+     * @param policy nova politika ({@code REINVEST} ili {@code DISTRIBUTE})
+     * @return azurirani {@link InvestmentFundDto}
+     * @throws IllegalArgumentException ako fond ne postoji ili je {@code policy} null
+     */
+    @Transactional
+    public InvestmentFundDto updateDividendPolicy(Long fundId, FundDividendPolicy policy) {
+        if (policy == null) {
+            throw new IllegalArgumentException("dividendPolicy je obavezan.");
+        }
+        InvestmentFund fund = fundRepository.findByIdForUpdate(fundId)
+                .orElseThrow(() -> new IllegalArgumentException("Fond " + fundId + " ne postoji."));
+        FundDividendPolicy previous = fund.getDividendPolicy();
+        fund.setDividendPolicy(policy);
+        fundRepository.save(fund);
+        log.info("Fund {} dividend policy: {} -> {}", fundId, previous, policy);
+        return toDto(fund);
+    }
+
+    // ----------------------------- statistics support ----------------
+
+    /**
+     * WP-18 (Celina 4.4): trenutna valuacija fonda — {@code totalValue} (RSD,
+     * {@code likvidnaSredstva + vrednost hartija}) i {@code profit} (RSD,
+     * {@code totalValue - Sigma ClientFundPosition.totalInvested}).
+     *
+     * <p>Koristi je {@code FundSnapshotScheduler} da svaki mesec materijalizuje
+     * izvedenu vrednost u {@link com.banka1.tradingservice.funds.domain.FundValueSnapshot}.
+     *
+     * @param fundId ID fonda
+     * @return valuacija fonda
+     * @throws IllegalArgumentException ako fond ne postoji
+     */
+    @Transactional(readOnly = true)
+    public FundValuation computeFundValuation(Long fundId) {
+        InvestmentFund fund = fundRepository.findById(fundId)
+                .orElseThrow(() -> new IllegalArgumentException("Fond " + fundId + " ne postoji."));
+        BigDecimal totalValue = computeFundValue(fund);
+        BigDecimal investedSum = positionRepository.findByFundId(fundId).stream()
+                .map(ClientFundPosition::getTotalInvested)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return new FundValuation(totalValue, totalValue.subtract(investedSum));
+    }
+
+    /** WP-18: izvedena valuacija fonda u jednom trenutku — vrednost i profit (RSD). */
+    public record FundValuation(BigDecimal totalValue, BigDecimal profit) {}
+
     // ----------------------------- internal --------------------------
 
     private BigDecimal computeFundValue(InvestmentFund f) {
@@ -501,6 +732,8 @@ public class InvestmentFundService {
             }
         }
 
+        FundStatisticsDto stats = fundStatisticsService.computeStatistics(f.getId());
+
         return InvestmentFundDto.builder()
                 .id(f.getId()).naziv(f.getNaziv()).opis(f.getOpis())
                 .minimumContribution(f.getMinimumContribution())
@@ -513,6 +746,12 @@ public class InvestmentFundService {
                 .datumKreiranja(f.getDatumKreiranja())
                 .totalValue(totalValue)
                 .profit(profit)
+                .dividendPolicy(f.getDividendPolicy())
+                // WP-18: statistika — null kad fond nema dovoljno snapshot-a
+                .annualizedReturn(stats.getAnnualizedReturn())
+                .rewardToVariabilityRatio(stats.getRewardToVariabilityRatio())
+                .maxDrawdown(stats.getMaxDrawdown())
+                .volatility(stats.getVolatility())
                 .build();
     }
 

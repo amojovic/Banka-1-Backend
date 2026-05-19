@@ -13,7 +13,10 @@ public enum EmailType {
     CLIENT_PASSWORD_RESET("client.password_reset"),
 
     /** Notifikacioni mejl koji se salje kada je nalog klijenta deaktiviran/obrisan. */
-    CLIENT_ACCOUNT_DEACTIVATED("client.account_deactivated");
+    CLIENT_ACCOUNT_DEACTIVATED("client.account_deactivated"),
+
+    /** Obavestenje da je nalog klijenta privremeno zakljucan zbog vise neuspesnih pokusaja prijave. */
+    CLIENT_ACCOUNT_LOCKED("client.account_locked");
 
     private final String routingKey;
 

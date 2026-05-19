@@ -1,5 +1,6 @@
 package com.banka1.verificationService.service;
 
+import com.banka1.verificationService.config.VerificationOtpProperties;
 import com.banka1.verificationService.dto.request.GenerateRequest;
 import com.banka1.verificationService.dto.request.ValidateRequest;
 import com.banka1.verificationService.dto.response.GenerateResponse;
@@ -26,19 +27,24 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Service for managing verification sessions and OTP validation.
  *
  * Handles the lifecycle of two-factor authentication (2FA) sessions including:
  * <ul>
- *   <li>Generating and hashing one-time passwords (OTP)</li>
- *   <li>Validating user-provided codes against stored hashes</li>
+ *   <li>Generating a per-session TOTP secret (RFC 6238) and the current code</li>
+ *   <li>Validating user-provided codes against the session secret with a clock-skew window</li>
  *   <li>Tracking session state (PENDING, VERIFIED, EXPIRED, CANCELLED)</li>
- *   <li>Publishing verification events to RabbitMQ for email delivery</li>
+ *   <li>Publishing verification events to RabbitMQ for email/FCM delivery</li>
  *   <li>Enforcing security constraints (attempt limits, expiration times)</li>
  * </ul>
+ *
+ * <p>WP-6 (Celina 2.1): the verification code is a standard 30-second TOTP. Each
+ * session gets its own Base32 secret, persisted encrypted (AES-GCM-256 via
+ * {@code TotpSecretConverter}); the current code is derived from it and delivered
+ * exactly as before. Sessions created before this migration (no {@code totpSecret})
+ * still validate against the legacy HMAC hash in the {@code code} column.
  */
 @Service
 @RequiredArgsConstructor
@@ -46,6 +52,8 @@ public class VerificationService {
 
     private final VerificationSessionRepository repository;
     private final OtpHashingService otpHashingService;
+    private final TotpService totpService;
+    private final VerificationOtpProperties otpProperties;
     private final RabbitTemplate rabbitTemplate;
     private final UserIdExtractor userIdExtractor;
 
@@ -62,15 +70,15 @@ public class VerificationService {
     private String verificationRoutingKey;
 
     /**
-     * Generates a new verification session with a randomly generated 6-digit OTP code.
+     * Generates a new verification session backed by a per-session TOTP secret.
      *
      * This method:
      * <ol>
      *   <li>Validates that the requesting client matches the authenticated user (from JWT)</li>
      *   <li>Cancels any existing PENDING sessions for the same clientId, operationType, and relatedEntityId</li>
-     *   <li>Generates a random 6-digit code and hashes it using HMAC-SHA256</li>
-     *   <li>Creates a new VerificationSession with 5-minute expiration</li>
-     *   <li>Publishes a verification event to RabbitMQ for email notification</li>
+     *   <li>Generates a fresh Base32 TOTP secret (persisted encrypted by the JPA converter)</li>
+     *   <li>Creates a new VerificationSession with a TTL of {@code verification.otp.ttl-minutes}</li>
+     *   <li>Computes the current TOTP code and publishes a verification event to RabbitMQ</li>
      * </ol>
      *
      * @param request contains clientId, operationType, relatedEntityId, and clientEmail
@@ -96,17 +104,17 @@ public class VerificationService {
             repository.save(existing);
         }
 
-        String rawCode = generateCode();
-        String hashedCode = otpHashingService.hash(rawCode);
+        String totpSecret = totpService.generateSecret();
+        String currentCode = totpService.currentCode(totpSecret);
         LocalDateTime now = LocalDateTime.now();
 
         VerificationSession session = VerificationSession.builder()
                 .clientId(request.getClientId())
-                .code(hashedCode)
+                .totpSecret(totpSecret)
                 .operationType(request.getOperationType())
                 .relatedEntityId(request.getRelatedEntityId())
                 .createdAt(now)
-                .expiresAt(now.plusMinutes(5))
+                .expiresAt(now.plusMinutes(otpProperties.getTtlMinutes()))
                 .attemptCount(0)
                 .status(VerificationStatus.PENDING)
                 .build();
@@ -127,11 +135,11 @@ public class VerificationService {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    publishGeneratedEvent(request, rawCode, sessionId);
+                    publishGeneratedEvent(request, currentCode, sessionId);
                 }
             });
         } else {
-            publishGeneratedEvent(request, rawCode, sessionId);
+            publishGeneratedEvent(request, currentCode, sessionId);
         }
 
         return new GenerateResponse(session.getId());
@@ -144,9 +152,11 @@ public class VerificationService {
      * <ol>
      *   <li>Retrieves the session by ID; throws exception if not found</li>
      *   <li>Checks session state and rejects if already VERIFIED, CANCELLED, or EXPIRED</li>
-     *   <li>Compares the provided code against the stored hash using constant-time matching</li>
+     *   <li>Rejects and marks EXPIRED if the session is past its expiresAt time</li>
+     *   <li>Verifies the code: TOTP (RFC 6238) with a +/-{@code window}-step tolerance for
+     *       sessions that carry a {@code totpSecret}, or the legacy HMAC hash otherwise</li>
      *   <li>On successful match: sets status to VERIFIED and returns success response</li>
-     *   <li>On failure: increments attemptCount and sets status to CANCELLED if attempts >= 3</li>
+     *   <li>On failure: increments attemptCount and sets status to CANCELLED at the attempt limit</li>
      * </ol>
      *
      * @param request contains sessionId and the user-provided 6-digit code
@@ -182,20 +192,20 @@ public class VerificationService {
             throw new BusinessException(ErrorCode.VERIFICATION_CODE_EXPIRED, "Session ID: " + request.getSessionId());
         }
 
-        boolean matches = otpHashingService.matches(request.getCode(), session.getCode());
-        if (matches) {
+        if (codeMatches(session, request.getCode())) {
             session.setStatus(VerificationStatus.VERIFIED);
             repository.save(session);
             return new ValidateResponse(true, session.getStatus(), 0);
         }
 
         session.setAttemptCount(session.getAttemptCount() + 1);
-        if (session.getAttemptCount() >= 3) {
+        int maxAttempts = otpProperties.getMaxAttempts();
+        if (session.getAttemptCount() >= maxAttempts) {
             session.setStatus(VerificationStatus.CANCELLED);
         }
         repository.save(session);
 
-        return new ValidateResponse(false, session.getStatus(), 3 - session.getAttemptCount());
+        return new ValidateResponse(false, session.getStatus(), Math.max(0, maxAttempts - session.getAttemptCount()));
     }
 
     /**
@@ -224,37 +234,45 @@ public class VerificationService {
     }
 
     /**
-     * Publishes a verification event to RabbitMQ for email delivery.
+     * Verifies a submitted code against a session.
      *
-     * Creates a payload containing the client's email address and the raw (unhashed)
-     * OTP code as a template variable, then sends it to the notification service
-     * via RabbitMQ for asynchronous email delivery.
+     * <p>TOTP sessions (carrying a {@code totpSecret}) are verified via
+     * {@link TotpService} with the configured clock-skew window. Sessions created
+     * before the WP-6 migration have no secret and fall back to the legacy
+     * HMAC-SHA256 hash stored in the {@code code} column.
+     *
+     * @param session the verification session
+     * @param submittedCode the user-provided code
+     * @return true if the code is valid for the session
+     */
+    private boolean codeMatches(VerificationSession session, String submittedCode) {
+        if (session.getTotpSecret() != null) {
+            return totpService.verify(session.getTotpSecret(), submittedCode);
+        }
+        // Legacy fallback: sessions created before TOTP migration store an HMAC hash.
+        return session.getCode() != null && otpHashingService.matches(submittedCode, session.getCode());
+    }
+
+    /**
+     * Publishes a verification event to RabbitMQ for OTP delivery.
+     *
+     * Creates a payload containing the client's email address and the current TOTP
+     * code as a template variable, then sends it to the notification service via
+     * RabbitMQ for asynchronous email/FCM delivery.
      *
      * @param request contains the clientEmail for the recipient
-     * @param rawCode the 6-digit OTP code to send (before hashing)
+     * @param code the 6-digit TOTP code to deliver
+     * @param sessionId the ID of the verification session
      */
-    private void publishGeneratedEvent(GenerateRequest request, String rawCode, Long sessionId) {
+    private void publishGeneratedEvent(GenerateRequest request, String code, Long sessionId) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("userEmail", request.getClientEmail());
         payload.put("clientId", request.getClientId());
         payload.put("operationType", request.getOperationType().name());
         payload.put("sessionId", String.valueOf(sessionId));
         Map<String, String> templateVariables = new HashMap<>();
-        templateVariables.put("code", rawCode);
+        templateVariables.put("code", code);
         payload.put("templateVariables", templateVariables);
         rabbitTemplate.convertAndSend(exchange, verificationRoutingKey, payload);
-    }
-
-    /**
-     * Generates a random 6-digit OTP code.
-     *
-     * Uses {@link java.util.concurrent.ThreadLocalRandom} for thread-safe randomization.
-     * The range [100000, 1000000) ensures exactly 6 digits.
-     *
-     * @return a 6-digit string representation of the generated code
-     */
-    private String generateCode() {
-        int code = ThreadLocalRandom.current().nextInt(100000, 1000000);
-        return String.valueOf(code);
     }
 }

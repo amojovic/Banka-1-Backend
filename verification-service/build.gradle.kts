@@ -34,6 +34,8 @@ dependencies {
 	implementation("com.fasterxml.jackson.core:jackson-databind:2.21.1")
 	implementation("com.fasterxml.jackson.core:jackson-annotations:2.21")
 	implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+	// WP-6 (Celina 2.1): standardni TOTP (RFC 6238) za verifikacioni kod.
+	implementation("dev.samstevens.totp:totp:1.7.1")
 	implementation("me.paulschwarz:springboot3-dotenv:5.0.1")
 	implementation("org.springframework.boot:spring-boot-starter-actuator")
 	implementation("org.springframework.boot:spring-boot-starter-amqp")
@@ -49,6 +51,11 @@ dependencies {
 	annotationProcessor("org.projectlombok:lombok")
 	// PR_16 C16.1: phantom test starter-i uklonjeni.
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
+	// Spring Boot 4 split test autoconfigure module-e u zasebne starter-e — moramo
+	// eksplicitno povuci WebMvc test slice (@WebMvcTest, @AutoConfigureMockMvc).
+	testImplementation("org.springframework.boot:spring-boot-webmvc-test")
+	// WP-6: @DataJpaTest slice za persistence test TotpSecretConverter-a.
+	testImplementation("org.springframework.boot:spring-boot-data-jpa-test")
 	testImplementation("org.springframework.security:spring-security-test")
 	testRuntimeOnly("com.h2database:h2")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")

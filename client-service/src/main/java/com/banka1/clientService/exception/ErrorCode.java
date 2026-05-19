@@ -36,7 +36,10 @@ public enum ErrorCode {
     USER_INACTIVE(HttpStatus.FORBIDDEN, "ERR_AUTH_003", "Klijent nije aktivan"),
 
     /** Klijent sa zadatim emailom nije pronadjen (koristi se u forgot-password). */
-    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "ERR_AUTH_004", "Korisnik nije pronađen");
+    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "ERR_AUTH_004", "Korisnik nije pronađen"),
+
+    /** Nalog privremeno zakljucan zbog previse neuspesnih pokusaja prijave (Celina 1, Sc 5). */
+    ACCOUNT_LOCKED(HttpStatus.FORBIDDEN, "ERR_AUTH_005", "Nalog je privremeno zaključan zbog previše neuspešnih pokušaja");
 
     /** HTTP status koji se vraca klijentu kada se baci ova greska. */
     private final HttpStatus httpStatus;

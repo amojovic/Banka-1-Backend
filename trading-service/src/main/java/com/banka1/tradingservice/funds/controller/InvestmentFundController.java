@@ -1,16 +1,20 @@
 package com.banka1.tradingservice.funds.controller;
 
 import com.banka1.tradingservice.funds.domain.ClientFundTransaction;
+import com.banka1.tradingservice.funds.domain.FundDividendPolicy;
 import com.banka1.tradingservice.funds.dto.ClientFundPositionDto;
 import com.banka1.tradingservice.funds.dto.CreateFundRequest;
 import com.banka1.tradingservice.funds.dto.FundHoldingDto;
 import com.banka1.tradingservice.funds.dto.FundPerformancePointDto;
+import com.banka1.tradingservice.funds.dto.FundStatisticsDto;
+import com.banka1.tradingservice.funds.dto.FundValueSnapshotDto;
 import com.banka1.tradingservice.funds.dto.InvestmentFundDto;
 import com.banka1.tradingservice.funds.dto.InvestmentRequest;
 import com.banka1.tradingservice.funds.dto.ReassignManagerRequest;
 import com.banka1.tradingservice.funds.dto.RedemptionRequest;
 import com.banka1.tradingservice.funds.service.FundLiquidationService;
 import com.banka1.tradingservice.funds.service.InvestmentFundService;
+import com.banka1.tradingservice.funds.service.InvestmentFundService.FundSortField;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
@@ -35,14 +39,88 @@ public class InvestmentFundController {
 
     // -------------------- discovery --------------------
 
+    /**
+     * Discovery lista fondova. WP-18 (Celina 4.4): sortabilna po novim metrikama
+     * statistike pored postojecih polja.
+     *
+     * @param sort      polje sortiranja: {@code naziv}, {@code totalValue},
+     *                  {@code profit}, {@code minimumContribution},
+     *                  {@code annualizedReturn}, {@code rewardToVariability},
+     *                  {@code maxDrawdown}, {@code volatility}. Default {@code naziv}.
+     * @param direction smer: {@code asc} (default) ili {@code desc}.
+     * @return lista fondova (svaki DTO nosi metrike statistike; {@code null} kad
+     *         fond nema dovoljno snapshot-a)
+     */
     @GetMapping
-    public ResponseEntity<List<InvestmentFundDto>> discovery() {
-        return ResponseEntity.ok(fundService.discovery());
+    public ResponseEntity<List<InvestmentFundDto>> discovery(
+            @RequestParam(value = "sort", required = false) String sort,
+            @RequestParam(value = "direction", required = false, defaultValue = "asc") String direction) {
+        FundSortField sortField = parseSortField(sort);
+        boolean ascending = !"desc".equalsIgnoreCase(direction);
+        return ResponseEntity.ok(fundService.discovery(sortField, ascending));
+    }
+
+    /**
+     * Mapira {@code sort} query parametar (camelCase, frontend-friendly) na
+     * {@link FundSortField}. Nepoznata/prazna vrednost -> {@code naziv}.
+     */
+    private static FundSortField parseSortField(String sort) {
+        if (sort == null || sort.isBlank()) {
+            return FundSortField.NAZIV;
+        }
+        return switch (sort.trim().toLowerCase()) {
+            case "totalvalue", "value", "vrednost" -> FundSortField.TOTAL_VALUE;
+            case "profit" -> FundSortField.PROFIT;
+            case "minimumcontribution", "minimum" -> FundSortField.MINIMUM_CONTRIBUTION;
+            case "annualizedreturn", "godisnjiprinos" -> FundSortField.ANNUALIZED_RETURN;
+            case "rewardtovariability", "rewardtovariabilityratio", "sharpe" ->
+                    FundSortField.REWARD_TO_VARIABILITY;
+            case "maxdrawdown", "drawdown" -> FundSortField.MAX_DRAWDOWN;
+            case "volatility", "volatilnost" -> FundSortField.VOLATILITY;
+            default -> FundSortField.NAZIV;
+        };
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<InvestmentFundDto> details(@PathVariable Long id) {
         return ResponseEntity.ok(fundService.details(id));
+    }
+
+    /**
+     * WP-18 (Celina 4.4): statistika performansi fonda — godisnji prinos,
+     * reward-to-variability, max drawdown, volatilnost. Citljivo svakome ko vidi
+     * fondove (kao discovery — bez {@code @PreAuthorize}).
+     *
+     * @param id ID fonda
+     * @return {@link FundStatisticsDto}; metrike {@code null} ispod minimuma snapshot-a
+     */
+    @GetMapping("/{id}/statistics")
+    public ResponseEntity<FundStatisticsDto> statistics(@PathVariable("id") Long id) {
+        return ResponseEntity.ok(fundService.fundStatistics(id));
+    }
+
+    /**
+     * WP-18 (Celina 4.4): stvarna serija istorijske vrednosti fonda — podaci za
+     * grafikon vrednosti fonda. Citljivo svakome ko vidi fondove.
+     *
+     * @param id ID fonda
+     * @return hronoloska serija {@link FundValueSnapshotDto}
+     */
+    @GetMapping("/{id}/value-history")
+    public ResponseEntity<List<FundValueSnapshotDto>> valueHistory(@PathVariable("id") Long id) {
+        return ResponseEntity.ok(fundService.fundValueHistory(id));
+    }
+
+    /**
+     * WP-18 (Celina 4.4): sistemska prosecna serija — za poredbeni grafikon
+     * (fond vs prosek svih fondova). Prosek {@code totalValue}-a po datumu preko
+     * svih fondova. Citljivo svakome ko vidi fondove.
+     *
+     * @return hronoloska serija prosecnih tacaka ({@code fundId=null})
+     */
+    @GetMapping("/value-history/average")
+    public ResponseEntity<List<FundValueSnapshotDto>> averageValueHistory() {
+        return ResponseEntity.ok(fundService.averageValueHistory());
     }
 
     // -------------------- supervisor fund mgmt --------------------
@@ -61,6 +139,27 @@ public class InvestmentFundController {
     public ResponseEntity<List<InvestmentFundDto>> supervised(@AuthenticationPrincipal Jwt jwt) {
         Long managerId = jwt.getClaim("id");
         return ResponseEntity.ok(fundService.supervisedBy(managerId));
+    }
+
+    /**
+     * WP-17 (Celina 4.3): supervizor menja politiku obrade dividende fonda.
+     *
+     * @param fundId ID fonda
+     * @param req    nova politika ({@code REINVEST} ili {@code DISTRIBUTE})
+     * @return azurirani fond
+     */
+    @PatchMapping("/{id}/dividend-policy")
+    @PreAuthorize("hasAuthority('FUND_AGENT_MANAGE')")
+    public ResponseEntity<InvestmentFundDto> updateDividendPolicy(
+            @PathVariable("id") Long fundId,
+            @RequestBody @Valid DividendPolicyRequest req) {
+        return ResponseEntity.ok(fundService.updateDividendPolicy(fundId, req.getDividendPolicy()));
+    }
+
+    @Data
+    public static class DividendPolicyRequest {
+        @NotNull
+        private FundDividendPolicy dividendPolicy;
     }
 
     // -------------------- client invest/redeem --------------------

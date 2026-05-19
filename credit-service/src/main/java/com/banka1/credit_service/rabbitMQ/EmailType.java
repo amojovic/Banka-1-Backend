@@ -6,6 +6,9 @@ package com.banka1.credit_service.rabbitMQ;
  */
 public enum EmailType {
 
+    /** Email notification for a newly created (pending) credit request. */
+    CREDIT_CREATED("credit.created"),
+
     /** Email notification for approved credit. */
     CREDIT_APPROVED("credit.approved"),
 

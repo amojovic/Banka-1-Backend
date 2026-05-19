@@ -10,6 +10,7 @@ import com.banka1.stock_service.dto.StockExchangeMarketPhase;
 import com.banka1.stock_service.dto.StockExchangeStatusResponse;
 import com.banka1.stock_service.repository.ListingRepository;
 import com.banka1.stock_service.service.ListingMarketDataRefreshService;
+import com.banka1.stock_service.service.PriceAlertEvaluationService;
 import com.banka1.stock_service.service.StockExchangeService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -46,6 +47,9 @@ class ListingMarketDataSchedulerTest {
 
     @Mock
     private ListingMarketDataRefreshService listingMarketDataRefreshService;
+
+    @Mock
+    private PriceAlertEvaluationService priceAlertEvaluationService;
 
     @Test
     void refreshOpenListingsRefreshesOnlyOpenSupportedListings() {
@@ -131,12 +135,37 @@ class ListingMarketDataSchedulerTest {
         verify(listingMarketDataRefreshService, never()).refreshListing(2L);
     }
 
+    @Test
+    void refreshOpenListingsEvaluatesPriceAlertsAfterRefreshCycle() {
+        when(listingRepository.findAll(org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.ASC, "id")))
+                .thenReturn(List.of());
+
+        scheduler().refreshOpenListings();
+
+        verify(priceAlertEvaluationService, times(1)).evaluateActiveAlerts();
+    }
+
+    @Test
+    void refreshOpenListingsStillReturnsBatchSummaryWhenAlertEvaluationFails() {
+        when(listingRepository.findAll(org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.ASC, "id")))
+                .thenReturn(List.of());
+        when(priceAlertEvaluationService.evaluateActiveAlerts())
+                .thenThrow(new IllegalStateException("evaluation boom"));
+
+        ListingRefreshBatchResponse response = scheduler().refreshOpenListings();
+
+        assertThat(response.source()).isEqualTo("scheduled-listing-refresh");
+        assertThat(response.processedListings()).isZero();
+        verify(priceAlertEvaluationService).evaluateActiveAlerts();
+    }
+
     private ListingMarketDataScheduler scheduler() {
         return new ListingMarketDataScheduler(
                 listingRepository,
                 stockExchangeService,
                 listingMarketDataRefreshService,
                 new ListingRefreshProperties(true, 900_000L),
+                priceAlertEvaluationService,
                 Clock.fixed(Instant.parse("2026-04-08T10:00:00Z"), ZoneOffset.UTC)
         );
     }
@@ -147,6 +176,7 @@ class ListingMarketDataSchedulerTest {
                 stockExchangeService,
                 listingMarketDataRefreshService,
                 new ListingRefreshProperties(true, 900_000L),
+                priceAlertEvaluationService,
                 Clock.fixed(Instant.parse(instant), ZoneOffset.UTC)
         );
     }

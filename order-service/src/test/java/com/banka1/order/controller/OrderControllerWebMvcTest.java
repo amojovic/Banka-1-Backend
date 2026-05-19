@@ -1,7 +1,9 @@
 package com.banka1.order.controller;
 
 import com.banka1.order.advice.OrderServiceExceptionHandler;
+import com.banka1.order.dto.MyOrdersFilter;
 import com.banka1.order.dto.OrderResponse;
+import com.banka1.order.entity.enums.ListingType;
 import com.banka1.order.entity.enums.OrderDirection;
 import com.banka1.order.entity.enums.OrderStatus;
 import com.banka1.order.entity.enums.OrderType;
@@ -11,7 +13,10 @@ import com.banka1.order.exception.ResourceNotFoundException;
 import com.banka1.order.service.OrderCreationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.core.MethodParameter;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.context.request.NativeWebRequest;
@@ -22,11 +27,16 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -137,26 +147,100 @@ class OrderControllerWebMvcTest {
         ownOrder.setStatus(OrderStatus.APPROVED);
         ownOrder.setDirection(OrderDirection.BUY);
         ownOrder.setOrderType(OrderType.MARKET);
-        when(orderCreationService.getMyOrders(any())).thenReturn(List.of(ownOrder));
+        ownOrder.setFee(new BigDecimal("7.00"));
+        when(orderCreationService.getMyOrders(any(), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(ownOrder)));
 
         mockMvc.perform(get("/orders/my-orders")
                         .requestAttr("jwt", jwtPrincipal("42", List.of("CLIENT_TRADING"))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].id").value(100))
-                .andExpect(jsonPath("$[0].userId").value(42))
-                .andExpect(jsonPath("$[0].status").value("APPROVED"));
+                .andExpect(jsonPath("$.content[0].id").value(100))
+                .andExpect(jsonPath("$.content[0].userId").value(42))
+                .andExpect(jsonPath("$.content[0].status").value("APPROVED"))
+                .andExpect(jsonPath("$.content[0].fee").value(7.00));
+    }
+
+    @Test
+    void myOrders_agentCanSeeOwnOrders() throws Exception {
+        OrderResponse agentOrder = new OrderResponse();
+        agentOrder.setId(200L);
+        agentOrder.setUserId(7L);
+        agentOrder.setStatus(OrderStatus.DONE);
+        agentOrder.setDirection(OrderDirection.SELL);
+        agentOrder.setOrderType(OrderType.LIMIT);
+        when(orderCreationService.getMyOrders(any(), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(agentOrder)));
+
+        mockMvc.perform(get("/orders/my-orders")
+                        .requestAttr("jwt", jwtPrincipal("7", List.of("AGENT"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(200))
+                .andExpect(jsonPath("$.content[0].userId").value(7));
+    }
+
+    @Test
+    void myOrders_passesFilterAndPagingParamsToService() throws Exception {
+        when(orderCreationService.getMyOrders(any(), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        mockMvc.perform(get("/orders/my-orders")
+                        .param("status", "DONE")
+                        .param("direction", "SELL")
+                        .param("securityType", "FUTURES")
+                        .param("from", "2026-05-01")
+                        .param("to", "2026-05-31")
+                        .param("page", "1")
+                        .param("size", "5")
+                        .requestAttr("jwt", jwtPrincipal("42", List.of("CLIENT_TRADING"))))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<MyOrdersFilter> filterCaptor = ArgumentCaptor.forClass(MyOrdersFilter.class);
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(orderCreationService).getMyOrders(any(), filterCaptor.capture(), pageableCaptor.capture());
+
+        MyOrdersFilter filter = filterCaptor.getValue();
+        assertThat(filter.status()).isEqualTo(OrderStatus.DONE);
+        assertThat(filter.direction()).isEqualTo(OrderDirection.SELL);
+        assertThat(filter.listingType()).isEqualTo(ListingType.FUTURES);
+        assertThat(filter.from()).isEqualTo(LocalDate.of(2026, 5, 1).atStartOfDay());
+        assertThat(filter.to()).isEqualTo(LocalDate.of(2026, 5, 31).atTime(LocalTime.MAX));
+        assertThat(pageableCaptor.getValue().getPageNumber()).isEqualTo(1);
+        assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(5);
+    }
+
+    @Test
+    void myOrders_noParams_usesDefaultPaging() throws Exception {
+        when(orderCreationService.getMyOrders(any(), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        mockMvc.perform(get("/orders/my-orders")
+                        .requestAttr("jwt", jwtPrincipal("42", List.of("CLIENT_TRADING"))))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<MyOrdersFilter> filterCaptor = ArgumentCaptor.forClass(MyOrdersFilter.class);
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(orderCreationService).getMyOrders(any(), filterCaptor.capture(), pageableCaptor.capture());
+
+        MyOrdersFilter filter = filterCaptor.getValue();
+        assertThat(filter.status()).isNull();
+        assertThat(filter.direction()).isNull();
+        assertThat(filter.listingType()).isNull();
+        assertThat(filter.from()).isNull();
+        assertThat(filter.to()).isNull();
+        assertThat(pageableCaptor.getValue().getPageNumber()).isZero();
+        assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(20);
     }
 
     @Test
     void myOrders_forbiddenUser_returns403Forbidden() throws Exception {
-        when(orderCreationService.getMyOrders(any()))
-                .thenThrow(new ForbiddenOperationException("Only clients can view their orders"));
+        when(orderCreationService.getMyOrders(any(), any(), any(Pageable.class)))
+                .thenThrow(new ForbiddenOperationException("Only clients and agents can view their orders"));
 
         mockMvc.perform(get("/orders/my-orders")
-                        .requestAttr("jwt", jwtPrincipal("7", List.of("AGENT"))))
+                        .requestAttr("jwt", jwtPrincipal("7", List.of("CLIENT_TRADING"))))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.status").value(403))
-                .andExpect(jsonPath("$.message").value("Only clients can view their orders"));
+                .andExpect(jsonPath("$.message").value("Only clients and agents can view their orders"));
     }
 
     @Test

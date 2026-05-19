@@ -15,9 +15,12 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.oauth2.jwt.Jwt;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
@@ -33,12 +36,17 @@ class ActuaryControllerTest {
 
     private ActuaryController controller;
 
+    /** WP-12: JWT supervizora (id=88) prosledjen audit-aware endpoint-ima. */
+    private Jwt supervisorJwt;
+
     @Mock
     private ActuaryService actuaryService;
 
     @BeforeEach
     void setUp() {
         controller = new ActuaryController(actuaryService);
+        supervisorJwt = new Jwt("token", Instant.now(), Instant.now().plusSeconds(3600),
+                Map.of("alg", "none"), Map.of("id", 88L, "sub", "88"));
     }
 
     @Test
@@ -104,12 +112,12 @@ class ActuaryControllerTest {
         SetLimitRequestDto request = new SetLimitRequestDto();
         request.setLimit(new BigDecimal("5000000"));
 
-        ResponseEntity<SimpleResponse> response = controller.setLimit(1L, request);
+        ResponseEntity<SimpleResponse> response = controller.setLimit(supervisorJwt, 1L, request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().status()).isEqualTo("success");
-        verify(actuaryService).setLimit(1L, request);
+        verify(actuaryService).setLimit(88L, 1L, request);
     }
 
     @Test
@@ -117,9 +125,9 @@ class ActuaryControllerTest {
         SetLimitRequestDto request = new SetLimitRequestDto();
         request.setLimit(new BigDecimal("3500000"));
 
-        controller.setLimit(42L, request);
+        controller.setLimit(supervisorJwt, 42L, request);
 
-        verify(actuaryService).setLimit(42L, request);
+        verify(actuaryService).setLimit(88L, 42L, request);
     }
 
     @Test
@@ -130,39 +138,39 @@ class ActuaryControllerTest {
         SetLimitRequestDto request2 = new SetLimitRequestDto();
         request2.setLimit(new BigDecimal("10000000"));
 
-        controller.setLimit(1L, request1);
-        controller.setLimit(2L, request2);
+        controller.setLimit(supervisorJwt, 1L, request1);
+        controller.setLimit(supervisorJwt, 2L, request2);
 
-        verify(actuaryService).setLimit(1L, request1);
-        verify(actuaryService).setLimit(2L, request2);
+        verify(actuaryService).setLimit(88L, 1L, request1);
+        verify(actuaryService).setLimit(88L, 2L, request2);
     }
 
     @Test
     void resetLimit_returns200OnSuccess() {
-        ResponseEntity<SimpleResponse> response = controller.resetLimit(1L);
+        ResponseEntity<SimpleResponse> response = controller.resetLimit(supervisorJwt, 1L);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().status()).isEqualTo("success");
-        verify(actuaryService).resetLimit(1L);
+        verify(actuaryService).resetLimit(88L, 1L);
     }
 
     @Test
     void resetLimit_delegatesToServiceWithCorrectEmployeeId() {
-        controller.resetLimit(99L);
+        controller.resetLimit(supervisorJwt, 99L);
 
-        verify(actuaryService).resetLimit(99L);
+        verify(actuaryService).resetLimit(88L, 99L);
     }
 
     @Test
     void resetLimit_multipleTimes() {
-        controller.resetLimit(1L);
-        controller.resetLimit(2L);
-        controller.resetLimit(3L);
+        controller.resetLimit(supervisorJwt, 1L);
+        controller.resetLimit(supervisorJwt, 2L);
+        controller.resetLimit(supervisorJwt, 3L);
 
-        verify(actuaryService).resetLimit(1L);
-        verify(actuaryService).resetLimit(2L);
-        verify(actuaryService).resetLimit(3L);
+        verify(actuaryService).resetLimit(88L, 1L);
+        verify(actuaryService).resetLimit(88L, 2L);
+        verify(actuaryService).resetLimit(88L, 3L);
     }
 
     @Test
@@ -170,12 +178,12 @@ class ActuaryControllerTest {
         SetNeedApprovalRequestDto request = new SetNeedApprovalRequestDto();
         request.setNeedApproval(true);
 
-        ResponseEntity<SimpleResponse> response = controller.setNeedApproval(1L, request);
+        ResponseEntity<SimpleResponse> response = controller.setNeedApproval(supervisorJwt, 1L, request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().status()).isEqualTo("success");
-        verify(actuaryService).setNeedApproval(1L, request);
+        verify(actuaryService).setNeedApproval(88L, 1L, request);
     }
 
     @Test
@@ -183,9 +191,21 @@ class ActuaryControllerTest {
         SetNeedApprovalRequestDto request = new SetNeedApprovalRequestDto();
         request.setNeedApproval(false);
 
-        controller.setNeedApproval(77L, request);
+        controller.setNeedApproval(supervisorJwt, 77L, request);
 
-        verify(actuaryService).setNeedApproval(77L, request);
+        verify(actuaryService).setNeedApproval(88L, 77L, request);
+    }
+
+    @Test
+    void setLimit_extractsActorFromJwtSubjectWhenIdClaimMissing() {
+        SetLimitRequestDto request = new SetLimitRequestDto();
+        request.setLimit(new BigDecimal("4000000"));
+        Jwt subjectOnlyJwt = new Jwt("token", Instant.now(), Instant.now().plusSeconds(3600),
+                Map.of("alg", "none"), Map.of("sub", "55"));
+
+        controller.setLimit(subjectOnlyJwt, 1L, request);
+
+        verify(actuaryService).setLimit(55L, 1L, request);
     }
 
     @Test

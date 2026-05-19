@@ -37,6 +37,19 @@ public class EmailDto {
     private ResetLinkDto templateVariables;
 
     /**
+     * Identifikator klijenta za koga se kreira in-app notifikacija.
+     * Mapira se u {@code recipientUserId} na potrosacu (notification-service);
+     * kada je {@code null}, potrosac preskace in-app red i salje samo email.
+     */
+    private Long recipientUserId;
+
+    /**
+     * Diskriminator id prostora primaoca. Za client notifikacije uvek
+     * {@code CLIENT}. Mapira se u {@code recipientType} na potrosacu.
+     */
+    private String recipientType;
+
+    /**
      * Kreira payload za mejl koji sadrzi i link za aktivaciju ili reset lozinke.
      *
      * @param username  korisnicko ime ili ime za prikaz

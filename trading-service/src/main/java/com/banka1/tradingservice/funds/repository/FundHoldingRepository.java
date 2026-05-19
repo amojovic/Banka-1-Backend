@@ -13,4 +13,14 @@ public interface FundHoldingRepository extends JpaRepository<FundHolding, Long> 
     List<FundHolding> findByFundIdAndDeletedFalse(Long fundId);
 
     Optional<FundHolding> findByFundIdAndStockTickerAndDeletedFalse(Long fundId, String stockTicker);
+
+    /**
+     * WP-17 (Celina 4.3): sve aktivne holding-pozicije date hartije, preko svih
+     * fondova. Kvartalna isplata dividende ({@code DividendDistributionService})
+     * je koristi da pronadje koje fondove neka dividendna hartija dotice.
+     *
+     * @param stockTicker ticker hartije koja isplacuje dividendu
+     * @return aktivni ({@code deleted=false}) holding-redovi te hartije
+     */
+    List<FundHolding> findByStockTickerAndDeletedFalse(String stockTicker);
 }

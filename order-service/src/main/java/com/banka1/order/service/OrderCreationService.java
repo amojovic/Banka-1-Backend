@@ -3,13 +3,12 @@ package com.banka1.order.service;
 import com.banka1.order.dto.AuthenticatedUser;
 import com.banka1.order.dto.CreateBuyOrderRequest;
 import com.banka1.order.dto.CreateSellOrderRequest;
+import com.banka1.order.dto.MyOrdersFilter;
 import com.banka1.order.dto.OrderOverviewResponse;
 import com.banka1.order.dto.OrderResponse;
 import com.banka1.order.entity.enums.OrderOverviewStatusFilter;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-
-import java.util.List;
 
 /**
  * Service for creating buy and sell orders.
@@ -43,12 +42,19 @@ public interface OrderCreationService {
     Page<OrderOverviewResponse> getOrders(OrderOverviewStatusFilter statusFilter, Pageable pageable);
 
     /**
-     * Returns orders owned by the authenticated client.
+     * Returns a paged, optionally filtered slice of orders owned by the authenticated user.
      *
-     * @param user the authenticated client
-     * @return orders created by the client
+     * <p>Backs the "Moji orderi" order-history screen, available to every user who can
+     * trade — clients as well as agents (actuaries). The result is always scoped to the
+     * caller's own orders. Each row carries the paid commission ({@code fee}) and the
+     * resolved security ticker/name.
+     *
+     * @param user     the authenticated owner of the orders
+     * @param filter   optional filter criteria (status, direction, security type, date range)
+     * @param pageable paging and sorting directive
+     * @return the matching page of order responses
      */
-    List<OrderResponse> getMyOrders(AuthenticatedUser user);
+    Page<OrderResponse> getMyOrders(AuthenticatedUser user, MyOrdersFilter filter, Pageable pageable);
 
     /**
      * Confirms a draft order and finalizes validation, approval state, and fee transfer.

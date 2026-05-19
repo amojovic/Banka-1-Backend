@@ -1,5 +1,6 @@
 package com.banka1.tradingservice.funds.dto;
 
+import com.banka1.tradingservice.funds.domain.FundDividendPolicy;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -32,4 +33,19 @@ public class InvestmentFundDto {
     private BigDecimal totalValue;
     /** Izvedeno: totalValue - sumOfClientInvestments. */
     private BigDecimal profit;
+    /** WP-17 (Celina 4.3): politika obrade dividende fonda ({@code REINVEST}/{@code DISTRIBUTE}). */
+    private FundDividendPolicy dividendPolicy;
+
+    // --- WP-18 (Celina 4.4): statistika performansi. Sva cetiri polja su
+    //     nullable — null kada fond ima manje od minimalnog broja snapshot-a
+    //     (FundStatisticsService.MIN_SNAPSHOTS_FOR_STATS). Frakcije, ne procenti.
+
+    /** WP-18: godisnji (anualizovan) prinos kao frakcija; {@code null} ispod minimuma snapshot-a. */
+    private BigDecimal annualizedReturn;
+    /** WP-18: reward-to-variability (Sharpe-like); {@code null} ispod minimuma snapshot-a ili pri nultoj volatilnosti. */
+    private BigDecimal rewardToVariabilityRatio;
+    /** WP-18: max drawdown kao frakcija ({@code >= 0}); {@code null} ispod minimuma snapshot-a. */
+    private BigDecimal maxDrawdown;
+    /** WP-18: volatilnost (uzoracka std. dev. mesecnih prinosa); {@code null} ispod minimuma snapshot-a. */
+    private BigDecimal volatility;
 }

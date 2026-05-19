@@ -185,6 +185,42 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # WP-9 (W9): /price-alerts → stock-service PriceAlertController (@RequestMapping("/price-alerts"))
+    # konsolidovan u market-service. Kontroler ima literalni prefix /price-alerts pa NEMA
+    # strip-a — proxy kao /orders. JWT-secured; nginx prosledjuje Authorization po defaultu.
+    # Spring Boot 4 useTrailingSlashMatch=false → exact + prefix blok, BEZ 301 redirect-a.
+    location = /price-alerts {
+        proxy_pass http://market_service/price-alerts$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location /price-alerts/ {
+        proxy_pass http://market_service;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # WP-10 (W10): /watchlists → stock-service WatchlistController (@RequestMapping("/watchlists"))
+    # konsolidovan u market-service. Literalni prefix, NEMA strip-a. JWT-secured.
+    location = /watchlists {
+        proxy_pass http://market_service/watchlists$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location /watchlists/ {
+        proxy_pass http://market_service;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     # === Trading domain (order/portfolio/actuaries + margin/otc/funds) ===
 
     # /order/* — frontend prefix; trading-service controllers at /orders, /portfolio, /actuaries, /tax (no prefix). Strip.
@@ -283,6 +319,59 @@ server {
     }
 
     location /margin/ {
+        proxy_pass http://trading_service;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # WP-11 (W11): /recurring-orders → order-service RecurringOrderController
+    # (@RequestMapping("/recurring-orders")), scan-ovan u konsolidovanom trading-service-u.
+    # Literalni prefix, NEMA strip-a — proxy kao /orders. JWT-secured; Authorization se
+    # prosledjuje po defaultu. SB4 useTrailingSlashMatch=false → exact + prefix, bez 301.
+    location = /recurring-orders {
+        proxy_pass http://trading_service/recurring-orders$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location /recurring-orders/ {
+        proxy_pass http://trading_service;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # WP-2 (W2): /audit → trading-service AuditLogController (@RequestMapping("/audit")).
+    # Literalni prefix, NEMA strip-a. JWT-secured.
+    location = /audit {
+        proxy_pass http://trading_service/audit$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location /audit/ {
+        proxy_pass http://trading_service;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # WP-14 (W14): /dividends → trading-service DividendController (@RequestMapping("/dividends")).
+    # Literalni prefix, NEMA strip-a. JWT-secured.
+    location = /dividends {
+        proxy_pass http://trading_service/dividends$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location /dividends/ {
         proxy_pass http://trading_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;

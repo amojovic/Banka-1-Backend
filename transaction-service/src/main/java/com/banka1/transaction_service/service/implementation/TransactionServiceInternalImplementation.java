@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -83,11 +84,26 @@ public class TransactionServiceInternalImplementation implements TransactionServ
     public void finish(Jwt jwt, InfoResponseDto infoResponseDto, Long id, TransactionStatus transactionStatus) {
         Payment payment=paymentRepository.findById(id).orElseThrow(()->new IllegalStateException("Greska u sistemu, nije sacuvao entitet"));
         payment.setStatus(transactionStatus);
+        final Long senderClientId = payment.getSenderClientId();
+        // WP-7b: iznos i (za odbijene) razlog se snimaju u final lokale jer ih
+        // afterCommit callback popunjava u templateVariables — sablon
+        // TRANSACTION_COMPLETED renderuje {{amount}}, TRANSACTION_DENIED jos i {{reason}}.
+        final BigDecimal initialAmount = payment.getInitialAmount();
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                rabbitClient.sendEmailNotification(new EmailDto(infoResponseDto.getFromUsername(),infoResponseDto.getFromEmail(), (transactionStatus==TransactionStatus.COMPLETED)?EmailType.TRANSACTION_COMPLETED:EmailType.TRANSACTION_DENIED));
-
+                EmailDto emailDto = new EmailDto(infoResponseDto.getFromUsername(),infoResponseDto.getFromEmail(), (transactionStatus==TransactionStatus.COMPLETED)?EmailType.TRANSACTION_COMPLETED:EmailType.TRANSACTION_DENIED);
+                // WP-7b: popunjavanje templateVariables kljucevima koje sablon ocekuje.
+                if (initialAmount != null) {
+                    emailDto.getTemplateVariables().put("amount", initialAmount.toPlainString());
+                }
+                if (transactionStatus != TransactionStatus.COMPLETED) {
+                    emailDto.getTemplateVariables().put("reason", "Transakcija nije uspesno izvrsena.");
+                }
+                // WP-7: in-app notifikacija ide klijentu-posiljaocu placanja.
+                emailDto.setRecipientUserId(senderClientId);
+                emailDto.setRecipientType("CLIENT");
+                rabbitClient.sendEmailNotification(emailDto);
             }
         });
 

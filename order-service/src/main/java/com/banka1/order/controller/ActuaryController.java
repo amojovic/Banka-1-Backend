@@ -16,6 +16,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
@@ -88,10 +90,11 @@ public class ActuaryController {
     @PutMapping("/agents/{id}/limit")
     @PreAuthorize("hasRole('SUPERVISOR')")
     public ResponseEntity<SimpleResponse> setLimit(
+            @AuthenticationPrincipal Jwt jwt,
             @PathVariable Long id,
             @RequestBody @Valid SetLimitRequestDto request
     ) {
-        actuaryService.setLimit(id, request);
+        actuaryService.setLimit(callerId(jwt), id, request);
         return ResponseEntity.ok(SimpleResponse.success("Limit updated successfully"));
     }
 
@@ -110,8 +113,8 @@ public class ActuaryController {
      */
     @PutMapping("/agents/{id}/reset-limit")
     @PreAuthorize("hasRole('SUPERVISOR')")
-    public ResponseEntity<SimpleResponse> resetLimit(@PathVariable Long id) {
-        actuaryService.resetLimit(id);
+    public ResponseEntity<SimpleResponse> resetLimit(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id) {
+        actuaryService.resetLimit(callerId(jwt), id);
         return ResponseEntity.ok(SimpleResponse.success("Limit reset successfully"));
     }
 
@@ -134,10 +137,11 @@ public class ActuaryController {
     @PutMapping("/agents/{id}/need-approval")
     @PreAuthorize("hasRole('SUPERVISOR')")
     public ResponseEntity<SimpleResponse> setNeedApproval(
+            @AuthenticationPrincipal Jwt jwt,
             @PathVariable Long id,
             @RequestBody @Valid SetNeedApprovalRequestDto request
     ) {
-        actuaryService.setNeedApproval(id, request);
+        actuaryService.setNeedApproval(callerId(jwt), id, request);
         return ResponseEntity.ok(SimpleResponse.success("Need-approval flag updated successfully"));
     }
 
@@ -169,5 +173,25 @@ public class ActuaryController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to
     ) {
         return ResponseEntity.ok(actuaryService.bankProfitSummary(from, to));
+    }
+
+    /**
+     * WP-12: izvlaci id pozivaoca iz JWT-a za audit log. Klejm {@code id} nosi
+     * numericki identifikator; fallback je {@code sub}. {@code null} kada JWT
+     * nije prisutan (npr. test bez security konteksta).
+     *
+     * @param jwt JWT prijavljenog supervizora
+     * @return id pozivaoca ili {@code null}
+     */
+    private Long callerId(Jwt jwt) {
+        if (jwt == null) {
+            return null;
+        }
+        Object idClaim = jwt.getClaim("id");
+        if (idClaim instanceof Number number) {
+            return number.longValue();
+        }
+        String subject = jwt.getSubject();
+        return subject == null ? null : Long.valueOf(subject);
     }
 }

@@ -1,9 +1,11 @@
 package com.banka1.tradingservice.otc.controller;
 
+import com.banka1.tradingservice.otc.domain.OtcOfferStatus;
 import com.banka1.tradingservice.otc.dto.CounterOfferRequest;
 import com.banka1.tradingservice.otc.dto.CreateOtcOfferRequest;
 import com.banka1.tradingservice.otc.dto.CreateOtcPositionRequest;
 import com.banka1.tradingservice.otc.dto.OtcOfferDto;
+import com.banka1.tradingservice.otc.dto.OtcOfferRevisionDto;
 import com.banka1.tradingservice.otc.dto.OtcPositionDto;
 import com.banka1.tradingservice.otc.dto.PublicStockDto;
 import com.banka1.tradingservice.otc.dto.UpdateOtcPositionRequest;
@@ -15,7 +17,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 
 /**
@@ -94,6 +100,79 @@ public class OtcController {
     public ResponseEntity<List<OtcOfferDto>> activeForCurrentUser(@AuthenticationPrincipal Jwt jwt) {
         Long userId = jwt.getClaim("id");
         return ResponseEntity.ok(otcService.activeForUser(userId));
+    }
+
+    /**
+     * WP-16 (Celina 4.2): istorija pregovora pozivaoca — ponude u kojima je
+     * ucestvovao (kao kupac ili prodavac), preko SVIH statusa ukljucujuci finalne
+     * ({@code ACCEPTED}/{@code REJECTED}/{@code WITHDRAWN}/{@code EXPIRED}).
+     *
+     * <p>Komplementarno sa {@code /offers/active}. Svi filteri su opcioni:
+     * {@code status}, {@code from}/{@code to} (opseg na {@code lastModified}) i
+     * {@code counterparty} (ID ili ime druge strane). {@code from}/{@code to}
+     * prihvataju ISO datum ({@code 2026-05-18}) ili datum-vreme.
+     */
+    @GetMapping("/offers/history")
+    public ResponseEntity<List<OtcOfferDto>> negotiationHistory(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to,
+            @RequestParam(required = false) String counterparty) {
+        Long userId = jwt.getClaim("id");
+        OtcOfferStatus parsedStatus = parseStatus(status);
+        LocalDateTime parsedFrom = parseRangeBound(from, "from", true);
+        LocalDateTime parsedTo = parseRangeBound(to, "to", false);
+        return ResponseEntity.ok(
+                otcService.historyForUser(userId, parsedStatus, parsedFrom, parsedTo, counterparty));
+    }
+
+    /**
+     * WP-16 (Celina 4.2): kompletan revizioni trag jedne ponude (najstariji prvi).
+     * Vraca 404 ako pozivalac nije ucestvovao u toj ponudi (ne otkrivamo tudje ponude).
+     */
+    @GetMapping("/offers/{id}/history")
+    public ResponseEntity<List<OtcOfferRevisionDto>> offerRevisionHistory(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable Long id) {
+        Long userId = jwt.getClaim("id");
+        return ResponseEntity.ok(otcService.revisionTrail(id, userId));
+    }
+
+    private OtcOfferStatus parseStatus(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return OtcOfferStatus.valueOf(raw.trim().toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Nepoznat status: '" + raw + "'");
+        }
+    }
+
+    /**
+     * Parsira datum/datum-vreme granicnik. Bare datum se siri na pocetak dana
+     * ({@code from}) odnosno kraj dana ({@code to}).
+     */
+    private LocalDateTime parseRangeBound(String raw, String paramName, boolean startOfDay) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String value = raw.trim();
+        try {
+            return LocalDateTime.parse(value);
+        } catch (DateTimeParseException ignored) {
+            // padback na bare datum
+        }
+        try {
+            LocalDate date = LocalDate.parse(value);
+            return startOfDay ? date.atStartOfDay() : date.atTime(23, 59, 59, 999_999_999);
+        } catch (DateTimeParseException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Neispravan datum za '" + paramName + "': '" + raw
+                            + "' (ocekivan ISO datum ili datum-vreme)");
+        }
     }
 
     /** Iskoristi opciju (SAGA OTC_EXERCISE). */

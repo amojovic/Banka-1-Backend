@@ -9,4 +9,6 @@
     <include file="db/changelog/verification/002-add-verification-session-constraints-and-indexes.xml"/>
     <!-- PR_14 C14.2: premesteno iz banking-core jer modifikuje verification_sessions tabelu -->
     <include file="db/changelog/verification/005-add-pending-uniqueness.sql"/>
+    <!-- WP-6 (Celina 2.1): totp_secret kolona za standardni TOTP (RFC 6238) -->
+    <include file="db/changelog/verification/006-totp-secret.sql"/>
 </databaseChangeLog>

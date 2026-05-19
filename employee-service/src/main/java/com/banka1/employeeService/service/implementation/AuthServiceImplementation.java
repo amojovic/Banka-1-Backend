@@ -159,10 +159,28 @@ public class AuthServiceImplementation implements AuthService {
         if (!passwordEncoder.matches(loginDto.getPassword(), zaposlen.getPassword())) {
             int attempts = zaposlen.getFailedLoginAttempts() + 1;
             zaposlen.setFailedLoginAttempts(attempts);
-            if (attempts >= accountLockoutMaxAttempts) {
+            boolean justLocked = attempts >= accountLockoutMaxAttempts;
+            if (justLocked) {
                 zaposlen.setLockedUntil(LocalDateTime.now().plusMinutes(accountLockoutDurationMinutes));
             }
             zaposlenRepository.save(zaposlen);
+            if (justLocked) {
+                // Login tx je noRollbackFor — commituje se i posle BusinessException-a, pa se
+                // afterCommit sinhronizacija registruje PRE bacanja izuzetka kako bi mejl
+                // pouzdano otisao tek nakon sto je locked_until upisan u bazu.
+                EmailDto lockedEmail = new EmailDto(
+                        zaposlen.getIme(), zaposlen.getEmail(),
+                        EmailType.EMPLOYEE_ACCOUNT_LOCKED, urlResetPassword);
+                // WP-7: in-app notifikacija ide zakljucanom zaposlenom.
+                lockedEmail.setRecipientUserId(zaposlen.getId());
+                lockedEmail.setRecipientType("EMPLOYEE");
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        rabbitClient.sendEmailNotification(lockedEmail);
+                    }
+                });
+            }
             // Spec Sc 2: "Neispravni unos".
             throw new BusinessException(ErrorCode.INVALID_CREDENTIALS, "Neispravni unos");
         }
@@ -245,6 +263,9 @@ public class AuthServiceImplementation implements AuthService {
             throw new BusinessException(ErrorCode.USER_INACTIVE, "Korisnik nije aktivan");
 
         zaposlen.setPassword(passwordEncoder.encode(activateDto.getPassword()));
+        // Celina 1, Scenario 5: reset lozinke otkljucava nalog i ponistava brojac neuspeha.
+        zaposlen.setFailedLoginAttempts(0);
+        zaposlen.setLockedUntil(null);
         zaposlen.setConfirmationToken(null);
         confirmationTokenRepository.delete(confirmationTokenCur);
         if (aktiviraj) {
@@ -284,10 +305,14 @@ public class AuthServiceImplementation implements AuthService {
             confirmationTokenRepository.save(confirmationToken);
         }
 
+        EmailDto resetEmail = new EmailDto(zaposlen.getIme(), zaposlen.getEmail(), EmailType.EMPLOYEE_PASSWORD_RESET, urlResetPassword + generated);
+        // WP-7: in-app notifikacija ide zaposlenom koji je trazio reset lozinke.
+        resetEmail.setRecipientUserId(zaposlen.getId());
+        resetEmail.setRecipientType("EMPLOYEE");
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                rabbitClient.sendEmailNotification(new EmailDto(zaposlen.getIme(), zaposlen.getEmail(), EmailType.EMPLOYEE_PASSWORD_RESET, urlResetPassword + generated));
+                rabbitClient.sendEmailNotification(resetEmail);
             }
         });
         return "Poslat mejl";
@@ -338,10 +363,14 @@ public class AuthServiceImplementation implements AuthService {
             confirmationTokenRepository.save(confirmationToken);
         }
 
+        EmailDto activationEmail = new EmailDto(zaposlen.getIme(), zaposlen.getEmail(), EmailType.EMPLOYEE_CREATED, urlActivateAccount + generated);
+        // WP-7: in-app notifikacija ide zaposlenom kome se ponovo salje aktivacioni mejl.
+        activationEmail.setRecipientUserId(zaposlen.getId());
+        activationEmail.setRecipientType("EMPLOYEE");
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                rabbitClient.sendEmailNotification(new EmailDto(zaposlen.getIme(), zaposlen.getEmail(), EmailType.EMPLOYEE_CREATED, urlActivateAccount + generated));
+                rabbitClient.sendEmailNotification(activationEmail);
             }
         });
         return "Poslat mejl";

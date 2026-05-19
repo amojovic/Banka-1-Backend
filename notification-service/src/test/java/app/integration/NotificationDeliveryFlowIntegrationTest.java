@@ -31,6 +31,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -56,7 +57,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         "spring.datasource.password=",
         "spring.jpa.hibernate.ddl-auto=create-drop",
         "management.endpoint.health.group.readiness.include=readinessState,db,rabbit",
-        "spring.autoconfigure.exclude=org.springdoc.webmvc.ui.SwaggerConfig"
+        "spring.autoconfigure.exclude=org.springdoc.webmvc.ui.SwaggerConfig,com.banka1.security_lib.SecurityConfig",
+        "jwt.secret=test-secret-key-for-notification-service-tests-32-chars-min"
 })
 class NotificationDeliveryFlowIntegrationTest {
 
@@ -69,11 +71,15 @@ class NotificationDeliveryFlowIntegrationTest {
     private NotificationDeliveryRepository notificationDeliveryRepository;
 
     @Autowired
+    private app.repository.InAppNotificationRepository inAppNotificationRepository;
+
+    @Autowired
     private RecordingMailSender recordingMailSender;
 
     @BeforeEach
     void setUp() {
         notificationDeliveryRepository.deleteAll();
+        inAppNotificationRepository.deleteAll();
         recordingMailSender.reset();
     }
 
@@ -486,6 +492,81 @@ class NotificationDeliveryFlowIntegrationTest {
                 "Zdravo Pera Peric, vasa kartica Visa Debit za racun **************3456 sa brojem 1234********5678 je deaktivirana.",
                 sentMessage.getText()
         );
+    }
+
+    /**
+     * WP-1b: end-to-end check that a message carrying a {@code recipientUserId} but NO email
+     * address still lands an in-app notification, with no email delivery row and no email send.
+     *
+     * <p>This is the corrected contract: in-app and email are independent channels, so a
+     * missing recipient email must skip only the email leg — the in-app row must still be
+     * persisted instead of the whole message becoming a failed audit.
+     */
+    @Test
+    void clientCreatedEventWithoutEmailStillCreatesInAppNotificationAndSkipsEmail() {
+        NotificationRequest request = new NotificationRequest(
+                "Marko",
+                null,
+                Map.of(
+                        "name", "Marko",
+                        "activationLink", "https://example.com/activate/789"
+                )
+        );
+        request.setRecipientUserId(4242L);
+        request.setRecipientType("CLIENT");
+
+        notificationDeliveryService.handleIncomingMessage(request, RoutingKeys.CLIENT_CREATED);
+
+        waitForCondition(Duration.ofSeconds(5), () -> inAppNotificationRepository.count() == 1);
+
+        app.entities.InAppNotification inApp = inAppNotificationRepository.findAll().getFirst();
+        assertEquals(4242L, inApp.getRecipientUserId());
+        assertEquals(app.entities.RecipientType.CLIENT, inApp.getRecipientType());
+        assertEquals("CLIENT_CREATED", inApp.getType());
+        assertEquals("Client Account Activation Email", inApp.getTitle());
+        assertEquals(
+                "Zdravo Marko, vas klijentski nalog je kreiran. Aktivirajte nalog klikom na link:\nhttps://example.com/activate/789",
+                inApp.getBody()
+        );
+        assertFalse(inApp.isRead());
+
+        // The email channel is skipped entirely — no delivery row, no audit row, no send.
+        assertTrue(notificationDeliveryRepository.findAll().isEmpty());
+        assertEquals(0, recordingMailSender.sentCount());
+    }
+
+    /**
+     * WP-1b: end-to-end check that a message carrying BOTH an email and a
+     * {@code recipientUserId} drives BOTH channels — a successful email delivery row plus an
+     * in-app notification row. Pins the email-present path so the decoupling does not regress
+     * the existing dual-channel behaviour.
+     */
+    @Test
+    void clientCreatedEventWithEmailCreatesBothDeliveryAndInAppNotification() {
+        NotificationRequest request = new NotificationRequest(
+                "Marko",
+                TEST_EMAIL,
+                Map.of(
+                        "name", "Marko",
+                        "activationLink", "https://example.com/activate/790"
+                )
+        );
+        request.setRecipientUserId(4343L);
+        request.setRecipientType("CLIENT");
+
+        notificationDeliveryService.handleIncomingMessage(request, RoutingKeys.CLIENT_CREATED);
+
+        NotificationDelivery delivery = waitForSucceededDelivery();
+        waitForCondition(Duration.ofSeconds(5), () -> inAppNotificationRepository.count() == 1);
+
+        assertEquals(NotificationDeliveryStatus.SUCCEEDED, delivery.getStatus());
+        assertEquals(TEST_EMAIL, delivery.getRecipientEmail());
+        assertEquals(1, recordingMailSender.sentCount());
+
+        app.entities.InAppNotification inApp = inAppNotificationRepository.findAll().getFirst();
+        assertEquals(4343L, inApp.getRecipientUserId());
+        assertEquals("CLIENT_CREATED", inApp.getType());
+        assertEquals("Client Account Activation Email", inApp.getTitle());
     }
 
     /**

@@ -157,6 +157,13 @@ public class TransferServiceImpl implements TransferService {
                 EmailType.TRANSFER_COMPLETED,
                 "Uspešno ste izvršili prenos sredstava. Broj naloga: " + orderNumber
         );
+        // WP-7b: TRANSFER_COMPLETED sablon renderuje {{amount}} — popunjava se
+        // izvornim iznosom prenosa kako bi se telo mejla ispravno renderovalo.
+        emailDto.getTemplateVariables().put("amount", request.getAmount().toPlainString());
+        emailDto.getTemplateVariables().put("orderNumber", orderNumber);
+        // WP-7: in-app notifikacija ide klijentu-vlasniku transfera.
+        emailDto.setRecipientUserId(savedTransfer.getClientId());
+        emailDto.setRecipientType("CLIENT");
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override

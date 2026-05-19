@@ -70,9 +70,14 @@ public class ClientServiceImplementation implements ClientService {
      *
      * @param dto podaci za kreiranje klijenta
      * @return kreirani klijent mapiran u odgovor
+     * @throws BusinessException ako klijent sa istom email adresom vec postoji
      */
     @Override
     public ClientResponseDto createClient(ClientCreateRequestDto dto) {
+        if (klijentRepository.existsByEmail(dto.getEmail())) {
+            throw new BusinessException(ErrorCode.EMAIL_ALREADY_EXISTS, "Email: " + dto.getEmail());
+        }
+
         Klijent klijent = clientMapper.toEntity(dto);
         Klijent saved = klijentRepository.save(klijent);
 
@@ -87,6 +92,9 @@ public class ClientServiceImplementation implements ClientService {
                 saved.getEmail(),
                 EmailType.CLIENT_CREATED,
                 urlActivateAccount + generated);
+        // WP-7: in-app notifikacija ide klijentu koji je upravo kreiran.
+        emailDto.setRecipientUserId(saved.getId());
+        emailDto.setRecipientType("CLIENT");
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
@@ -167,9 +175,13 @@ public class ClientServiceImplementation implements ClientService {
     public void deleteClient(Long id) {
         Klijent klijent = klijentRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.CLIENT_NOT_FOUND, "ID: " + id));
+        Long deletedClientId = klijent.getId();
         klijentRepository.delete(klijent);
 
         EmailDto emailDto = new EmailDto(klijent.getIme(), klijent.getEmail(), EmailType.CLIENT_ACCOUNT_DEACTIVATED);
+        // WP-7: in-app notifikacija ide obrisanom klijentu.
+        emailDto.setRecipientUserId(deletedClientId);
+        emailDto.setRecipientType("CLIENT");
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {

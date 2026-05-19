@@ -1,8 +1,10 @@
 package com.banka1.verificationService.model.entity;
 
+import com.banka1.verificationService.crypto.TotpSecretConverter;
 import com.banka1.verificationService.model.enums.OperationType;
 import com.banka1.verificationService.model.enums.VerificationStatus;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -21,15 +23,20 @@ import java.time.LocalDateTime;
 /**
  * JPA entity representing a verification session in the database.
  *
- * Stores an HMAC-SHA256 hashed OTP code, session metadata, and state information
- * for two-factor authentication (2FA) operations. Each session is uniquely identified
- * by the combination of clientId, operationType, and relatedEntityId, with a lifecycle
- * controlled by its status and expiration time.
+ * Stores a per-session TOTP secret (RFC 6238), session metadata, and state
+ * information for two-factor authentication (2FA) operations. Each session is
+ * uniquely identified by the combination of clientId, operationType, and
+ * relatedEntityId, with a lifecycle controlled by its status and expiration time.
+ *
+ * <p>WP-6 (Celina 2.1): the verification code is now a standard 30-second TOTP
+ * derived from {@link #totpSecret}. The legacy {@link #code} column (an
+ * HMAC-SHA256 hash) is retained for back-compat with sessions created before
+ * the migration but is no longer written for new sessions.
  *
  * A typical session flow:
  * <ol>
- *   <li>Created with status PENDING and a 5-minute expiration time</li>
- *   <li>User provides code within expiration window</li>
+ *   <li>Created with status PENDING, a per-session TOTP secret, and a TTL</li>
+ *   <li>User provides the current TOTP code within the TTL window</li>
  *   <li>Status transitions to VERIFIED on match or CANCELLED after 3 failed attempts</li>
  *   <li>Status transitions to EXPIRED if current time passes expiresAt</li>
  * </ol>
@@ -64,13 +71,29 @@ public class VerificationSession {
     private Long clientId;
 
     /**
-     * Base64-encoded HMAC-SHA256 hash of the one-time password code.
-     * The actual plain-text code is never stored; only the hash is persisted
-     * in the database for security reasons.
-     * Non-nullable.
+     * Legacy column: Base64-encoded HMAC-SHA256 hash of a random OTP code.
+     *
+     * <p>WP-6 (Celina 2.1) replaced random emailed codes with per-session TOTP;
+     * new sessions leave this {@code null} and use {@link #totpSecret} instead.
+     * The column is retained (nullable) only so verification sessions created
+     * before the migration can still be validated against their stored hash.
      */
-    @Column(nullable = false)
+    @Column(nullable = true)
     private String code;
+
+    /**
+     * Per-session TOTP secret (RFC 6238), Base32-encoded in plaintext at the
+     * application layer.
+     *
+     * <p>The current verification code is computed from this secret with a
+     * 30-second time step. The secret is encryption-at-rest: {@link TotpSecretConverter}
+     * stores an AES-GCM-256 ciphertext in the {@code totp_secret} column and the
+     * field never holds plaintext on disk. Nullable for back-compat with legacy
+     * sessions that predate the TOTP migration.
+     */
+    @Convert(converter = TotpSecretConverter.class)
+    @Column(name = "totp_secret")
+    private String totpSecret;
 
     /**
      * The type of operation requiring verification (e.g., PAYMENT, TRANSFER).

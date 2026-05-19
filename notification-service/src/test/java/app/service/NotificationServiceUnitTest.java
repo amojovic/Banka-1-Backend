@@ -192,6 +192,43 @@ class NotificationServiceUnitTest {
     }
 
     /**
+     * WP-1b: verifies that {@code renderContent} renders subject/body when the recipient email
+     * is missing — the in-app channel rendering path must not require an email address.
+     */
+    @Test
+    void renderContentRendersTemplateWhenUserEmailMissing() {
+        NotificationRequest request = new NotificationRequest("Dimitrije", null, Map.of("name", "Dimitrije"));
+        when(templateFactory.resolve("EMPLOYEE_CREATED")).thenReturn(
+                new EmailTemplate("Activation Email", "Zdravo {{name}}, nalog je kreiran.")
+        );
+
+        ResolvedEmail resolved = notificationService.renderContent(request, "EMPLOYEE_CREATED");
+
+        assertNull(resolved.recipientEmail());
+        assertEquals("Activation Email", resolved.subject());
+        assertEquals("Zdravo Dimitrije, nalog je kreiran.", resolved.body());
+    }
+
+    /**
+     * WP-1b: verifies that {@code renderContent} carries a present recipient email through to
+     * the result while still rendering the template content.
+     */
+    @Test
+    void renderContentCarriesPresentEmailThrough() {
+        NotificationRequest request = new NotificationRequest(
+                "Dimitrije", TEST_EMAIL, Map.of("name", "Dimitrije")
+        );
+        when(templateFactory.resolve("EMPLOYEE_CREATED")).thenReturn(
+                new EmailTemplate("Activation Email", "Zdravo {{name}}.")
+        );
+
+        ResolvedEmail resolved = notificationService.renderContent(request, "EMPLOYEE_CREATED");
+
+        assertEquals(TEST_EMAIL, resolved.recipientEmail());
+        assertEquals("Zdravo Dimitrije.", resolved.body());
+    }
+
+    /**
      * Verifies that a configured sender address is copied into the outgoing mail header.
      *
      * <p>This matters because SMTP configuration often requires a stable {@code From} address,

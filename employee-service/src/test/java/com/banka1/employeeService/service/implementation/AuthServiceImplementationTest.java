@@ -69,6 +69,8 @@ class AuthServiceImplementationTest {
         ReflectionTestUtils.setField(authService, "urlActivateAccount", "http://localhost/activate?token=");
         ReflectionTestUtils.setField(authService, "refreshTokenExpiration", 1L);
         ReflectionTestUtils.setField(authService, "confirmationTokenExpiration", 15L);
+        ReflectionTestUtils.setField(authService, "accountLockoutMaxAttempts", 5);
+        ReflectionTestUtils.setField(authService, "accountLockoutDurationMinutes", 10L);
         TransactionSynchronizationManager.initSynchronization();
     }
 
@@ -121,7 +123,7 @@ class AuthServiceImplementationTest {
 
         assertThatThrownBy(() -> authService.login(new LoginRequestDto("pera@banka.com", "WrongPassword")))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("Greska pri loginovanju");
+                .hasMessage("Neispravni unos");
     }
 
     @Test
@@ -144,7 +146,7 @@ class AuthServiceImplementationTest {
 
         assertThatThrownBy(() -> authService.login(new LoginRequestDto("ghost@banka.com", "Password12")))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("Greska pri loginovanju");
+                .hasMessage("Korisnik ne postoji");
     }
 
     @Test
@@ -185,7 +187,7 @@ class AuthServiceImplementationTest {
 
         assertThatThrownBy(() -> authService.check(plainToken))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("Pogresan token");
+                .hasMessage("Link za aktivaciju je istekao");
     }
 
     @Test
@@ -594,6 +596,84 @@ class AuthServiceImplementationTest {
         assertThatThrownBy(() -> authService.check(plainToken))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("Pogresan token");
+    }
+
+    // ── lockout (Celina 1, Scenario 5) ────────────────────────────────────────
+
+    @Test
+    void loginFifthFailureLocksAccountAndPublishesEmailAfterCommit() {
+        Zaposlen employee = activeEmployee();
+        employee.setPassword("encoded-password");
+        employee.setFailedLoginAttempts(4);
+
+        when(zaposlenRepository.findByEmail("pera@banka.com")).thenReturn(Optional.of(employee));
+        when(passwordEncoder.matches("WrongPassword", "encoded-password")).thenReturn(false);
+
+        assertThatThrownBy(() -> authService.login(new LoginRequestDto("pera@banka.com", "WrongPassword")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Neispravni unos");
+
+        assertThat(employee.getFailedLoginAttempts()).isEqualTo(5);
+        assertThat(employee.getLockedUntil()).isNotNull();
+        assertThat(TransactionSynchronizationManager.getSynchronizations()).hasSize(1);
+        verify(rabbitClient, never()).sendEmailNotification(any());
+
+        TransactionSynchronizationManager.getSynchronizations().get(0).afterCommit();
+        verify(rabbitClient).sendEmailNotification(any());
+    }
+
+    @Test
+    void loginWhileLockedThrowsAccountLocked() {
+        Zaposlen employee = activeEmployee();
+        employee.setPassword("encoded-password");
+        employee.setFailedLoginAttempts(5);
+        employee.setLockedUntil(LocalDateTime.now().plusMinutes(5));
+
+        when(zaposlenRepository.findByEmail("pera@banka.com")).thenReturn(Optional.of(employee));
+
+        assertThatThrownBy(() -> authService.login(new LoginRequestDto("pera@banka.com", "Password12")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Nalog je privremeno zaključan zbog previše neuspešnih pokušaja");
+    }
+
+    @Test
+    void loginBelowThresholdDoesNotPublishLockEmail() {
+        Zaposlen employee = activeEmployee();
+        employee.setPassword("encoded-password");
+        employee.setFailedLoginAttempts(1);
+
+        when(zaposlenRepository.findByEmail("pera@banka.com")).thenReturn(Optional.of(employee));
+        when(passwordEncoder.matches("WrongPassword", "encoded-password")).thenReturn(false);
+
+        assertThatThrownBy(() -> authService.login(new LoginRequestDto("pera@banka.com", "WrongPassword")))
+                .isInstanceOf(BusinessException.class);
+
+        assertThat(employee.getFailedLoginAttempts()).isEqualTo(2);
+        assertThat(employee.getLockedUntil()).isNull();
+        assertThat(TransactionSynchronizationManager.getSynchronizations()).isEmpty();
+    }
+
+    @Test
+    void editPasswordResetClearsLockAndCounter() {
+        Zaposlen employee = activeEmployee();
+        employee.setFailedLoginAttempts(5);
+        employee.setLockedUntil(LocalDateTime.now().plusMinutes(5));
+
+        ConfirmationToken confirmationToken = new ConfirmationToken();
+        confirmationToken.setId(20L);
+        confirmationToken.setValue("hashed-token");
+        confirmationToken.setZaposlen(employee);
+
+        ActivateDto request = new ActivateDto(20L, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "NewPass12");
+
+        when(confirmationTokenRepository.findById(20L)).thenReturn(Optional.of(confirmationToken));
+        when(jwtService.sha256Hex(request.getConfirmationToken())).thenReturn("hashed-token");
+        when(passwordEncoder.encode("NewPass12")).thenReturn("new-encoded");
+
+        authService.editPassword(request, false);
+
+        assertThat(employee.getFailedLoginAttempts()).isZero();
+        assertThat(employee.getLockedUntil()).isNull();
     }
 
     private Zaposlen activeEmployee() {

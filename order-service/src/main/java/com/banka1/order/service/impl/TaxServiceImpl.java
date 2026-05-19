@@ -1,5 +1,7 @@
 package com.banka1.order.service.impl;
 
+import com.banka1.order.audit.AuditEventDto;
+import com.banka1.order.audit.AuditPublisher;
 import com.banka1.order.client.AccountClient;
 import com.banka1.order.client.ClientClient;
 import com.banka1.order.client.EmployeeClient;
@@ -115,6 +117,8 @@ public class TaxServiceImpl implements TaxService {
     private final StockClient stockClient;
     private final OrderNotificationProducer notificationProducer;
     private final TaxChargeRepository taxChargeRepository;
+    /** WP-12: producer za centralizovani audit log (Celina 3.5). */
+    private final AuditPublisher auditPublisher;
 
     @Override
     public void collectMonthlyTax() {
@@ -125,16 +129,79 @@ public class TaxServiceImpl implements TaxService {
     }
 
     @Override
-    public void collectMonthlyTaxManually() {
-        log.info("Manually triggering monthly tax collection");
-        collectMonthlyTax();
+    public void collectMonthlyTaxManually(Long actorId) {
+        log.info("Manually triggering monthly tax collection (actor={})", actorId);
+        LocalDate now = LocalDate.now(ZoneId.systemDefault());
+        LocalDate firstDayOfThisMonth = now.withDayOfMonth(1);
+        LocalDate firstDayOfPrevMonth = firstDayOfThisMonth.minusMonths(1);
+        collectTaxForPeriod(firstDayOfPrevMonth.atStartOfDay(), firstDayOfThisMonth.atStartOfDay());
+        publishTaxAuditEvent("TAX_RUN_MANUAL", actorId, firstDayOfPrevMonth,
+                "Manuelni obracun poreza za period " + firstDayOfPrevMonth);
     }
 
     @Override
-    public void collectCurrentMonthTax() {
+    public void collectCurrentMonthTax(Long actorId) {
         LocalDate now = LocalDate.now(ZoneId.systemDefault());
         LocalDate firstDayOfThisMonth = now.withDayOfMonth(1);
         collectTaxForPeriod(firstDayOfThisMonth.atStartOfDay(), now.plusDays(1).atStartOfDay());
+        publishTaxAuditEvent("TAX_RUN_MANUAL", actorId, firstDayOfThisMonth,
+                "Manuelni obracun poreza za tekuci mesec " + firstDayOfThisMonth);
+    }
+
+    @Override
+    public void collectMonthlyTaxScheduled() {
+        LocalDate now = LocalDate.now(ZoneId.systemDefault());
+        LocalDate firstDayOfThisMonth = now.withDayOfMonth(1);
+        LocalDate firstDayOfPrevMonth = firstDayOfThisMonth.minusMonths(1);
+        collectTaxForPeriod(firstDayOfPrevMonth.atStartOfDay(), firstDayOfThisMonth.atStartOfDay());
+        publishTaxAuditEvent("TAX_RUN_SCHEDULED", null, firstDayOfPrevMonth,
+                "Zakazani (cron) obracun poreza za period " + firstDayOfPrevMonth);
+    }
+
+    /**
+     * WP-12: publikuje audit dogadjaj o pokretanju obracuna poreza na
+     * centralizovani audit log. Best-effort — slanje ne sme da obori obracun.
+     * Zakazani obracun nema ljudskog aktora ({@code actorId=null},
+     * {@code actorName="SYSTEM"}).
+     *
+     * @param actionType {@code TAX_RUN_MANUAL} ili {@code TAX_RUN_SCHEDULED}
+     * @param actorId    id supervizora koji je pokrenuo obracun, ili {@code null} za cron
+     * @param period     prvi dan obracunatog perioda — koristi se kao {@code targetId}
+     * @param details    citljiv opis obracuna
+     */
+    private void publishTaxAuditEvent(String actionType, Long actorId, LocalDate period, String details) {
+        boolean systemActor = actorId == null;
+        AuditEventDto event = new AuditEventDto(
+                systemActor ? null : actorId,
+                systemActor ? "SYSTEM" : resolveActorName(actorId),
+                actionType,
+                "TAX",
+                period.toString(),
+                details,
+                System.currentTimeMillis());
+        auditPublisher.publish(event);
+    }
+
+    /**
+     * Razresava citljivo ime aktora preko employee-service-a. Best-effort —
+     * ako lookup pukne, vraca string id aktora da audit zapis ostane upotrebljiv.
+     *
+     * @param actorId id supervizora
+     * @return citljivo ime ili string id
+     */
+    private String resolveActorName(Long actorId) {
+        try {
+            EmployeeDto employee = employeeClient.getEmployee(actorId);
+            if (employee != null) {
+                String fullName = buildFullName(employee.getIme(), employee.getPrezime());
+                if (!fullName.isEmpty()) {
+                    return fullName;
+                }
+            }
+        } catch (Exception ex) {
+            log.debug("audit: ne mogu da razresim ime aktora {}: {}", actorId, ex.toString());
+        }
+        return String.valueOf(actorId);
     }
 
     private void collectTaxForPeriod(LocalDateTime start, LocalDateTime end) {
@@ -151,10 +218,13 @@ public class TaxServiceImpl implements TaxService {
                 AccountDetailsDto governmentAccount = accountClient.getGovernmentBankAccountRsd();
                 BigDecimal taxInRsd = convertTaxToRsd(entry.currency(), entry.taxAmount());
 
+                // fromAmount is debited from the source account in its native currency
+                // (Celina 3, Napomena 1); toAmount is credited to the state RSD account
+                // after conversion (Napomena 2: the state only has an RSD account).
                 PaymentDto payment = new PaymentDto(
                         sourceAccount.getAccountNumber(),
                         governmentAccount.getAccountNumber(),
-                        taxInRsd,
+                        entry.taxAmount(),
                         taxInRsd,
                         BigDecimal.ZERO,
                         entry.userId()

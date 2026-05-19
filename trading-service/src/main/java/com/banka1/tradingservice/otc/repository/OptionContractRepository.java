@@ -20,6 +20,23 @@ public interface OptionContractRepository extends JpaRepository<OptionContract, 
     List<OptionContract> findByStatusAndSettlementDateBefore(OptionContractStatus status, LocalDate before);
 
     /**
+     * WP-15 (Celina 4.1): ugovori za koje treba poslati "uskoro istice"
+     * podsetnik — {@code ACTIVE}, {@code settlementDate} unutar reminder
+     * prozora ({@code <= cutoff}) i jos nije poslat podsetnik
+     * ({@code expiryReminderSent = false}).
+     *
+     * <p>Koristi ga {@link com.banka1.tradingservice.otc.scheduler.OtcExpiryReminderScheduler}.
+     * {@code cutoff} se racuna kao {@code today + N} dana; vec istekli ugovori
+     * (settlementDate u proslosti) takodje uleti u opseg i dobijaju podsetnik
+     * pre nego sto ih expire-cron prebaci u {@code EXPIRED}.
+     */
+    @Query("SELECT c FROM OptionContract c "
+            + "WHERE c.status = com.banka1.tradingservice.otc.domain.OptionContractStatus.ACTIVE "
+            + "AND c.settlementDate <= :cutoff "
+            + "AND c.expiryReminderSent = false")
+    List<OptionContract> findExpiringForReminder(@Param("cutoff") LocalDate cutoff);
+
+    /**
      * PR_32 Phase 12 KRIT #3: sumira amount-e svih jos uvek zivih ugovora
      * gde je dati user prodavac konkretnog ticker-a. Koristi se u
      * {@link com.banka1.tradingservice.otc.service.OtcService#accept(Long, Long)}

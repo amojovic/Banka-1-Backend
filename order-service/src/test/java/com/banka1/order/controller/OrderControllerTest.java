@@ -3,6 +3,8 @@ package com.banka1.order.controller;
 import com.banka1.order.dto.OrderOverviewResponse;
 import com.banka1.order.dto.OrderResponse;
 import com.banka1.order.dto.PartialCancelOrderRequest;
+import com.banka1.order.entity.enums.ListingType;
+import com.banka1.order.entity.enums.OrderDirection;
 import com.banka1.order.entity.enums.OrderOverviewStatusFilter;
 import com.banka1.order.entity.enums.OrderStatus;
 import com.banka1.order.service.OrderCreationService;
@@ -15,6 +17,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PagedModel;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -66,14 +69,16 @@ class OrderControllerTest {
         row.setId(10L);
         row.setUserId(42L);
         row.setStatus(OrderStatus.APPROVED);
-        when(orderCreationService.getMyOrders(any())).thenReturn(List.of(row));
+        when(orderCreationService.getMyOrders(any(), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(row)));
 
-        ResponseEntity<List<OrderResponse>> response = controller.getMyOrders(jwtPrincipal("42", List.of("CLIENT_TRADING")));
+        ResponseEntity<PagedModel<OrderResponse>> response = controller.getMyOrders(
+                jwtPrincipal("42", List.of("CLIENT_TRADING")), null, null, null, null, null, 0, 20);
 
-        assertThat(response.getBody()).hasSize(1);
-        assertThat(response.getBody().getFirst().getUserId()).isEqualTo(42L);
+        assertThat(response.getBody().getContent()).hasSize(1);
+        assertThat(response.getBody().getContent().getFirst().getUserId()).isEqualTo(42L);
         verify(orderCreationService).getMyOrders(argThat(user ->
-                user.userId().equals(42L) && user.roles().contains("CLIENT_TRADING")));
+                user.userId().equals(42L) && user.roles().contains("CLIENT_TRADING")), any(), any(Pageable.class));
     }
 
     @Test
@@ -81,10 +86,12 @@ class OrderControllerTest {
         assertGetMapping("getOrders");
         assertPreAuthorize("getOrders", "hasRole('SUPERVISOR')");
 
-        Method myOrders = OrderController.class.getDeclaredMethod("getMyOrders", Jwt.class);
+        Method myOrders = OrderController.class.getDeclaredMethod("getMyOrders", Jwt.class,
+                OrderStatus.class, OrderDirection.class, ListingType.class,
+                java.time.LocalDate.class, java.time.LocalDate.class, int.class, int.class);
         assertThat(myOrders.getAnnotation(GetMapping.class).value()).containsExactly("/my-orders");
         assertThat(myOrders.getAnnotation(PreAuthorize.class).value())
-                .isEqualTo("hasAnyRole('CLIENT_BASIC','CLIENT_TRADING','CLIENT')");
+                .isEqualTo("hasAnyRole('CLIENT_BASIC','CLIENT_TRADING','CLIENT','AGENT','SUPERVISOR')");
 
         assertPutMapping("approveOrder", "/{id}/approve");
         assertPreAuthorize("approveOrder", "hasRole('SUPERVISOR')");

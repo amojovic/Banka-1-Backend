@@ -74,6 +74,18 @@ public class InvestmentFund {
     @Column(name = "datum_kreiranja", nullable = false)
     private LocalDate datumKreiranja = LocalDate.now();
 
+    /**
+     * WP-17 (Celina 4.3): politika obrade dividende koju fond primi po hartiji
+     * koju drzi. Default {@link FundDividendPolicy#REINVEST}. Kolonu definise
+     * Liquibase changeset {@code trading-otc/015-fund-dividend-policy.sql}
+     * ({@code VARCHAR(16) NOT NULL DEFAULT 'REINVEST'}); mapiranje mora tacno
+     * odgovarati semi jer trading-service radi sa {@code ddl-auto=validate}.
+     */
+    @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(name = "dividend_policy", nullable = false, length = 16)
+    private FundDividendPolicy dividendPolicy = FundDividendPolicy.REINVEST;
+
     @Column(name = "deleted", nullable = false)
     private boolean deleted = false;
 

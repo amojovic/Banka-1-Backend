@@ -28,12 +28,32 @@ public class NotificationService {
     /**
      * Resolves the final rendered email content from request variables and templates.
      *
+     * <p>This is the email-delivery path and requires a deliverable {@code userEmail}. For the
+     * in-app channel, which carries no email address, use {@link #renderContent} instead.
+     *
      * @param request payload from the broker containing recipient and template values
      * @param type event type used to resolve the concrete email template
      * @return resolved email payload for SMTP delivery
      */
     public ResolvedEmail resolveEmailContent(NotificationRequest request, String type) {
         return NotificationContentResolver.resolve(request, type, templateFactory);
+    }
+
+    /**
+     * Renders the notification subject/body from request variables and templates without
+     * requiring a recipient email address.
+     *
+     * <p>Template content depends only on {@code templateVariables}; the recipient email is
+     * irrelevant to it. This path backs the in-app notification channel, so a missing/blank
+     * {@code userEmail} can never suppress in-app delivery. The notification {@code type} is
+     * still validated.
+     *
+     * @param request payload from the broker containing template values
+     * @param type event type used to resolve the concrete template
+     * @return rendered content; the recipient email mirrors the payload and may be absent
+     */
+    public ResolvedEmail renderContent(NotificationRequest request, String type) {
+        return NotificationContentResolver.render(request, type, templateFactory);
     }
 
     /**

@@ -4,6 +4,7 @@ import com.banka1.clientService.domain.ClientConfirmationToken;
 import com.banka1.clientService.domain.Klijent;
 import com.banka1.clientService.domain.enums.ClientRole;
 import com.banka1.clientService.domain.enums.Pol;
+import com.banka1.clientService.dto.rabbitmq.EmailDto;
 import com.banka1.clientService.dto.requests.ActivateDto;
 import com.banka1.clientService.dto.requests.ForgotPasswordDto;
 import com.banka1.clientService.dto.requests.LoginRequestDto;
@@ -31,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -71,6 +73,8 @@ class AuthServiceImplementationTest {
         ReflectionTestUtils.setField(authService, "urlActivateAccount", "http://localhost/activate?token=");
         ReflectionTestUtils.setField(authService, "urlResetPassword", "http://localhost/reset?token=");
         ReflectionTestUtils.setField(authService, "confirmationTokenExpiration", 5L);
+        ReflectionTestUtils.setField(authService, "accountLockoutMaxAttempts", 5);
+        ReflectionTestUtils.setField(authService, "accountLockoutDurationMinutes", 10L);
         TransactionSynchronizationManager.initSynchronization();
     }
 
@@ -178,6 +182,144 @@ class AuthServiceImplementationTest {
         assertThat(response.getIme()).isEqualTo("Marko");
         assertThat(response.getPrezime()).isEqualTo("Markovic");
         assertThat(response.getEmail()).isEqualTo("marko@banka.com");
+    }
+
+    // ── lockout (Celina 1, Scenario 5) ────────────────────────────────────────
+
+    @Test
+    void loginFailedAttemptIncrementsCounter() {
+        LoginRequestDto dto = loginRequest("marko@banka.com", "pogresna");
+        Klijent klijent = klijent("marko@banka.com", "hashed");
+
+        when(klijentRepository.findByEmail("marko@banka.com")).thenReturn(Optional.of(klijent));
+        when(passwordEncoder.matches("pogresna", "hashed")).thenReturn(false);
+
+        assertThatThrownBy(() -> authService.login(dto)).isInstanceOf(BusinessException.class);
+
+        assertThat(klijent.getFailedLoginAttempts()).isEqualTo(1);
+        assertThat(klijent.getLockedUntil()).isNull();
+        verify(klijentRepository).save(klijent);
+    }
+
+    @Test
+    void loginFiveFailedAttemptsLocksAccount() {
+        LoginRequestDto dto = loginRequest("marko@banka.com", "pogresna");
+        Klijent klijent = klijent("marko@banka.com", "hashed");
+        klijent.setFailedLoginAttempts(4);
+
+        when(klijentRepository.findByEmail("marko@banka.com")).thenReturn(Optional.of(klijent));
+        when(passwordEncoder.matches("pogresna", "hashed")).thenReturn(false);
+
+        assertThatThrownBy(() -> authService.login(dto))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.INVALID_CREDENTIALS);
+
+        assertThat(klijent.getFailedLoginAttempts()).isEqualTo(5);
+        assertThat(klijent.getLockedUntil()).isNotNull();
+        assertThat(klijent.getLockedUntil()).isAfter(LocalDateTime.now().plusMinutes(9));
+        assertThat(klijent.getLockedUntil()).isBefore(LocalDateTime.now().plusMinutes(11));
+    }
+
+    @Test
+    void loginFifthFailurePublishesLockEmailAfterCommit() {
+        LoginRequestDto dto = loginRequest("marko@banka.com", "pogresna");
+        Klijent klijent = klijent("marko@banka.com", "hashed");
+        klijent.setFailedLoginAttempts(4);
+
+        when(klijentRepository.findByEmail("marko@banka.com")).thenReturn(Optional.of(klijent));
+        when(passwordEncoder.matches("pogresna", "hashed")).thenReturn(false);
+
+        assertThatThrownBy(() -> authService.login(dto)).isInstanceOf(BusinessException.class);
+
+        // mejl se salje tek u afterCommit — sinhronizacija mora biti registrovana
+        assertThat(TransactionSynchronizationManager.getSynchronizations()).hasSize(1);
+        verify(rabbitClient, never()).sendEmailNotification(any());
+
+        TransactionSynchronizationManager.getSynchronizations().get(0).afterCommit();
+        verify(rabbitClient).sendEmailNotification(any(EmailDto.class));
+    }
+
+    @Test
+    void loginBelowThresholdDoesNotPublishLockEmail() {
+        LoginRequestDto dto = loginRequest("marko@banka.com", "pogresna");
+        Klijent klijent = klijent("marko@banka.com", "hashed");
+        klijent.setFailedLoginAttempts(2);
+
+        when(klijentRepository.findByEmail("marko@banka.com")).thenReturn(Optional.of(klijent));
+        when(passwordEncoder.matches("pogresna", "hashed")).thenReturn(false);
+
+        assertThatThrownBy(() -> authService.login(dto)).isInstanceOf(BusinessException.class);
+
+        assertThat(TransactionSynchronizationManager.getSynchronizations()).isEmpty();
+    }
+
+    @Test
+    void loginWhileLockedThrowsAccountLocked() {
+        LoginRequestDto dto = loginRequest("marko@banka.com", "lozinka123");
+        Klijent klijent = klijent("marko@banka.com", "hashed");
+        klijent.setFailedLoginAttempts(5);
+        klijent.setLockedUntil(LocalDateTime.now().plusMinutes(5));
+
+        when(klijentRepository.findByEmail("marko@banka.com")).thenReturn(Optional.of(klijent));
+
+        assertThatThrownBy(() -> authService.login(dto))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.ACCOUNT_LOCKED);
+    }
+
+    @Test
+    void loginAfterLockExpiryIsAllowed() {
+        LoginRequestDto dto = loginRequest("marko@banka.com", "lozinka123");
+        Klijent klijent = klijent("marko@banka.com", "hashed");
+        klijent.setFailedLoginAttempts(5);
+        klijent.setLockedUntil(LocalDateTime.now().minusMinutes(1));
+
+        when(klijentRepository.findByEmail("marko@banka.com")).thenReturn(Optional.of(klijent));
+        when(passwordEncoder.matches("lozinka123", "hashed")).thenReturn(true);
+
+        LoginResponseDto response = authService.login(dto);
+
+        assertThat(response.getToken()).isNotBlank();
+        assertThat(klijent.getFailedLoginAttempts()).isZero();
+        assertThat(klijent.getLockedUntil()).isNull();
+    }
+
+    @Test
+    void loginSuccessResetsFailedAttemptCounter() {
+        LoginRequestDto dto = loginRequest("marko@banka.com", "lozinka123");
+        Klijent klijent = klijent("marko@banka.com", "hashed");
+        klijent.setFailedLoginAttempts(3);
+
+        when(klijentRepository.findByEmail("marko@banka.com")).thenReturn(Optional.of(klijent));
+        when(passwordEncoder.matches("lozinka123", "hashed")).thenReturn(true);
+
+        authService.login(dto);
+
+        assertThat(klijent.getFailedLoginAttempts()).isZero();
+        assertThat(klijent.getLockedUntil()).isNull();
+        verify(klijentRepository).save(klijent);
+    }
+
+    @Test
+    void editPasswordResetClearsLockAndCounter() {
+        Klijent klijent = klijent("marko@banka.com", "old-hash");
+        klijent.setAktivan(true);
+        klijent.setFailedLoginAttempts(5);
+        klijent.setLockedUntil(LocalDateTime.now().plusMinutes(5));
+        ClientConfirmationToken token = confirmationToken("hashed-hex", null, klijent);
+        token.setId(1L);
+        ActivateDto dto = new ActivateDto(1L, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Password12");
+
+        when(confirmationTokenRepository.findById(1L)).thenReturn(Optional.of(token));
+        when(tokenService.sha256Hex(dto.getConfirmationToken())).thenReturn("hashed-hex");
+        when(passwordEncoder.encode("Password12")).thenReturn("new-hash");
+
+        authService.editPassword(dto, false);
+
+        assertThat(klijent.getFailedLoginAttempts()).isZero();
+        assertThat(klijent.getLockedUntil()).isNull();
     }
 
     // ── check ─────────────────────────────────────────────────────────────────

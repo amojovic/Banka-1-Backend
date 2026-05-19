@@ -45,4 +45,27 @@
     <!-- DEV-only normalized RSD-only multi-fund fixtures. -->
     <include file="db/changelog/trading-otc/010-fund-seed-rsd-multi-funds.sql"/>
 
+    <!-- WP-2: centralizovani audit log (audit_log tabela + indeksi). -->
+    <include file="db/changelog/trading-otc/011-audit-log.sql"/>
+
+    <!-- WP-14: kvartalna isplata dividende (dividend_payouts tabela + indeksi). -->
+    <include file="db/changelog/trading-otc/012-dividend-payouts.sql"/>
+
+    <!-- WP-15: expiry-reminder idempotencija (option_contracts.expiry_reminder_sent). -->
+    <include file="db/changelog/trading-otc/013-option-contract-reminder-flag.sql"/>
+
+    <!-- WP-16: OTC pregovor istorija (otc_offer_revisions tabela + indeksi). -->
+    <include file="db/changelog/trading-otc/014-otc-offer-revisions.sql"/>
+
+    <!-- WP-17: per-fond politika obrade dividende (investment_funds.dividend_policy). -->
+    <include file="db/changelog/trading-otc/015-fund-dividend-policy.sql"/>
+
+    <!-- WP-18: istorijski snapshot vrednosti fonda (fund_value_snapshots tabela). -->
+    <include file="db/changelog/trading-otc/016-fund-value-snapshots.sql"/>
+
+    <!-- WP-19 (W19): DEV-only seed istorijskih fund_value_snapshots redova (9 meseci
+         po dev seed fondu) da statistika fonda iz WP-18 ima podatke na svezem
+         stack-u. context:dev — preskace se u prod. -->
+    <include file="db/changelog/trading-otc/017-dev-fund-value-snapshots.sql"/>
+
 </databaseChangeLog>

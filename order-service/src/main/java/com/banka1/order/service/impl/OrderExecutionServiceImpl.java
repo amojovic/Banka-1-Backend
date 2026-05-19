@@ -20,6 +20,8 @@ import com.banka1.order.entity.enums.OrderDirection;
 import com.banka1.order.entity.enums.OrderStatus;
 import com.banka1.order.entity.enums.OrderType;
 import com.banka1.order.entity.enums.PurchaseFor;
+import com.banka1.order.rabbitmq.OrderNotificationFactory;
+import com.banka1.order.rabbitmq.OrderNotificationProducer;
 import com.banka1.order.repository.ActuaryInfoRepository;
 import com.banka1.order.repository.OrderRepository;
 import com.banka1.order.repository.PortfolioRepository;
@@ -31,6 +33,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -101,6 +105,8 @@ public class OrderExecutionServiceImpl implements OrderExecutionService {
     private final ObjectProvider<OrderExecutionService> selfProvider;
     private final TaskScheduler orderExecutionTaskScheduler;
     private final TradingServiceClient tradingServiceClient;
+    private final OrderNotificationProducer orderNotificationProducer;
+    private final OrderNotificationFactory orderNotificationFactory;
 
     private static final long INITIAL_EXECUTION_DELAY_MILLIS = 60_000L;
 
@@ -193,11 +199,55 @@ public class OrderExecutionServiceImpl implements OrderExecutionService {
         finalizeActuaryExposure(managedOrder, listing.getCurrency(), grossChunkAmount);
 
         managedOrder.setRemainingPortions(managedOrder.getRemainingPortions() - quantityToExecute);
-        if (managedOrder.getRemainingPortions() == 0) {
+        boolean fullyExecuted = managedOrder.getRemainingPortions() == 0;
+        if (fullyExecuted) {
             managedOrder.setIsDone(true);
             managedOrder.setStatus(OrderStatus.DONE);
         }
         orderRepository.save(managedOrder);
+        publishExecutionNotification(managedOrder, quantityToExecute, fullyExecuted);
+    }
+
+    /**
+     * Publishes the lifecycle notification for an executed portion: an
+     * {@code order.executed} event when the fill completed the order, or an
+     * {@code order.partial_fill} event when units remain outstanding.
+     *
+     * <p>The publish is registered to run strictly after the execution
+     * transaction commits, so a rolled-back portion never emits a false fill
+     * notification. When no transaction is active (e.g. unit tests) it runs
+     * immediately. Notification failures are best-effort and never abort
+     * execution.</p>
+     *
+     * @param order          the order after this portion was applied
+     * @param filledQuantity number of units executed by this portion
+     * @param fullyExecuted  whether this portion completed the order
+     */
+    private void publishExecutionNotification(Order order, int filledQuantity, boolean fullyExecuted) {
+        Runnable publish = () -> {
+            try {
+                if (fullyExecuted) {
+                    orderNotificationProducer.sendOrderExecuted(
+                            orderNotificationFactory.build(order, OrderStatus.DONE));
+                } else {
+                    orderNotificationProducer.sendOrderPartialFill(
+                            orderNotificationFactory.buildPartialFill(order, filledQuantity));
+                }
+            } catch (RuntimeException ex) {
+                log.warn("Failed to publish order {} notification for order {}",
+                        fullyExecuted ? "executed" : "partial-fill", order.getId(), ex);
+            }
+        };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    publish.run();
+                }
+            });
+        } else {
+            publish.run();
+        }
     }
 
     private boolean activateIfEligible(Order order, StockListingDto listing) {

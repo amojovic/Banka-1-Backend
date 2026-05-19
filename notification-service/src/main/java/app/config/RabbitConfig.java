@@ -171,6 +171,101 @@ public class RabbitConfig {
     }
 
     /**
+     * Binds the notification queue to the exchange for transaction events.
+     *
+     * @param notificationServiceQueue queue bean
+     * @param employeeEventsExchange exchange bean
+     * @param transactionRoutingKey routing-key pattern from configuration
+     * @return exchange-to-queue binding for transaction routing keys
+     */
+    @Bean
+    public Binding transactionNotificationBinding(
+            Queue notificationServiceQueue,
+            TopicExchange employeeEventsExchange,
+            @Value("${notification.rabbit.transaction-routing-key}") String transactionRoutingKey
+    ) {
+        return BindingBuilder.bind(notificationServiceQueue)
+                .to(employeeEventsExchange)
+                .with(transactionRoutingKey);
+    }
+
+    /**
+     * Binds the notification queue to the exchange for transfer events.
+     *
+     * @param notificationServiceQueue queue bean
+     * @param employeeEventsExchange exchange bean
+     * @param transferRoutingKey routing-key pattern from configuration
+     * @return exchange-to-queue binding for transfer routing keys
+     */
+    @Bean
+    public Binding transferNotificationBinding(
+            Queue notificationServiceQueue,
+            TopicExchange employeeEventsExchange,
+            @Value("${notification.rabbit.transfer-routing-key}") String transferRoutingKey
+    ) {
+        return BindingBuilder.bind(notificationServiceQueue)
+                .to(employeeEventsExchange)
+                .with(transferRoutingKey);
+    }
+
+    /**
+     * Binds the notification queue to the exchange for account events.
+     *
+     * @param notificationServiceQueue queue bean
+     * @param employeeEventsExchange exchange bean
+     * @param accountRoutingKey routing-key pattern from configuration
+     * @return exchange-to-queue binding for account routing keys
+     */
+    @Bean
+    public Binding accountNotificationBinding(
+            Queue notificationServiceQueue,
+            TopicExchange employeeEventsExchange,
+            @Value("${notification.rabbit.account-routing-key}") String accountRoutingKey
+    ) {
+        return BindingBuilder.bind(notificationServiceQueue)
+                .to(employeeEventsExchange)
+                .with(accountRoutingKey);
+    }
+
+    /**
+     * Binds the notification queue to the exchange for OTC events.
+     *
+     * @param notificationServiceQueue queue bean
+     * @param employeeEventsExchange exchange bean
+     * @param otcRoutingKey routing-key pattern from configuration
+     * @return exchange-to-queue binding for OTC routing keys
+     */
+    @Bean
+    public Binding otcNotificationBinding(
+            Queue notificationServiceQueue,
+            TopicExchange employeeEventsExchange,
+            @Value("${notification.rabbit.otc-routing-key}") String otcRoutingKey
+    ) {
+        return BindingBuilder.bind(notificationServiceQueue)
+                .to(employeeEventsExchange)
+                .with(otcRoutingKey);
+    }
+
+    /**
+     * Binds the notification queue to the exchange for price-alert events.
+     *
+     * @param notificationServiceQueue queue bean
+     * @param employeeEventsExchange exchange bean
+     * @param priceRoutingKey routing-key pattern from configuration
+     * @return exchange-to-queue binding for price-alert routing keys
+     */
+    @Bean
+    public Binding priceNotificationBinding(
+            Queue notificationServiceQueue,
+            TopicExchange employeeEventsExchange,
+            @Value("${notification.rabbit.price-routing-key}") String priceRoutingKey
+    ) {
+        return BindingBuilder.bind(notificationServiceQueue)
+                .to(employeeEventsExchange)
+                .with(priceRoutingKey);
+    }
+
+    /**
      * Converts RabbitMQ JSON payloads ==> to/from ==> Java objects.
      *
      * @return Jackson-based message converter

@@ -1,5 +1,6 @@
 package com.banka1.credit_service.service.implementation;
 
+import com.banka1.credit_service.config.LoanInterestRateProperties;
 import com.banka1.credit_service.domain.Installment;
 import com.banka1.credit_service.domain.Loan;
 import com.banka1.credit_service.domain.LoanRequest;
@@ -83,6 +84,9 @@ class LoanServiceImplementationTest {
     void setUp() {
         ReflectionTestUtils.setField(service, "appPropertiesId", "id");
         ReflectionTestUtils.setField(service, "roles", "roles");
+        // PR_29: LoanServiceImplementation sada zahteva injektovan LoanInterestRateProperties.
+        // Koristimo realan objekat sa default vrednostima (isto sto bi Spring vezao iz properties-a).
+        ReflectionTestUtils.setField(service, "interestRateProperties", new LoanInterestRateProperties());
         service.setReferenceRate(new BigDecimal("0.0010"));
     }
 
@@ -109,6 +113,8 @@ class LoanServiceImplementationTest {
         when(accountService.getDetails(dto.getAccountNumber())).thenReturn(account);
         when(loanRequestRepository.save(any(LoanRequest.class))).thenReturn(persisted);
 
+        TransactionSynchronizationManager.initSynchronization();
+
         LoanRequestResponseDto response = service.request(jwt(77L, "CLIENT_BASIC"), dto);
 
         assertThat(response.getId()).isEqualTo(10L);
@@ -121,6 +127,60 @@ class LoanServiceImplementationTest {
         assertThat(saved.getClientId()).isEqualTo(77L);
         assertThat(saved.getUserEmail()).isEqualTo("pera@test.com");
         assertThat(saved.getUsername()).isEqualTo("pera");
+    }
+
+    @Test
+    void requestPublishesCreditCreatedNotificationAfterCommit() {
+        LoanRequestDto dto = validRequestDto();
+        AccountDetailsResponseDto account = new AccountDetailsResponseDto(77L, CurrencyCode.RSD, "pera@test.com", "pera");
+        LoanRequest persisted = new LoanRequest(
+                dto.getLoanType(), dto.getInterestType(), dto.getAmount(), dto.getCurrency(), dto.getPurpose(),
+                dto.getMonthlySalary(), dto.getEmploymentStatus(), dto.getCurrentEmploymentPeriod(),
+                dto.getRepaymentPeriod(), dto.getContactPhone(), dto.getAccountNumber(), 77L,
+                Status.PENDING, "pera@test.com", "pera"
+        );
+        persisted.setId(10L);
+        persisted.setCreatedAt(LocalDateTime.of(2026, 4, 9, 20, 0));
+
+        when(accountService.getDetails(dto.getAccountNumber())).thenReturn(account);
+        when(loanRequestRepository.save(any(LoanRequest.class))).thenReturn(persisted);
+
+        TransactionSynchronizationManager.initSynchronization();
+
+        service.request(jwt(77L, "CLIENT_BASIC"), dto);
+
+        // Pre commit-a nista nije poslato.
+        verify(rabbitClient, never()).sendEmailNotification(any());
+
+        TransactionSynchronizationManager.getSynchronizations().getFirst().afterCommit();
+
+        ArgumentCaptor<EmailDto> emailCaptor = ArgumentCaptor.forClass(EmailDto.class);
+        verify(rabbitClient).sendEmailNotification(emailCaptor.capture());
+        EmailDto sent = emailCaptor.getValue();
+        assertThat(sent.getEmailType()).isEqualTo(EmailType.CREDIT_CREATED);
+        assertThat(sent.getUserEmail()).isEqualTo("pera@test.com");
+        assertThat(sent.getUsername()).isEqualTo("pera");
+        assertThat(sent.getCreditId()).isEqualTo(10L);
+        // WP-7: in-app recipient propagacija.
+        assertThat(sent.getRecipientUserId()).isEqualTo(77L);
+        assertThat(sent.getRecipientType()).isEqualTo("CLIENT");
+        assertThat(sent.getTemplateVariables()).containsEntry("creditId", "10");
+    }
+
+    @Test
+    void requestDoesNotPublishWhenValidationFails() {
+        LoanRequestDto dto = validRequestDto();
+        dto.setLoanType(LoanType.STAMBENI);
+        dto.setRepaymentPeriod(61);
+
+        TransactionSynchronizationManager.initSynchronization();
+
+        assertThatThrownBy(() -> service.request(jwt(77L, "CLIENT_BASIC"), dto))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        // Validacija pada pre upisa — nijedna sinhronizacija se ne registruje.
+        assertThat(TransactionSynchronizationManager.getSynchronizations()).isEmpty();
+        verify(rabbitClient, never()).sendEmailNotification(any());
     }
 
     @Test
@@ -220,8 +280,18 @@ class LoanServiceImplementationTest {
 
         ArgumentCaptor<EmailDto> emailCaptor = ArgumentCaptor.forClass(EmailDto.class);
         verify(rabbitClient).sendEmailNotification(emailCaptor.capture());
-        assertThat(emailCaptor.getValue().getEmailType()).isEqualTo(EmailType.CREDIT_APPROVED);
-        assertThat(emailCaptor.getValue().getApprovedAmount()).isEqualByComparingTo(request.getAmount());
+        EmailDto approvalEmail = emailCaptor.getValue();
+        assertThat(approvalEmail.getEmailType()).isEqualTo(EmailType.CREDIT_APPROVED);
+        assertThat(approvalEmail.getApprovedAmount()).isEqualByComparingTo(request.getAmount());
+        // WP-7b: creditId mora biti id odobrenog kredita (loan id 100L), ne clientId.
+        assertThat(approvalEmail.getCreditId()).isEqualTo(createdLoan.getId());
+        // WP-7b: CREDIT_APPROVED sablon renderuje {{creditId}} i {{approvedAmount}}.
+        assertThat(approvalEmail.getTemplateVariables())
+                .containsEntry("creditId", String.valueOf(createdLoan.getId()))
+                .containsEntry("approvedAmount", request.getAmount().toPlainString());
+        // WP-7: in-app recipient propagacija ka klijentu-vlasniku kredita.
+        assertThat(approvalEmail.getRecipientUserId()).isEqualTo(request.getClientId());
+        assertThat(approvalEmail.getRecipientType()).isEqualTo("CLIENT");
     }
 
     @Test
@@ -243,7 +313,14 @@ class LoanServiceImplementationTest {
         ArgumentCaptor<EmailDto> emailCaptor = ArgumentCaptor.forClass(EmailDto.class);
         verify(rabbitClient).sendEmailNotification(emailCaptor.capture());
         assertThat(emailCaptor.getValue().getEmailType()).isEqualTo(EmailType.CREDIT_DENIED);
-        assertThat(emailCaptor.getValue().getCreditId()).isEqualTo(request.getClientId());
+        // WP-7b: creditId mora biti id kreditnog zahteva (15L), ne clientId — sablon
+        // CREDIT_DECLINED renderuje {{creditId}}.
+        assertThat(emailCaptor.getValue().getCreditId()).isEqualTo(request.getId());
+        assertThat(emailCaptor.getValue().getTemplateVariables())
+                .containsEntry("creditId", String.valueOf(request.getId()));
+        // WP-7: in-app recipient propagacija ka klijentu-vlasniku kredita.
+        assertThat(emailCaptor.getValue().getRecipientUserId()).isEqualTo(request.getClientId());
+        assertThat(emailCaptor.getValue().getRecipientType()).isEqualTo("CLIENT");
     }
 
     @Test
@@ -372,8 +449,18 @@ class LoanServiceImplementationTest {
 
         ArgumentCaptor<EmailDto> emailCaptor = ArgumentCaptor.forClass(EmailDto.class);
         verify(rabbitClient).sendEmailNotification(emailCaptor.capture());
-        assertThat(emailCaptor.getValue().getEmailType()).isEqualTo(EmailType.CREDIT_INSTALLMENT_FAILED);
-        assertThat(emailCaptor.getValue().getHours()).isEqualTo(72);
+        EmailDto failureEmail = emailCaptor.getValue();
+        assertThat(failureEmail.getEmailType()).isEqualTo(EmailType.CREDIT_INSTALLMENT_FAILED);
+        assertThat(failureEmail.getHours()).isEqualTo(72);
+        // WP-7b: CREDIT_INSTALLMENT_FAILED sablon renderuje {{creditId}},
+        // {{installmentAmount}} i {{hours}}.
+        assertThat(failureEmail.getTemplateVariables())
+                .containsEntry("creditId", String.valueOf(loan.getId()))
+                .containsEntry("installmentAmount", installment.getInstallmentAmount().toPlainString())
+                .containsEntry("hours", "72");
+        // WP-7: in-app recipient propagacija ka klijentu-vlasniku kredita.
+        assertThat(failureEmail.getRecipientUserId()).isEqualTo(77L);
+        assertThat(failureEmail.getRecipientType()).isEqualTo("CLIENT");
     }
 
     @Test
@@ -401,8 +488,15 @@ class LoanServiceImplementationTest {
 
         ArgumentCaptor<EmailDto> emailCaptor = ArgumentCaptor.forClass(EmailDto.class);
         verify(rabbitClient).sendEmailNotification(emailCaptor.capture());
-        assertThat(emailCaptor.getValue().getEmailType()).isEqualTo(EmailType.CREDIT_INSTALLMENT_FAILED);
-        assertThat(emailCaptor.getValue().getHours()).isEqualTo(24);
+        EmailDto failureEmail = emailCaptor.getValue();
+        assertThat(failureEmail.getEmailType()).isEqualTo(EmailType.CREDIT_INSTALLMENT_FAILED);
+        assertThat(failureEmail.getHours()).isEqualTo(24);
+        // WP-7b: CREDIT_INSTALLMENT_FAILED sablon renderuje {{creditId}},
+        // {{installmentAmount}} i {{hours}}.
+        assertThat(failureEmail.getTemplateVariables())
+                .containsEntry("creditId", String.valueOf(loan.getId()))
+                .containsEntry("installmentAmount", installment.getInstallmentAmount().toPlainString())
+                .containsEntry("hours", "24");
     }
 
     @Test

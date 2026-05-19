@@ -13,14 +13,18 @@ import com.banka1.account_service.dto.response.AccountResponseDto;
 import com.banka1.account_service.dto.response.CardResponseDto;
 import com.banka1.account_service.dto.response.VerificationStatusResponse;
 import com.banka1.account_service.exception.BusinessException;
+import com.banka1.account_service.rabbitMQ.EmailDto;
+import com.banka1.account_service.rabbitMQ.EmailType;
 import com.banka1.account_service.rabbitMQ.RabbitClient;
 import com.banka1.account_service.repository.AccountRepository;
 import com.banka1.account_service.rest_client.CardServiceRestClient;
 import com.banka1.account_service.rest_client.RestClientService;
 import com.banka1.account_service.rest_client.VerificationService;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -60,6 +64,13 @@ class ClientServiceImplementationTest {
         service = new ClientServiceImplementation(accountRepository, verificationService, rabbitClient,
                 restClientService, cardServiceRestClient);
         ReflectionTestUtils.setField(service, "appPropertiesId", "userId");
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 
     // ──────────────────── findMyAccounts ────────────────────
@@ -157,11 +168,75 @@ class ClientServiceImplementationTest {
         EditAccountLimitDto dto = new EditAccountLimitDto(
                 new BigDecimal("500"), new BigDecimal("10000"), 77L);
 
+        TransactionSynchronizationManager.initSynchronization();
+
         String result = service.editAccountLimit(jwt(OWNER_ID), 1L, dto);
 
         assertThat(result).isEqualTo("Uspesno setovani limiti");
         assertThat(ca.getDnevniLimit()).isEqualByComparingTo("500");
         assertThat(ca.getMesecniLimit()).isEqualByComparingTo("10000");
+    }
+
+    @Test
+    void editAccountLimitPublishesLimitChangedNotificationAfterCommit() {
+        CheckingAccount ca = activeCheckingAccount();
+        ca.setEmail("vlasnik@test.com");
+        ca.setUsername("vlasnik");
+        when(accountRepository.findById(1L)).thenReturn(Optional.of(ca));
+        VerificationStatusResponse ok = new VerificationStatusResponse();
+        ok.setStatus("VERIFIED");
+        when(verificationService.getStatus(anyLong())).thenReturn(ok);
+
+        EditAccountLimitDto dto = new EditAccountLimitDto(
+                new BigDecimal("500"), new BigDecimal("10000"), 77L);
+
+        TransactionSynchronizationManager.initSynchronization();
+
+        service.editAccountLimit(jwt(OWNER_ID), 1L, dto);
+
+        // Pre commit-a nista nije poslato.
+        verify(rabbitClient, never()).sendEmailNotification(any());
+
+        TransactionSynchronizationManager.getSynchronizations().getFirst().afterCommit();
+
+        ArgumentCaptor<EmailDto> captor = ArgumentCaptor.forClass(EmailDto.class);
+        verify(rabbitClient).sendEmailNotification(captor.capture());
+        EmailDto sent = captor.getValue();
+        assertThat(sent.getEmailType()).isEqualTo(EmailType.ACCOUNT_LIMIT_CHANGED);
+        assertThat(sent.getUserEmail()).isEqualTo("vlasnik@test.com");
+        assertThat(sent.getUsername()).isEqualTo("vlasnik");
+        // recipientUserId mora biti id vlasnika racuna, recipientType CLIENT.
+        assertThat(sent.getRecipientUserId()).isEqualTo(OWNER_ID);
+        assertThat(sent.getRecipientType()).isEqualTo("CLIENT");
+        // templateVariables nose staru i novu vrednost limita.
+        assertThat(sent.getTemplateVariables())
+                .containsEntry("accountNumber", "111000110000000011")
+                .containsEntry("oldDailyLimit", "250000")
+                .containsEntry("newDailyLimit", "500")
+                .containsEntry("oldMonthlyLimit", "1000000")
+                .containsEntry("newMonthlyLimit", "10000");
+    }
+
+    @Test
+    void editAccountLimitDoesNotPublishWhenVerificationFails() {
+        CheckingAccount ca = activeCheckingAccount();
+        ca.setEmail("vlasnik@test.com");
+        ca.setUsername("vlasnik");
+        when(accountRepository.findById(1L)).thenReturn(Optional.of(ca));
+        VerificationStatusResponse fail = new VerificationStatusResponse();
+        fail.setStatus("PENDING");
+        when(verificationService.getStatus(anyLong())).thenReturn(fail);
+
+        EditAccountLimitDto dto = new EditAccountLimitDto(
+                new BigDecimal("500"), new BigDecimal("10000"), 77L);
+
+        TransactionSynchronizationManager.initSynchronization();
+
+        assertThatThrownBy(() -> service.editAccountLimit(jwt(OWNER_ID), 1L, dto))
+                .isInstanceOf(BusinessException.class);
+
+        // Verifikacija pada pre setovanja limita — nijedna sinhronizacija se ne registruje.
+        assertThat(TransactionSynchronizationManager.getSynchronizations()).isEmpty();
     }
 
     @Test
@@ -277,7 +352,11 @@ class ClientServiceImplementationTest {
 
             service.editStatus(jwt(OWNER_ID), "111000110000000011", new EditStatus(Status.INACTIVE));
 
-            verify(rabbitClient).sendEmailNotification(any());
+            ArgumentCaptor<EmailDto> captor = ArgumentCaptor.forClass(EmailDto.class);
+            verify(rabbitClient).sendEmailNotification(captor.capture());
+            assertThat(captor.getValue().getEmailType()).isEqualTo(EmailType.ACCOUNT_DEACTIVATED);
+            assertThat(captor.getValue().getRecipientUserId()).isEqualTo(OWNER_ID);
+            assertThat(captor.getValue().getRecipientType()).isEqualTo("CLIENT");
             verify(rabbitClient).sendCardEvent(any());
         }
     }

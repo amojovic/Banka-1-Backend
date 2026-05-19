@@ -154,6 +154,16 @@ public class LoanServiceImplementation implements LoanService {
             throw new IllegalArgumentException("Valuta racuna ne odgovara valuti kredita");
         }
         LoanRequest loanRequest=loanRequestRepository.save(new LoanRequest(loanRequestDto.getLoanType(),loanRequestDto.getInterestType(),loanRequestDto.getAmount(),loanRequestDto.getCurrency(),loanRequestDto.getPurpose(),loanRequestDto.getMonthlySalary(),loanRequestDto.getEmploymentStatus(),loanRequestDto.getCurrentEmploymentPeriod(),loanRequestDto.getRepaymentPeriod(),loanRequestDto.getContactPhone(),loanRequestDto.getAccountNumber(),accountDetailsResponseDto.getOwnerId(), Status.PENDING,accountDetailsResponseDto.getEmail(),accountDetailsResponseDto.getUsername()));
+        // Spec Celina 2: klijent dobija notifikaciju kada je kreditni zahtev kreiran.
+        // Salje se posle commit-a kako rollback ne bi izazvao laznu obavest.
+        EmailDto emailDto = new EmailDto(loanRequest.getUserEmail(), loanRequest.getUsername(),
+                loanRequest.getId(), loanRequest.getClientId());
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                rabbitClient.sendEmailNotification(emailDto);
+            }
+        });
         return new LoanRequestResponseDto(loanRequest.getId(),loanRequest.getCreatedAt());
     }
 
@@ -205,14 +215,21 @@ public class LoanServiceImplementation implements LoanService {
             loan.setUsername(loanRequest.getUsername());
             loanRepository.save(loan);
             installmentRepository.save(new Installment(loan,monthlyRate,interest.getEffectiveInterestRate(),loan.getCurrency(),loan.getNextInstallmentDate(),null, PaymentStatus.UNPAID));
-            emailDto=new EmailDto(loanRequest.getUserEmail(),loanRequest.getUsername(), loan.getAmount(), loanRequest.getClientId());
+            // CREDIT_APPROVED: 4. parametar konstruktora je creditId — sablon renderuje
+            // {{creditId}}. Koristi se id odobrenog kredita, ne clientId.
+            emailDto=new EmailDto(loanRequest.getUserEmail(),loanRequest.getUsername(), loan.getAmount(), loan.getId());
             req="ODOBREN";
             clientService.addMarginPermission(loan.getClientId());
         }
         else
         {
-            emailDto=new EmailDto(loanRequest.getUserEmail(),loanRequest.getUsername(),loanRequest.getClientId());
+            // CREDIT_DENIED: 3. parametar konstruktora je creditId — sablon renderuje
+            // {{creditId}}. Ranije je ovde greskom prosledjivan clientId.
+            emailDto=new EmailDto(loanRequest.getUserEmail(),loanRequest.getUsername(),loanRequest.getId());
         }
+        // WP-7: in-app notifikacija ide klijentu-vlasniku kredita.
+        emailDto.setRecipientUserId(loanRequest.getClientId());
+        emailDto.setRecipientType("CLIENT");
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
@@ -257,7 +274,11 @@ public class LoanServiceImplementation implements LoanService {
                 TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                     @Override
                     public void afterCommit() {
-                        rabbitClient.sendEmailNotification(new EmailDto(x.getLoan().getUserEmail(),x.getLoan().getUsername(),x.getLoan().getId(),x.getInstallmentAmount(),copy));
+                        EmailDto installmentFailedEmail = new EmailDto(x.getLoan().getUserEmail(),x.getLoan().getUsername(),x.getLoan().getId(),x.getInstallmentAmount(),copy);
+                        // WP-7: in-app notifikacija ide klijentu-vlasniku kredita.
+                        installmentFailedEmail.setRecipientUserId(x.getLoan().getClientId());
+                        installmentFailedEmail.setRecipientType("CLIENT");
+                        rabbitClient.sendEmailNotification(installmentFailedEmail);
                     }
                 });
                 continue;

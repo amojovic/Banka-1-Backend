@@ -1,5 +1,6 @@
 package com.banka1.order.dto;
 
+import com.banka1.order.entity.enums.ListingType;
 import com.banka1.order.entity.enums.OrderDirection;
 import com.banka1.order.entity.enums.OrderStatus;
 import com.banka1.order.entity.enums.OrderType;
@@ -25,6 +26,15 @@ public class OrderResponse {
 
     /** ID of the security listing being traded. */
     private Long listingId;
+
+    /** Ticker symbol of the traded security (e.g. "AAPL"); null if the listing cannot be resolved. */
+    private String ticker;
+
+    /** Full name of the traded security; null if the listing cannot be resolved. */
+    private String securityName;
+
+    /** Category of the traded security (STOCK, FUTURES, FOREX, OPTION); null if the listing cannot be resolved. */
+    private ListingType listingType;
 
     /** Order type: MARKET, LIMIT, STOP, or STOP_LIMIT. */
     private OrderType orderType;
@@ -56,8 +66,11 @@ public class OrderResponse {
     /** True when all portions of the order have been executed. */
     private Boolean isDone;
 
-    /** Timestamp of the last status change. */
+    /** Timestamp of the last status change (serves as the execution time for DONE orders). */
     private LocalDateTime lastModification;
+
+    /** Timestamp of when the order was created; null for legacy orders without a recorded creation time. */
+    private LocalDateTime createdAt;
 
     /** Number of units still awaiting execution. */
     private Integer remainingPortions;

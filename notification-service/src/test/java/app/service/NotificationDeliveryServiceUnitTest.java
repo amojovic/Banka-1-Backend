@@ -43,6 +43,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -77,6 +78,9 @@ class NotificationDeliveryServiceUnitTest {
 
     @Mock
     private FcmTokenService fcmTokenService;
+
+    @Mock
+    private InAppNotificationService inAppNotificationService;
 
     @Mock
     private Map<String, String> routingKeysMap;
@@ -191,7 +195,7 @@ class NotificationDeliveryServiceUnitTest {
     void handleIncomingMessageMarksDeliveryFailedWithoutRetryOnMailAuthenticationException() {
         NotificationRequest request = new NotificationRequest("Dimitrije", TEST_EMAIL, Map.of());
         when(routingKeysMap.get("EMPLOYEE_CREATED")).thenReturn("EMPLOYEE_CREATED");
-        when(notificationService.resolveEmailContent(request, "EMPLOYEE_CREATED"))
+        when(notificationService.renderContent(request, "EMPLOYEE_CREATED"))
                 .thenReturn(new ResolvedEmail(TEST_EMAIL, "Hello", "Body"));
         doThrow(new MailAuthenticationException("Authentication failed"))
                 .when(notificationService).sendEmail(TEST_EMAIL, "Hello", "Body");
@@ -270,7 +274,7 @@ class NotificationDeliveryServiceUnitTest {
         );
         when(routingKeysMap.get("employee.password_reset"))
                 .thenReturn("EMPLOYEE_PASSWORD_RESET");
-        when(notificationService.resolveEmailContent(request, "EMPLOYEE_PASSWORD_RESET"))
+        when(notificationService.renderContent(request, "EMPLOYEE_PASSWORD_RESET"))
                 .thenReturn(new ResolvedEmail(TEST_EMAIL, "Password Reset Email", "Body"));
 
         runHandleIncomingMessageInTransaction(
@@ -278,7 +282,7 @@ class NotificationDeliveryServiceUnitTest {
         );
 
         verify(notificationDeliveryTxService, never()).persistFailedAudit(any());
-        verify(notificationService).resolveEmailContent(request, "EMPLOYEE_PASSWORD_RESET");
+        verify(notificationService).renderContent(request, "EMPLOYEE_PASSWORD_RESET");
         verify(notificationDeliveryTxService).createPendingDelivery(any(NotificationDelivery.class));
     }
 
@@ -297,7 +301,7 @@ class NotificationDeliveryServiceUnitTest {
         );
         when(routingKeysMap.get("credit.installment_failed"))
                 .thenReturn("CREDIT_INSTALLMENT_FAILED");
-        when(notificationService.resolveEmailContent(request, "CREDIT_INSTALLMENT_FAILED"))
+        when(notificationService.renderContent(request, "CREDIT_INSTALLMENT_FAILED"))
                 .thenReturn(new ResolvedEmail(TEST_EMAIL, "Installment Charge Failed", "Body"));
 
         runHandleIncomingMessageInTransaction(
@@ -305,7 +309,7 @@ class NotificationDeliveryServiceUnitTest {
         );
 
         verify(notificationDeliveryTxService, never()).persistFailedAudit(any());
-        verify(notificationService).resolveEmailContent(request, "CREDIT_INSTALLMENT_FAILED");
+        verify(notificationService).renderContent(request, "CREDIT_INSTALLMENT_FAILED");
         verify(notificationDeliveryTxService).createPendingDelivery(any(NotificationDelivery.class));
     }
 
@@ -520,7 +524,7 @@ class NotificationDeliveryServiceUnitTest {
     void handleIncomingMessagePersistsFailedAuditWhenContentResolutionThrows() {
         NotificationRequest request = new NotificationRequest("Dimitrije", TEST_EMAIL, Map.of());
         when(routingKeysMap.get("EMPLOYEE_CREATED")).thenReturn("EMPLOYEE_CREATED");
-        when(notificationService.resolveEmailContent(request, "EMPLOYEE_CREATED"))
+        when(notificationService.renderContent(request, "EMPLOYEE_CREATED"))
                 .thenThrow(new BusinessException(ErrorCode.EMAIL_CONTENT_RESOLUTION_FAILED, "template error"));
 
         assertThrows(BusinessException.class, () ->
@@ -658,7 +662,7 @@ class NotificationDeliveryServiceUnitTest {
         request.setOperationType("PAYMENT");
         request.setSessionId("99");
         when(routingKeysMap.get("verification.generated")).thenReturn("VERIFICATION_OTP");
-        when(notificationService.resolveEmailContent(request, "VERIFICATION_OTP"))
+        when(notificationService.renderContent(request, "VERIFICATION_OTP"))
                 .thenReturn(new ResolvedEmail(TEST_EMAIL, "OTP", "Body"));
         when(fcmTokenService.findToken(42L)).thenReturn(Optional.of("device-token"));
 
@@ -686,7 +690,7 @@ class NotificationDeliveryServiceUnitTest {
         request.setOperationType("TRANSFER");
         request.setSessionId("11");
         when(routingKeysMap.get("verification.generated")).thenReturn("VERIFICATION_OTP");
-        when(notificationService.resolveEmailContent(request, "VERIFICATION_OTP"))
+        when(notificationService.renderContent(request, "VERIFICATION_OTP"))
                 .thenReturn(new ResolvedEmail(TEST_EMAIL, "OTP", "Body"));
         when(fcmTokenService.findToken(7L)).thenReturn(Optional.empty());
 
@@ -717,7 +721,7 @@ class NotificationDeliveryServiceUnitTest {
         request.setOperationType("PAYMENT");
         request.setSessionId("3");
         when(routingKeysMap.get("verification.generated")).thenReturn("VERIFICATION_OTP");
-        when(notificationService.resolveEmailContent(request, "VERIFICATION_OTP"))
+        when(notificationService.renderContent(request, "VERIFICATION_OTP"))
                 .thenReturn(new ResolvedEmail(TEST_EMAIL, "OTP", "Body"));
         when(fcmTokenService.findToken(5L)).thenReturn(Optional.of("device-token"));
         doThrow(new IllegalStateException("FCM transport down"))
@@ -732,18 +736,41 @@ class NotificationDeliveryServiceUnitTest {
     }
 
     /**
-     * Verifies that non-verification notification types never consult the FCM token
-     * registry and never attempt a push.
+     * Verifies that non-verification notification types are mirrored to a
+     * generic FCM push (WP-1) — they consult the token registry and call
+     * {@code sendPush} (never {@code sendVerificationPush}) when a token exists.
      *
-     * <p>This protects the scope boundary of the FCM branch: only
-     * {@code VERIFICATION_OTP} events are mirrored to mobile pushes.
+     * <p>WP-1 generalized FCM delivery: every consumed event with a registered
+     * client device receives a push, not just {@code VERIFICATION_OTP} events.
      */
     @Test
-    void handleIncomingMessageDoesNotSendFcmPushForNonVerificationNotifications() {
+    void handleIncomingMessageSendsGenericFcmPushForNonVerificationNotifications() {
         NotificationRequest request = new NotificationRequest("Dimitrije", TEST_EMAIL, Map.of());
         request.setClientId(42L);
         when(routingKeysMap.get("EMPLOYEE_CREATED")).thenReturn("EMPLOYEE_CREATED");
-        when(notificationService.resolveEmailContent(request, "EMPLOYEE_CREATED"))
+        when(notificationService.renderContent(request, "EMPLOYEE_CREATED"))
+                .thenReturn(new ResolvedEmail(TEST_EMAIL, "Hello", "Body"));
+        when(fcmTokenService.findToken(42L)).thenReturn(Optional.of("device-token"));
+
+        runHandleIncomingMessageAndCommit(() ->
+                notificationDeliveryService.handleIncomingMessage(request, "EMPLOYEE_CREATED")
+        );
+
+        verify(fcmPushService).sendPush("device-token", "EMPLOYEE_CREATED", "Hello", "Body");
+        verify(fcmPushService, never()).sendVerificationPush(
+                anyString(), anyString(), anyString(), anyString()
+        );
+    }
+
+    /**
+     * Verifies that a non-verification event with no {@code clientId} attempts
+     * no FCM push at all — the token registry is never consulted.
+     */
+    @Test
+    void handleIncomingMessageSkipsFcmPushWhenNoClientId() {
+        NotificationRequest request = new NotificationRequest("Dimitrije", TEST_EMAIL, Map.of());
+        when(routingKeysMap.get("EMPLOYEE_CREATED")).thenReturn("EMPLOYEE_CREATED");
+        when(notificationService.renderContent(request, "EMPLOYEE_CREATED"))
                 .thenReturn(new ResolvedEmail(TEST_EMAIL, "Hello", "Body"));
 
         runHandleIncomingMessageAndCommit(() ->
@@ -751,9 +778,168 @@ class NotificationDeliveryServiceUnitTest {
         );
 
         verify(fcmTokenService, never()).findToken(org.mockito.ArgumentMatchers.anyLong());
-        verify(fcmPushService, never()).sendVerificationPush(
+        verify(fcmPushService, never()).sendPush(
                 anyString(), anyString(), anyString(), anyString()
         );
+    }
+
+    /**
+     * Verifies that processing a consumed event delegates an in-app row write to
+     * {@link InAppNotificationService} carrying the resolved recipient, type and
+     * rendered content.
+     */
+    @Test
+    void handleIncomingMessageCreatesInAppNotificationRow() {
+        NotificationRequest request = new NotificationRequest("Dimitrije", TEST_EMAIL,
+                Map.of("transactionId", "tx-42"));
+        request.setRecipientUserId(7L);
+        request.setRecipientType("CLIENT");
+        when(routingKeysMap.get("transaction.completed")).thenReturn("TRANSACTION_COMPLETED");
+        when(notificationService.renderContent(request, "TRANSACTION_COMPLETED"))
+                .thenReturn(new ResolvedEmail(TEST_EMAIL, "Transakcija", "Telo"));
+
+        runHandleIncomingMessageAndCommit(() ->
+                notificationDeliveryService.handleIncomingMessage(request, "transaction.completed")
+        );
+
+        verify(inAppNotificationService).createForRecipient(
+                7L, "CLIENT", "TRANSACTION_COMPLETED", "Transakcija", "Telo", "tx-42");
+    }
+
+    /**
+     * WP-1b: verifies that a message carrying a {@code recipientUserId} but NO
+     * email address still produces an in-app notification, with no exception and
+     * no email-delivery row.
+     *
+     * <p>In-app and email are independent channels. A missing recipient email
+     * must skip only the email leg — it must never suppress the in-app row or
+     * record the whole message as a failed audit. This is the corrected contract
+     * that decouples the in-app channel from email validation.
+     */
+    @Test
+    void handleIncomingMessageCreatesInAppRowWhenEmailMissing() {
+        NotificationRequest request = new NotificationRequest("Dimitrije", null,
+                new HashMap<>(Map.of("transactionId", "tx-77")));
+        request.setRecipientUserId(9L);
+        request.setRecipientType("CLIENT");
+        when(routingKeysMap.get("transaction.completed")).thenReturn("TRANSACTION_COMPLETED");
+        when(notificationService.renderContent(request, "TRANSACTION_COMPLETED"))
+                .thenReturn(new ResolvedEmail(null, "Transakcija", "Telo"));
+
+        runHandleIncomingMessageAndCommit(() ->
+                notificationDeliveryService.handleIncomingMessage(request, "transaction.completed")
+        );
+
+        verify(inAppNotificationService).createForRecipient(
+                9L, "CLIENT", "TRANSACTION_COMPLETED", "Transakcija", "Telo", "tx-77");
+        // Email channel is skipped entirely — no delivery row, no audit row, no send.
+        verify(notificationDeliveryTxService, never()).createPendingDelivery(any());
+        verify(notificationDeliveryTxService, never()).persistFailedAudit(any());
+        verify(notificationService, never()).sendEmail(any(), any(), any());
+    }
+
+    /**
+     * WP-1b: verifies that a message carrying a {@code recipientUserId} and a
+     * blank (whitespace-only) email is treated like a missing email — the in-app
+     * row still lands and the email leg is skipped.
+     */
+    @Test
+    void handleIncomingMessageCreatesInAppRowWhenEmailBlank() {
+        NotificationRequest request = new NotificationRequest("Dimitrije", "   ",
+                new HashMap<>(Map.of("transactionId", "tx-88")));
+        request.setRecipientUserId(11L);
+        request.setRecipientType("EMPLOYEE");
+        when(routingKeysMap.get("transaction.completed")).thenReturn("TRANSACTION_COMPLETED");
+        when(notificationService.renderContent(request, "TRANSACTION_COMPLETED"))
+                .thenReturn(new ResolvedEmail("   ", "Transakcija", "Telo"));
+
+        runHandleIncomingMessageAndCommit(() ->
+                notificationDeliveryService.handleIncomingMessage(request, "transaction.completed")
+        );
+
+        verify(inAppNotificationService).createForRecipient(
+                11L, "EMPLOYEE", "TRANSACTION_COMPLETED", "Transakcija", "Telo", "tx-88");
+        verify(notificationDeliveryTxService, never()).createPendingDelivery(any());
+        verify(notificationDeliveryTxService, never()).persistFailedAudit(any());
+        verify(notificationService, never()).sendEmail(any(), any(), any());
+    }
+
+    /**
+     * WP-1b: verifies that a message carrying BOTH an email and a
+     * {@code recipientUserId} drives BOTH channels — an email delivery row is
+     * created and sent, and an in-app row is created. This pins the existing
+     * email-present behaviour so the decoupling does not regress it.
+     */
+    @Test
+    void handleIncomingMessageCreatesBothEmailDeliveryAndInAppRowWhenEmailPresent() {
+        NotificationRequest request = new NotificationRequest("Dimitrije", TEST_EMAIL,
+                new HashMap<>(Map.of("transactionId", "tx-99")));
+        request.setRecipientUserId(13L);
+        request.setRecipientType("CLIENT");
+        when(routingKeysMap.get("transaction.completed")).thenReturn("TRANSACTION_COMPLETED");
+        when(notificationService.renderContent(request, "TRANSACTION_COMPLETED"))
+                .thenReturn(new ResolvedEmail(TEST_EMAIL, "Transakcija", "Telo"));
+
+        runHandleIncomingMessageAndCommit(() ->
+                notificationDeliveryService.handleIncomingMessage(request, "transaction.completed")
+        );
+
+        verify(inAppNotificationService).createForRecipient(
+                13L, "CLIENT", "TRANSACTION_COMPLETED", "Transakcija", "Telo", "tx-99");
+        ArgumentCaptor<NotificationDelivery> deliveryCaptor =
+                ArgumentCaptor.forClass(NotificationDelivery.class);
+        verify(notificationDeliveryTxService).createPendingDelivery(deliveryCaptor.capture());
+        NotificationDelivery created = deliveryCaptor.getValue();
+        assertEquals(TEST_EMAIL, created.getRecipientEmail());
+        assertEquals(NotificationDeliveryStatus.SUCCEEDED,
+                deliveriesById.get(created.getDeliveryId()).getStatus());
+        verify(notificationService).sendEmail(TEST_EMAIL, "Transakcija", "Telo");
+    }
+
+    /**
+     * WP-1b: verifies the pre-existing graceful skip in the opposite direction —
+     * a message with an email but NO {@code recipientUserId} drives only the
+     * email channel and creates no in-app row.
+     */
+    @Test
+    void handleIncomingMessageSendsEmailOnlyWhenRecipientUserIdMissing() {
+        NotificationRequest request = new NotificationRequest("Dimitrije", TEST_EMAIL,
+                new HashMap<>(Map.of("transactionId", "tx-55")));
+        // recipientUserId intentionally left null.
+        when(routingKeysMap.get("transaction.completed")).thenReturn("TRANSACTION_COMPLETED");
+        when(notificationService.renderContent(request, "TRANSACTION_COMPLETED"))
+                .thenReturn(new ResolvedEmail(TEST_EMAIL, "Transakcija", "Telo"));
+
+        runHandleIncomingMessageAndCommit(() ->
+                notificationDeliveryService.handleIncomingMessage(request, "transaction.completed")
+        );
+
+        // In-app skips on a null recipientUserId; createForRecipient is still
+        // invoked (it owns the skip), but no email send is suppressed.
+        verify(inAppNotificationService).createForRecipient(
+                null, null, "TRANSACTION_COMPLETED", "Transakcija", "Telo", "tx-55");
+        verify(notificationDeliveryTxService).createPendingDelivery(any(NotificationDelivery.class));
+        verify(notificationService).sendEmail(TEST_EMAIL, "Transakcija", "Telo");
+    }
+
+    /**
+     * WP-1b: verifies that an unknown notification type is still a hard skip —
+     * it is recorded as a failed audit and NO in-app row is created. Type
+     * validation still gates everything; only email-presence was decoupled.
+     */
+    @Test
+    void handleIncomingMessageWithUnknownTypeCreatesNoInAppRow() {
+        NotificationRequest request = new NotificationRequest("Dimitrije", TEST_EMAIL,
+                new HashMap<>(Map.of("transactionId", "tx-66")));
+        request.setRecipientUserId(15L);
+        request.setRecipientType("CLIENT");
+
+        notificationDeliveryService.handleIncomingMessage(request, "transaction.unknown");
+
+        verify(notificationDeliveryTxService).persistFailedAudit(any(NotificationDelivery.class));
+        verifyNoInteractions(inAppNotificationService);
+        verify(notificationDeliveryTxService, never()).createPendingDelivery(any());
+        verify(notificationService, never()).sendEmail(any(), any(), any());
     }
 
     /**

@@ -416,22 +416,33 @@ public class CardRequestServiceImpl implements CardRequestService {
             NotificationRecipient authorizedRecipient,
             Card card
     ) {
-        Set<NotificationRecipient> recipients = new LinkedHashSet<>();
-        recipients.add(new NotificationRecipient(ownerRecipient.displayName(), ownerRecipient.email()));
+        // WP-7: in-app notifikacija ide klijentu-vlasniku (recipientUserId = ownerRecipient.id()).
+        // Ovlasceno lice je samo email-primalac bez client id-a — potrosac graciozno
+        // preskace in-app red kada je recipientUserId null.
+        // Dedup po email-u (kao i raniji Set<NotificationRecipient>) — ako su vlasnik
+        // i ovlasceno lice isti, vlasnikov payload (sa client id-em) ostaje.
+        Map<String, CardNotificationDto> payloadsByEmail = new LinkedHashMap<>();
+        CardNotificationDto ownerPayload = new CardNotificationDto(
+                ownerRecipient.displayName(),
+                ownerRecipient.email(),
+                successTemplateVariables(card)
+        );
+        ownerPayload.setRecipientUserId(ownerRecipient.id());
+        ownerPayload.setRecipientType("CLIENT");
+        payloadsByEmail.put(ownerRecipient.email(), ownerPayload);
         if (authorizedRecipient != null) {
-            recipients.add(authorizedRecipient);
+            payloadsByEmail.putIfAbsent(authorizedRecipient.email(), new CardNotificationDto(
+                    authorizedRecipient.name(),
+                    authorizedRecipient.email(),
+                    successTemplateVariables(card)
+            ));
         }
+        Set<CardNotificationDto> payloads = new LinkedHashSet<>(payloadsByEmail.values());
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                recipients.forEach(recipient -> rabbitClient.sendCardNotification(
-                        CardNotificationType.CARD_REQUEST_SUCCESS,
-                        new CardNotificationDto(
-                                recipient.name(),
-                                recipient.email(),
-                                successTemplateVariables(card)
-                        )
-                ));
+                payloads.forEach(payload -> rabbitClient.sendCardNotification(
+                        CardNotificationType.CARD_REQUEST_SUCCESS, payload));
             }
         });
     }

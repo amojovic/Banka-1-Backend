@@ -1,5 +1,7 @@
 package com.banka1.order.service.impl;
 
+import com.banka1.order.audit.AuditEventDto;
+import com.banka1.order.audit.AuditPublisher;
 import com.banka1.order.client.EmployeeClient;
 import com.banka1.order.dto.ActuaryAgentDto;
 import com.banka1.order.dto.ActuaryProfitDto;
@@ -21,6 +23,8 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.client.HttpClientErrorException;
 
 import java.math.BigDecimal;
@@ -63,6 +67,8 @@ public class ActuaryServiceImpl implements ActuaryService {
     private final EmployeeClient employeeClient;
     /** PR_14 C14.9: za sumiranje komisija po aktuaru. */
     private final TransactionRepository transactionRepository;
+    /** WP-12: producer za centralizovani audit log (Celina 3.5). */
+    private final AuditPublisher auditPublisher;
 
     /**
      * {@inheritDoc}
@@ -121,7 +127,7 @@ public class ActuaryServiceImpl implements ActuaryService {
      */
     @Override
     @Transactional
-    public void setLimit(Long employeeId, SetLimitRequestDto request) {
+    public void setLimit(Long actorId, Long employeeId, SetLimitRequestDto request) {
         EmployeeDto employee = fetchEmployeeOrNotFound(employeeId);
 
         if (Role.ADMIN.matches(employee.getRole())) {
@@ -141,8 +147,11 @@ public class ActuaryServiceImpl implements ActuaryService {
             throw new IllegalArgumentException("Limit cannot be lower than the current used limit of " + info.getUsedLimit() + ".");
         }
 
+        BigDecimal oldLimit = info.getLimit();
         info.setLimit(request.getLimit());
         actuaryInfoRepository.save(info);
+        publishAuditEvent(actorId, "AGENT_LIMIT_CHANGED", employeeId,
+                "Limit promenjen: " + oldLimit + " -> " + request.getLimit());
     }
 
     /**
@@ -150,7 +159,7 @@ public class ActuaryServiceImpl implements ActuaryService {
      */
     @Override
     @Transactional
-    public void resetLimit(Long employeeId) {
+    public void resetLimit(Long actorId, Long employeeId) {
         EmployeeDto employee = fetchEmployeeOrNotFound(employeeId);
 
         if (Role.ADMIN.matches(employee.getRole())) {
@@ -163,9 +172,12 @@ public class ActuaryServiceImpl implements ActuaryService {
         ActuaryInfo info = actuaryInfoRepository.findByEmployeeId(employeeId)
                 .orElseGet(() -> createDefaultActuaryInfo(employeeId));
 
+        BigDecimal oldUsedLimit = info.getUsedLimit();
         info.setUsedLimit(BigDecimal.ZERO);
         info.setReservedLimit(BigDecimal.ZERO);
         actuaryInfoRepository.save(info);
+        publishAuditEvent(actorId, "AGENT_USED_LIMIT_RESET", employeeId,
+                "Iskorisceni limit resetovan: " + oldUsedLimit + " -> 0");
     }
 
     /**
@@ -173,7 +185,7 @@ public class ActuaryServiceImpl implements ActuaryService {
      */
     @Override
     @Transactional
-    public void setNeedApproval(Long employeeId, SetNeedApprovalRequestDto request) {
+    public void setNeedApproval(Long actorId, Long employeeId, SetNeedApprovalRequestDto request) {
         EmployeeDto employee = fetchEmployeeOrNotFound(employeeId);
 
         if (Role.ADMIN.matches(employee.getRole())) {
@@ -186,8 +198,12 @@ public class ActuaryServiceImpl implements ActuaryService {
         ActuaryInfo info = actuaryInfoRepository.findByEmployeeId(employeeId)
                 .orElseGet(() -> createDefaultActuaryInfo(employeeId));
 
-        info.setNeedApproval(Boolean.TRUE.equals(request.getNeedApproval()));
+        Boolean oldNeedApproval = info.getNeedApproval();
+        boolean newNeedApproval = Boolean.TRUE.equals(request.getNeedApproval());
+        info.setNeedApproval(newNeedApproval);
         actuaryInfoRepository.save(info);
+        publishAuditEvent(actorId, "AGENT_NEED_APPROVAL_CHANGED", employeeId,
+                "needApproval promenjen: " + Boolean.TRUE.equals(oldNeedApproval) + " -> " + newNeedApproval);
     }
 
     /**
@@ -227,6 +243,64 @@ public class ActuaryServiceImpl implements ActuaryService {
         info.setReservedLimit(BigDecimal.ZERO);
         info.setNeedApproval(false);
         return actuaryInfoRepository.save(info);
+    }
+
+    /**
+     * WP-12: publikuje audit dogadjaj o izmeni agenta na centralizovani audit
+     * log. Salje se strogo posle commita transakcije, tako da rollback-ovana
+     * izmena ne ostavlja audit red. Kada nema transakcije (npr. unit test bez
+     * sinhronizacije), poruka se salje odmah.
+     *
+     * @param actorId    id supervizora koji je doneo izmenu
+     * @param actionType ime {@code AuditActionType} konstante
+     * @param employeeId id agenta nad kojim je izmena izvrsena
+     * @param details    citljiv opis stare i nove vrednosti
+     */
+    private void publishAuditEvent(Long actorId, String actionType, Long employeeId, String details) {
+        String actorName = resolveActorName(actorId);
+        AuditEventDto event = new AuditEventDto(
+                actorId,
+                actorName,
+                actionType,
+                "AGENT",
+                String.valueOf(employeeId),
+                details,
+                System.currentTimeMillis());
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    auditPublisher.publish(event);
+                }
+            });
+        } else {
+            auditPublisher.publish(event);
+        }
+    }
+
+    /**
+     * Razresava citljivo ime aktora preko employee-service-a. Best-effort —
+     * ako lookup pukne ili je {@code actorId} null, vraca string id / "SYSTEM".
+     *
+     * @param actorId id supervizora
+     * @return citljivo ime, string id, ili "SYSTEM"
+     */
+    private String resolveActorName(Long actorId) {
+        if (actorId == null) {
+            return "SYSTEM";
+        }
+        try {
+            EmployeeDto employee = employeeClient.getEmployee(actorId);
+            if (employee != null) {
+                String firstName = employee.getIme() == null ? "" : employee.getIme().trim();
+                String lastName = employee.getPrezime() == null ? "" : employee.getPrezime().trim();
+                String fullName = (firstName + " " + lastName).trim();
+                return fullName.isEmpty() ? String.valueOf(actorId) : fullName;
+            }
+        } catch (RuntimeException ex) {
+            log.debug("audit: ne mogu da razresim ime aktora {}: {}", actorId, ex.toString());
+        }
+        return String.valueOf(actorId);
     }
 
     /**

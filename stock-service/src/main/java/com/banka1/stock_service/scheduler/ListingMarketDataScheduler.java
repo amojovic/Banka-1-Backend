@@ -7,6 +7,7 @@ import com.banka1.stock_service.dto.ListingRefreshBatchResponse;
 import com.banka1.stock_service.dto.StockExchangeStatusResponse;
 import com.banka1.stock_service.repository.ListingRepository;
 import com.banka1.stock_service.service.ListingMarketDataRefreshService;
+import com.banka1.stock_service.service.PriceAlertEvaluationService;
 import com.banka1.stock_service.service.StockExchangeService;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
@@ -46,6 +47,7 @@ public class ListingMarketDataScheduler {
     private final StockExchangeService stockExchangeService;
     private final ListingMarketDataRefreshService listingMarketDataRefreshService;
     private final ListingRefreshProperties listingRefreshProperties;
+    private final PriceAlertEvaluationService priceAlertEvaluationService;
     private final Clock clock;
 
     /**
@@ -63,19 +65,22 @@ public class ListingMarketDataScheduler {
      * @param stockExchangeService service for stock-exchange runtime status
      * @param listingMarketDataRefreshService listing refresh use case
      * @param listingRefreshProperties scheduler configuration properties
+     * @param priceAlertEvaluationService price-alert evaluation invoked after each refresh cycle
      */
     @Autowired
     public ListingMarketDataScheduler(
             ListingRepository listingRepository,
             StockExchangeService stockExchangeService,
             ListingMarketDataRefreshService listingMarketDataRefreshService,
-            ListingRefreshProperties listingRefreshProperties
+            ListingRefreshProperties listingRefreshProperties,
+            PriceAlertEvaluationService priceAlertEvaluationService
     ) {
         this(
                 listingRepository,
                 stockExchangeService,
                 listingMarketDataRefreshService,
                 listingRefreshProperties,
+                priceAlertEvaluationService,
                 Clock.systemUTC()
         );
     }
@@ -87,6 +92,7 @@ public class ListingMarketDataScheduler {
      * @param stockExchangeService service for stock-exchange runtime status
      * @param listingMarketDataRefreshService listing refresh use case
      * @param listingRefreshProperties scheduler configuration properties
+     * @param priceAlertEvaluationService price-alert evaluation invoked after each refresh cycle
      * @param clock time source used for FX refresh-window checks
      */
     ListingMarketDataScheduler(
@@ -94,12 +100,14 @@ public class ListingMarketDataScheduler {
             StockExchangeService stockExchangeService,
             ListingMarketDataRefreshService listingMarketDataRefreshService,
             ListingRefreshProperties listingRefreshProperties,
+            PriceAlertEvaluationService priceAlertEvaluationService,
             Clock clock
     ) {
         this.listingRepository = listingRepository;
         this.stockExchangeService = stockExchangeService;
         this.listingMarketDataRefreshService = listingMarketDataRefreshService;
         this.listingRefreshProperties = listingRefreshProperties;
+        this.priceAlertEvaluationService = priceAlertEvaluationService;
         this.clock = clock;
     }
 
@@ -192,6 +200,15 @@ public class ListingMarketDataScheduler {
                     break;
                 }
             }
+        }
+
+        // Celina 3.2: after the refresh loop completes, evaluate active price alerts
+        // against the freshly refreshed prices. A failure here must not fail the
+        // refresh batch, so it is contained and logged.
+        try {
+            priceAlertEvaluationService.evaluateActiveAlerts();
+        } catch (RuntimeException exception) {
+            log.warn("Price alert evaluation after refresh failed: {}", exception.getMessage());
         }
 
         return new ListingRefreshBatchResponse(

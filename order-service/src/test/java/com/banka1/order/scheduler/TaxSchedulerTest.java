@@ -32,7 +32,7 @@ class TaxSchedulerTest {
     void runMonthlyTaxCollection_delegatesToTaxService() {
         scheduler.runMonthlyTaxCollection();
 
-        verify(taxService).collectMonthlyTax();
+        verify(taxService).collectMonthlyTaxScheduled();
     }
 
     @Test

@@ -15,5 +15,6 @@
     <include file="db/changelog/client/008-promote-clients-to-trading.sql"/>
     <include file="db/changelog/client/009-distinct-test-clients.sql"/>
     <include file="db/changelog/client/010-mile-interbank-test-client.sql"/>
+    <include file="db/changelog/client/011-account-lockout.sql"/>
 
 </databaseChangeLog>

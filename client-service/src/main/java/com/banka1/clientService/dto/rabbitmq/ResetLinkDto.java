@@ -34,7 +34,7 @@ public class ResetLinkDto {
      */
     public ResetLinkDto(String link, EmailType emailType) {
         switch (emailType) {
-            case CLIENT_PASSWORD_RESET -> resetLink = link;
+            case CLIENT_PASSWORD_RESET, CLIENT_ACCOUNT_LOCKED -> resetLink = link;
             case CLIENT_CREATED -> activationLink = link;
             default -> throw new IllegalStateException("Unsupported EmailType: " + emailType);
         }
