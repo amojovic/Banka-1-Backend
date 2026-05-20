@@ -14,6 +14,7 @@ import com.banka1.stock_service.dto.ListingDetailsPeriod;
 import com.banka1.stock_service.dto.ListingDetailsResponse;
 import com.banka1.stock_service.dto.ListingForexDetailsResponse;
 import com.banka1.stock_service.dto.ListingFuturesDetailsResponse;
+import com.banka1.stock_service.dto.ListingPricePoint;
 import com.banka1.stock_service.dto.ListingSortField;
 import com.banka1.stock_service.dto.ListingStockDetailsResponse;
 import com.banka1.stock_service.dto.ListingSummaryResponse;
@@ -23,6 +24,7 @@ import com.banka1.stock_service.repository.ForexPairRepository;
 import com.banka1.stock_service.repository.FuturesContractRepository;
 import com.banka1.stock_service.repository.ListingDailyPriceInfoRepository;
 import com.banka1.stock_service.repository.ListingRepository;
+import com.banka1.stock_service.repository.ListingPriceHistoryStore;
 import com.banka1.stock_service.repository.StockRepository;
 import com.banka1.stock_service.repository.StockOptionRepository;
 import com.banka1.stock_service.service.ListingQueryService;
@@ -36,6 +38,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.Comparator;
@@ -69,11 +72,15 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 @RequiredArgsConstructor
 public class ListingQueryServiceImpl implements ListingQueryService {
 
+    private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
+    private static final int PERCENT_SCALE = 4;
+
     private final ListingRepository listingRepository;
     private final StockRepository stockRepository;
     private final FuturesContractRepository futuresContractRepository;
     private final ForexPairRepository forexPairRepository;
     private final ListingDailyPriceInfoRepository listingDailyPriceInfoRepository;
+    private final ListingPriceHistoryStore listingPriceHistoryStore;
     private final StockOptionRepository stockOptionRepository;
 
     @Override
@@ -329,7 +336,21 @@ public class ListingQueryServiceImpl implements ListingQueryService {
      * @return filtered historical rows ordered by date ascending
      */
     private List<ListingDailyPriceInfoResponse> resolvePriceHistory(Listing listing, ListingDetailsPeriod period) {
+        LocalDate requestedStartDate = resolveRequestedStartDate(listing, period);
+        List<ListingPricePoint> timeSeriesHistory = listingPriceHistoryStore.findDailySnapshots(
+                listing.getId(),
+                requestedStartDate
+        );
+        if (timeSeriesHistory != null && !timeSeriesHistory.isEmpty()) {
+            return timeSeriesHistory.stream()
+                    .map(this::toDailyPriceInfoResponse)
+                    .toList();
+        }
+
         List<ListingDailyPriceInfo> history = listingDailyPriceInfoRepository.findAllByListingIdOrderByDateAsc(listing.getId());
+        if (history.isEmpty() && listing.getLastRefresh() == null) {
+            return List.of();
+        }
         LocalDate anchorDate = history.isEmpty()
                 ? listing.getLastRefresh().toLocalDate()
                 : history.getLast().getDate();
@@ -689,6 +710,25 @@ public class ListingQueryServiceImpl implements ListingQueryService {
     }
 
     /**
+     * Converts one time-series price point into the public daily price response contract.
+     *
+     * @param point time-series price point
+     * @return public historical response row
+     */
+    private ListingDailyPriceInfoResponse toDailyPriceInfoResponse(ListingPricePoint point) {
+        return new ListingDailyPriceInfoResponse(
+                point.date(),
+                point.price(),
+                point.ask(),
+                point.bid(),
+                point.change(),
+                calculateChangePercentOrNull(point),
+                point.volume(),
+                point.calculateDollarVolume()
+        );
+    }
+
+    /**
      * Returns {@code null} when a percentage change is undefined because there is no implied previous price.
      *
      * @param listing listing whose change percent is needed
@@ -710,6 +750,37 @@ public class ListingQueryServiceImpl implements ListingQueryService {
         return hasDefinedPreviousPrice(entity.getPrice(), entity.getChange())
                 ? entity.calculateChangePercent()
                 : null;
+    }
+
+    /**
+     * Resolves the requested start date for the time-series store without requiring
+     * {@code lastRefresh} for all-time or not-yet-refreshed listings.
+     *
+     * @param listing listing whose history is requested
+     * @param period requested history period
+     * @return inclusive lower bound, or {@code null} when querying all available data
+     */
+    private LocalDate resolveRequestedStartDate(Listing listing, ListingDetailsPeriod period) {
+        if (period == ListingDetailsPeriod.ALL || listing.getLastRefresh() == null) {
+            return null;
+        }
+
+        return period.resolveStartDate(listing.getLastRefresh().toLocalDate());
+    }
+
+    /**
+     * Returns {@code null} when a time-series percentage change is undefined.
+     *
+     * @param point time-series row whose change percent is needed
+     * @return derived percentage change or {@code null} when undefined
+     */
+    private BigDecimal calculateChangePercentOrNull(ListingPricePoint point) {
+        if (!hasDefinedPreviousPrice(point.price(), point.change())) {
+            return null;
+        }
+
+        return ONE_HUNDRED.multiply(point.change())
+                .divide(point.price().subtract(point.change()), PERCENT_SCALE, RoundingMode.HALF_UP);
     }
 
     /**

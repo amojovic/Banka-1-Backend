@@ -14,6 +14,7 @@ import com.banka1.stock_service.repository.ListingDailyPriceInfoRepository;
 import com.banka1.stock_service.repository.ListingRepository;
 import com.banka1.stock_service.repository.StockRepository;
 import com.banka1.stock_service.service.ListingMarketDataRefreshService;
+import com.banka1.stock_service.service.ListingPriceHistoryRecorder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -25,6 +26,7 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -52,6 +54,7 @@ public class ListingMarketDataRefreshServiceImpl implements ListingMarketDataRef
     private final StockRepository stockRepository;
     private final ForexPairRepository forexPairRepository;
     private final AlphaVantageClient alphaVantageClient;
+    private final ListingPriceHistoryRecorder listingPriceHistoryRecorder;
     private final Clock clock;
 
     /**
@@ -62,6 +65,7 @@ public class ListingMarketDataRefreshServiceImpl implements ListingMarketDataRef
      * @param stockRepository repository for stock entities
      * @param forexPairRepository repository for FX pair entities
      * @param alphaVantageClient external market-data provider client
+     * @param listingPriceHistoryRecorder time-series price-history recorder
      */
     @Autowired
     public ListingMarketDataRefreshServiceImpl(
@@ -69,7 +73,8 @@ public class ListingMarketDataRefreshServiceImpl implements ListingMarketDataRef
             ListingDailyPriceInfoRepository listingDailyPriceInfoRepository,
             StockRepository stockRepository,
             ForexPairRepository forexPairRepository,
-            AlphaVantageClient alphaVantageClient
+            AlphaVantageClient alphaVantageClient,
+            ListingPriceHistoryRecorder listingPriceHistoryRecorder
     ) {
         this(
                 listingRepository,
@@ -77,6 +82,7 @@ public class ListingMarketDataRefreshServiceImpl implements ListingMarketDataRef
                 stockRepository,
                 forexPairRepository,
                 alphaVantageClient,
+                listingPriceHistoryRecorder,
                 Clock.systemUTC()
         );
     }
@@ -89,6 +95,7 @@ public class ListingMarketDataRefreshServiceImpl implements ListingMarketDataRef
      * @param stockRepository repository for stock entities
      * @param forexPairRepository repository for FX pair entities
      * @param alphaVantageClient external market-data provider client
+     * @param listingPriceHistoryRecorder time-series price-history recorder
      * @param clock time source used for {@code listing.lastRefresh}
      */
     ListingMarketDataRefreshServiceImpl(
@@ -97,6 +104,7 @@ public class ListingMarketDataRefreshServiceImpl implements ListingMarketDataRef
             StockRepository stockRepository,
             ForexPairRepository forexPairRepository,
             AlphaVantageClient alphaVantageClient,
+            ListingPriceHistoryRecorder listingPriceHistoryRecorder,
             Clock clock
     ) {
         this.listingRepository = listingRepository;
@@ -104,6 +112,7 @@ public class ListingMarketDataRefreshServiceImpl implements ListingMarketDataRef
         this.stockRepository = stockRepository;
         this.forexPairRepository = forexPairRepository;
         this.alphaVantageClient = alphaVantageClient;
+        this.listingPriceHistoryRecorder = listingPriceHistoryRecorder;
         this.clock = clock;
     }
 
@@ -134,8 +143,9 @@ public class ListingMarketDataRefreshServiceImpl implements ListingMarketDataRef
             );
         }
 
-        upsertDailySnapshot(listing, dailySnapshotDate);
+        ListingDailyPriceInfo dailySnapshot = upsertDailySnapshot(listing, dailySnapshotDate);
         listingRepository.save(listing);
+        listingPriceHistoryRecorder.recordAfterCommit(listing, List.of(dailySnapshot));
 
         return new ListingRefreshResponse(
                 listing.getId(),
@@ -257,7 +267,7 @@ public class ListingMarketDataRefreshServiceImpl implements ListingMarketDataRef
      * @param listing listing whose daily snapshot is being updated
      * @param date date of the daily snapshot
      */
-    private void upsertDailySnapshot(Listing listing, LocalDate date) {
+    private ListingDailyPriceInfo upsertDailySnapshot(Listing listing, LocalDate date) {
         ListingDailyPriceInfo dailySnapshot = listingDailyPriceInfoRepository.findByListingIdAndDate(listing.getId(), date)
                 .orElseGet(() -> createDailySnapshot(listing, date));
 
@@ -268,6 +278,7 @@ public class ListingMarketDataRefreshServiceImpl implements ListingMarketDataRef
         dailySnapshot.setVolume(listing.getVolume());
 
         listingDailyPriceInfoRepository.save(dailySnapshot);
+        return dailySnapshot;
     }
 
     /**

@@ -16,6 +16,7 @@ import com.banka1.stock_service.repository.ListingDailyPriceInfoRepository;
 import com.banka1.stock_service.repository.ListingRepository;
 import com.banka1.stock_service.repository.StockRepository;
 import com.banka1.stock_service.service.ListingMarketDataRefreshService;
+import com.banka1.stock_service.service.ListingPriceHistoryRecorder;
 import com.banka1.stock_service.service.StockMarketDataRefreshService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -63,6 +64,7 @@ public class StockMarketDataRefreshServiceImpl implements StockMarketDataRefresh
     private final AlphaVantageClient alphaVantageClient;
     private final StockMarketDataProperties stockMarketDataProperties;
     private final ListingMarketDataRefreshService listingMarketDataRefreshService;
+    private final ListingPriceHistoryRecorder listingPriceHistoryRecorder;
     private final TaskExecutor taskExecutor;
     private final Clock clock;
     private final long requestDelayMs;
@@ -76,6 +78,9 @@ public class StockMarketDataRefreshServiceImpl implements StockMarketDataRefresh
      * @param listingDailyPriceInfoRepository repository for daily listing snapshots
      * @param alphaVantageClient external provider client
      * @param stockMarketDataProperties market-data configuration properties
+     * @param listingMarketDataRefreshService lightweight listing refresh service
+     * @param listingPriceHistoryRecorder time-series price-history recorder
+     * @param taskExecutor executor used for async bulk refreshes
      */
     @Autowired
     public StockMarketDataRefreshServiceImpl(
@@ -85,6 +90,7 @@ public class StockMarketDataRefreshServiceImpl implements StockMarketDataRefresh
             AlphaVantageClient alphaVantageClient,
             StockMarketDataProperties stockMarketDataProperties,
             ListingMarketDataRefreshService listingMarketDataRefreshService,
+            ListingPriceHistoryRecorder listingPriceHistoryRecorder,
             @Qualifier("applicationTaskExecutor")
             TaskExecutor taskExecutor,
             @Value("${stock.alpha-vantage.request-delay-ms:12000}") long requestDelayMs
@@ -96,6 +102,7 @@ public class StockMarketDataRefreshServiceImpl implements StockMarketDataRefresh
                 alphaVantageClient,
                 stockMarketDataProperties,
                 listingMarketDataRefreshService,
+                listingPriceHistoryRecorder,
                 taskExecutor,
                 Clock.systemUTC(),
                 requestDelayMs,
@@ -111,6 +118,9 @@ public class StockMarketDataRefreshServiceImpl implements StockMarketDataRefresh
      * @param listingDailyPriceInfoRepository repository for daily listing snapshots
      * @param alphaVantageClient external provider client
      * @param stockMarketDataProperties market-data configuration properties
+     * @param listingMarketDataRefreshService lightweight listing refresh service
+     * @param listingPriceHistoryRecorder time-series price-history recorder
+     * @param taskExecutor executor used for async bulk refreshes
      * @param clock time source used for {@code lastRefresh}
      */
     StockMarketDataRefreshServiceImpl(
@@ -120,6 +130,7 @@ public class StockMarketDataRefreshServiceImpl implements StockMarketDataRefresh
             AlphaVantageClient alphaVantageClient,
             StockMarketDataProperties stockMarketDataProperties,
             ListingMarketDataRefreshService listingMarketDataRefreshService,
+            ListingPriceHistoryRecorder listingPriceHistoryRecorder,
             TaskExecutor taskExecutor,
             Clock clock
     ) {
@@ -130,6 +141,7 @@ public class StockMarketDataRefreshServiceImpl implements StockMarketDataRefresh
                 alphaVantageClient,
                 stockMarketDataProperties,
                 listingMarketDataRefreshService,
+                listingPriceHistoryRecorder,
                 taskExecutor,
                 clock,
                 12_000L,
@@ -144,6 +156,7 @@ public class StockMarketDataRefreshServiceImpl implements StockMarketDataRefresh
             AlphaVantageClient alphaVantageClient,
             StockMarketDataProperties stockMarketDataProperties,
             ListingMarketDataRefreshService listingMarketDataRefreshService,
+            ListingPriceHistoryRecorder listingPriceHistoryRecorder,
             TaskExecutor taskExecutor,
             Clock clock,
             long requestDelayMs,
@@ -155,6 +168,7 @@ public class StockMarketDataRefreshServiceImpl implements StockMarketDataRefresh
         this.alphaVantageClient = alphaVantageClient;
         this.stockMarketDataProperties = stockMarketDataProperties;
         this.listingMarketDataRefreshService = listingMarketDataRefreshService;
+        this.listingPriceHistoryRecorder = listingPriceHistoryRecorder;
         this.taskExecutor = taskExecutor;
         this.clock = clock;
         this.requestDelayMs = requestDelayMs;
@@ -244,16 +258,17 @@ public class StockMarketDataRefreshServiceImpl implements StockMarketDataRefresh
 
         applyCompanyOverview(stock, listing, companyOverviewResponse);
         applyQuote(listing, quoteResponse, refreshTimestamp);
-        int refreshedDailyEntries = upsertDailyHistory(listing, quoteResponse, dailyResponse);
+        List<ListingDailyPriceInfo> refreshedDailyEntries = upsertDailyHistory(listing, quoteResponse, dailyResponse);
 
         stockRepository.save(stock);
         listingRepository.save(listing);
+        listingPriceHistoryRecorder.recordAfterCommit(listing, refreshedDailyEntries);
 
         return new StockMarketDataRefreshResponse(
                 stock.getTicker(),
                 stock.getId(),
                 listing.getId(),
-                refreshedDailyEntries,
+                refreshedDailyEntries.size(),
                 refreshTimestamp
         );
     }
@@ -348,9 +363,9 @@ public class StockMarketDataRefreshServiceImpl implements StockMarketDataRefresh
      * @param listing listing whose history is being updated
      * @param quoteResponse latest quote data used for the current trading day
      * @param dailyResponse daily time-series data from the provider
-     * @return count of daily price entries persisted
+     * @return daily price entries persisted
      */
-    private int upsertDailyHistory(
+    private List<ListingDailyPriceInfo> upsertDailyHistory(
             Listing listing,
             AlphaVantageQuoteResponse quoteResponse,
             AlphaVantageDailyResponse dailyResponse
@@ -410,7 +425,7 @@ public class StockMarketDataRefreshServiceImpl implements StockMarketDataRefresh
         entriesToPersist.add(latestQuoteEntry);
 
         listingDailyPriceInfoRepository.saveAll(entriesToPersist);
-        return entriesToPersist.size();
+        return entriesToPersist;
     }
 
     /**

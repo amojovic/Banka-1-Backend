@@ -17,6 +17,7 @@ import com.banka1.stock_service.repository.ListingDailyPriceInfoRepository;
 import com.banka1.stock_service.repository.ListingRepository;
 import com.banka1.stock_service.repository.StockRepository;
 import com.banka1.stock_service.service.ListingMarketDataRefreshService;
+import com.banka1.stock_service.service.ListingPriceHistoryRecorder;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -65,6 +66,9 @@ class StockMarketDataRefreshServiceImplTest {
 
     @Mock
     private ListingMarketDataRefreshService listingMarketDataRefreshService;
+
+    @Mock
+    private ListingPriceHistoryRecorder listingPriceHistoryRecorder;
 
     @Mock
     private TaskExecutor taskExecutor;
@@ -149,6 +153,7 @@ class StockMarketDataRefreshServiceImplTest {
 
         verify(stockRepository).save(stock);
         verify(listingRepository).save(listing);
+        verify(listingPriceHistoryRecorder).recordAfterCommit(listing, persistedEntries);
     }
 
     @Test
@@ -181,6 +186,7 @@ class StockMarketDataRefreshServiceImplTest {
         verify(stockRepository, never()).save(any());
         verify(listingRepository, never()).save(any());
         verify(listingDailyPriceInfoRepository, never()).saveAll(any());
+        verify(listingPriceHistoryRecorder, never()).recordAfterCommit(any(), any());
     }
 
     @Test
@@ -260,6 +266,7 @@ class StockMarketDataRefreshServiceImplTest {
                 alphaVantageClient,
                 new StockMarketDataProperties("https://www.alphavantage.co", "demo-key", null, 2),
                 listingMarketDataRefreshService,
+                listingPriceHistoryRecorder,
                 taskExecutor,
                 clock,
                 requestDelayMs,

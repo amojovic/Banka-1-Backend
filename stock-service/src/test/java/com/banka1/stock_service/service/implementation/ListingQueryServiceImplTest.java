@@ -13,12 +13,14 @@ import com.banka1.stock_service.domain.StockOption;
 import com.banka1.stock_service.dto.ListingFilterRequest;
 import com.banka1.stock_service.dto.ListingDetailsPeriod;
 import com.banka1.stock_service.dto.ListingDetailsResponse;
+import com.banka1.stock_service.dto.ListingPricePoint;
 import com.banka1.stock_service.dto.ListingSortField;
 import com.banka1.stock_service.dto.ListingSummaryResponse;
 import com.banka1.stock_service.repository.ForexPairRepository;
 import com.banka1.stock_service.repository.FuturesContractRepository;
 import com.banka1.stock_service.repository.ListingDailyPriceInfoRepository;
 import com.banka1.stock_service.repository.ListingRepository;
+import com.banka1.stock_service.repository.ListingPriceHistoryStore;
 import com.banka1.stock_service.repository.StockExchangeRepository;
 import com.banka1.stock_service.repository.StockRepository;
 import com.banka1.stock_service.repository.StockOptionRepository;
@@ -30,14 +32,18 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Sort;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
 
 /**
  * Integration tests for {@link ListingQueryServiceImpl}.
@@ -77,6 +83,9 @@ class ListingQueryServiceImplTest {
 
     @Autowired
     private StockOptionRepository stockOptionRepository;
+
+    @MockitoBean
+    private ListingPriceHistoryStore listingPriceHistoryStore;
 
     @Test
     void getStockListingsAppliesFiltersSortingAndPagination() {
@@ -287,6 +296,58 @@ class ListingQueryServiceImplTest {
         assertThat(response.optionGroups().getFirst().calls().getFirst().inTheMoney()).isTrue();
         assertThat(response.optionGroups().getFirst().puts().getFirst().inTheMoney()).isFalse();
         assertThat(response.optionGroups().get(1).calls().getFirst().inTheMoney()).isFalse();
+    }
+
+    @Test
+    void getListingDetailsUsesInfluxHistoryWhenAvailable() {
+        StockExchange xnas = saveExchange("Nasdaq", "NASDAQ", "XNAS");
+        Listing listing = saveStockListing(
+                xnas,
+                "AAPL",
+                "Apple Inc.",
+                "180.00000000",
+                "180.20000000",
+                "179.90000000",
+                "3.00000000",
+                2_000L
+        );
+        saveDailyPriceInfo(listing, LocalDate.of(2026, 4, 8), "180.00000000", "180.20000000", "179.90000000", "3.00000000", 2_000L);
+
+        when(listingPriceHistoryStore.findDailySnapshots(eq(listing.getId()), eq(LocalDate.of(2026, 4, 2))))
+                .thenReturn(List.of(
+                        new ListingPricePoint(
+                                listing.getId(),
+                                "AAPL",
+                                ListingType.STOCK,
+                                "XNAS",
+                                LocalDate.of(2026, 4, 7),
+                                new BigDecimal("178.00000000"),
+                                new BigDecimal("178.20000000"),
+                                new BigDecimal("177.80000000"),
+                                new BigDecimal("2.00000000"),
+                                1_500L
+                        ),
+                        new ListingPricePoint(
+                                listing.getId(),
+                                "AAPL",
+                                ListingType.STOCK,
+                                "XNAS",
+                                LocalDate.of(2026, 4, 8),
+                                new BigDecimal("180.00000000"),
+                                new BigDecimal("180.20000000"),
+                                new BigDecimal("179.90000000"),
+                                new BigDecimal("3.00000000"),
+                                2_000L
+                        )
+                ));
+
+        ListingDetailsResponse response = listingQueryService.getListingDetails(listing.getId(), ListingDetailsPeriod.WEEK);
+
+        assertThat(response.priceHistory()).extracting(item -> item.date())
+                .containsExactly(LocalDate.of(2026, 4, 7), LocalDate.of(2026, 4, 8));
+        assertThat(response.priceHistory().getFirst().price()).isEqualByComparingTo("178.00000000");
+        assertThat(response.priceHistory().getFirst().changePercent()).isEqualByComparingTo("1.1364");
+        assertThat(response.priceHistory().getLast().dollarVolume()).isEqualByComparingTo("360000.00000000");
     }
 
     @Test
