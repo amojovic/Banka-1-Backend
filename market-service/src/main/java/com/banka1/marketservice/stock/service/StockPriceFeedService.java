@@ -2,9 +2,10 @@ package com.banka1.marketservice.stock.service;
 
 import com.banka1.marketservice.stock.client.AlphaVantageClient;
 import com.banka1.marketservice.stock.dto.StockPriceSnapshotDto;
-import lombok.RequiredArgsConstructor;
+import com.banka1.marketservice.stock.repository.StockPriceSnapshotHistoryStore;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -30,16 +31,34 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class StockPriceFeedService {
 
     private static final Duration CACHE_TTL = Duration.ofSeconds(15);
 
     private final Map<String, CachedSnapshot> cache = new ConcurrentHashMap<>();
+    private final StockPriceSnapshotHistoryStore historyStore;
 
     /** Optional AlphaVantage klijent (PR_13 C13.2) — null ako klasa nije na classpath-u ili API key nije konfigurisan. */
     @Autowired(required = false)
     private AlphaVantageClient alphaVantageClient;
+
+    public StockPriceFeedService() {
+        this.historyStore = null;
+    }
+
+    /**
+     * Creates the feed service with optional time-series history storage.
+     *
+     * @param historyStoreProvider optional InfluxDB-backed history store
+     */
+    @Autowired
+    public StockPriceFeedService(ObjectProvider<StockPriceSnapshotHistoryStore> historyStoreProvider) {
+        this(historyStoreProvider.getIfAvailable());
+    }
+
+    StockPriceFeedService(StockPriceSnapshotHistoryStore historyStore) {
+        this.historyStore = historyStore;
+    }
 
     public StockPriceSnapshotDto getCurrentPrice(String ticker) {
         String upper = ticker.toUpperCase();
@@ -50,6 +69,7 @@ public class StockPriceFeedService {
         StockPriceSnapshotDto fresh = fetchFromUpstream(upper);
         if (fresh != null) {
             cache.put(upper, new CachedSnapshot(fresh, Instant.now().plus(CACHE_TTL)));
+            recordSnapshot(fresh);
         }
         return fresh;
     }
@@ -100,6 +120,17 @@ public class StockPriceFeedService {
                 .currency("USD")
                 .timestamp(Instant.now())
                 .build();
+    }
+
+    private void recordSnapshot(StockPriceSnapshotDto snapshot) {
+        if (historyStore == null) {
+            return;
+        }
+        try {
+            historyStore.saveSnapshot(snapshot);
+        } catch (RuntimeException exception) {
+            log.warn("Failed to record stock price snapshot in InfluxDB: {}", exception.getMessage());
+        }
     }
 
     private record CachedSnapshot(StockPriceSnapshotDto snapshot, Instant expiresAt) {}
