@@ -79,6 +79,20 @@ public class TransactionExecutorService {
      *         razloga
      */
     public TransactionVote prepareLocal(InterbankTransactionPayload tx) {
+        // 0. Tim 2 bug T1-A: partner moze poslati NEW_TX sa null/missing postings
+        // poljem. Bez ovog check-a, validator.checkBalanced ili tx.postings().stream()
+        // baca NPE koji generic Exception handler mapira na 500. Spec i nasa
+        // konvencija zahtevaju 400 sa razumnom porukom. IllegalArgumentException
+        // se mapira na 400 kroz InterbankGlobalExceptionHandler.badRequest.
+        if (tx == null || tx.postings() == null || tx.postings().isEmpty()) {
+            throw new IllegalArgumentException(
+                    "transaction.postings is required and must be non-empty");
+        }
+        if (tx.transactionId() == null) {
+            throw new IllegalArgumentException(
+                    "transaction.id is required");
+        }
+
         // 1. Balanced check (cisto lokalno)
         var balanceErr = validator.checkBalanced(tx.postings());
         if (balanceErr.isPresent()) {
@@ -169,6 +183,41 @@ public class TransactionExecutorService {
             }
         }
 
+        // Tim 2 §3.6 CRITICAL-1 defensive branch: Person+Monas — partner banka
+        // moze poslati MONAS leg sa TxAccount.Person (spec ne zabranjuje).
+        // Resolvujemo na 18-cifren account broj preko banking-core, pa tretiramo
+        // kao Account+Monas. Bez ovoga partner debit-uje a mi tiho no-op-ujemo
+        // (cash divergencija izmedju banaka).
+        if (p.account() instanceof TxAccount.Person per && p.asset() instanceof Asset.Monas mAsset) {
+            int my = props.getMyRoutingNumber();
+            if (per.id().routingNumber() != my) {
+                // Partner-side person — partner sam validira; mi propustamo bez voting-a
+                return;
+            }
+            String accountNum = resolvePersonToAccount(per, mAsset.asset().currency());
+            if (accountNum == null) {
+                reasons.add(NoVoteReason.of(Reason.NO_SUCH_ACCOUNT, p));
+                return;
+            }
+            BankingCoreInternalClient.AccountResolveRes resolved;
+            try {
+                resolved = bankingCore.resolveAccount(accountNum);
+            } catch (Exception e) {
+                reasons.add(NoVoteReason.of(Reason.NO_SUCH_ACCOUNT, p));
+                return;
+            }
+            if (resolved == null) {
+                reasons.add(NoVoteReason.of(Reason.NO_SUCH_ACCOUNT, p));
+                return;
+            }
+            if (p.amount().signum() < 0
+                    && resolved.availableBalance() != null
+                    && resolved.availableBalance().compareTo(p.amount().abs()) < 0) {
+                reasons.add(NoVoteReason.of(Reason.INSUFFICIENT_ASSET, p));
+                return;
+            }
+        }
+
         // e-g. Option validacija
         if (p.asset() instanceof Asset.Option opt) {
             BigDecimal k = BigDecimal.valueOf(opt.asset().amount());
@@ -211,6 +260,24 @@ public class TransactionExecutorService {
         if (p.asset() instanceof Asset.Monas m && p.account() instanceof TxAccount.Account acc) {
             var res = bankingCore.reserveMonas(new BankingCoreInternalClient.ReserveMonasReq(
                     acc.num(), m.asset().currency(), p.amount().abs(),
+                    txId.routingNumber(), txId.id()));
+            committed.add(refMap("MONAS", res.reservationId().toString()));
+        } else if (p.asset() instanceof Asset.Monas m && p.account() instanceof TxAccount.Person per) {
+            // Tim 2 §3.6 CRITICAL-1 defensive: Person+Monas — resolve na pravi
+            // 18-cifren account broj pa rezervisi. Partner-side person nista ne
+            // radimo (njihova banka rezervise svoju stranu).
+            int my = props.getMyRoutingNumber();
+            if (per.id().routingNumber() != my) {
+                return;
+            }
+            String accountNum = resolvePersonToAccount(per, m.asset().currency());
+            if (accountNum == null) {
+                throw new InterbankException(
+                        "Person+Monas reservation: no MONAS account za vlasnika "
+                                + per.id().id() + " u valuti " + m.asset().currency());
+            }
+            var res = bankingCore.reserveMonas(new BankingCoreInternalClient.ReserveMonasReq(
+                    accountNum, m.asset().currency(), p.amount().abs(),
                     txId.routingNumber(), txId.id()));
             committed.add(refMap("MONAS", res.reservationId().toString()));
         } else if (p.asset() instanceof Asset.Stock s && p.account() instanceof TxAccount.Person per) {
@@ -400,6 +467,35 @@ public class TransactionExecutorService {
             tx.setStatus(TxStatus.FAILED);
             txRepo.save(tx);
             throw new InterbankException("rollbackLocal failed", e);
+        }
+    }
+
+    /**
+     * Tim 2 §3.6 CRITICAL-1 helper: resolve {@link TxAccount.Person} u 18-cifren
+     * MONAS account broj kroz banking-core. Vraca null ako vlasnik nema racun
+     * u toj valuti.
+     */
+    private String resolvePersonToAccount(TxAccount.Person per,
+                                          com.banka1.interbank.protocol.dto.CurrencyCode currency) {
+        String foreignId = per.id().id();
+        if (foreignId == null) {
+            return null;
+        }
+        String numericPart = foreignId;
+        if (foreignId.startsWith("C-") || foreignId.startsWith("E-")) {
+            numericPart = foreignId.substring(2);
+        }
+        Long ownerId;
+        try {
+            ownerId = Long.valueOf(numericPart);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+        try {
+            return bankingCore.findAccountByOwnerAndCurrency(ownerId, currency);
+        } catch (Exception e) {
+            log.warn("findAccountByOwnerAndCurrency({}, {}) failed", ownerId, currency, e);
+            return null;
         }
     }
 

@@ -73,9 +73,54 @@ public class InterbankGlobalExceptionHandler {
         return ResponseEntity.status(403).build();
     }
 
+    /**
+     * Tim 2 audit follow-up: sender bank nije ni buyer ni seller u trazenom
+     * pregovoru. 403 Forbidden.
+     */
+    @ExceptionHandler(InterbankSenderNotPartyException.class)
+    public ResponseEntity<Map<String, String>> senderNotParty(InterbankSenderNotPartyException e) {
+        log.warn("Sender not party: {}", e.getMessage());
+        return ResponseEntity.status(403).body(Map.of("error", e.getMessage()));
+    }
+
     @ExceptionHandler(InterbankException.class)
     public ResponseEntity<Map<String, String>> interbankFail(InterbankException e) {
         log.error("Interbank operation failed", e);
         return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+    }
+
+    // ===== Tim 2 MINOR-5 (P2.4) outbound typed exceptions ====================
+
+    /**
+     * Outbound poziv je naseo 401 — partner odbacuje nas outbound token.
+     * Tretiramo kao 502 Bad Gateway (FE ne treba da pomisli da je nas problem
+     * autentifikacioni; problem je sa partnerom).
+     */
+    @ExceptionHandler(InterbankAuthException.class)
+    public ResponseEntity<Map<String, String>> outboundAuthFail(InterbankAuthException e) {
+        log.error("Outbound auth failed", e);
+        return ResponseEntity.status(502).body(Map.of("error", e.getMessage()));
+    }
+
+    /** Partner vratio 409 — propagiramo kao 409. */
+    @ExceptionHandler(InterbankNegotiationConflictException.class)
+    public ResponseEntity<Map<String, String>> outboundConflict(InterbankNegotiationConflictException e) {
+        log.warn("Outbound conflict: {}", e.getMessage());
+        return ResponseEntity.status(409).body(Map.of("error", e.getMessage()));
+    }
+
+    /** Partner vratio 404 — propagiramo kao 404. */
+    @ExceptionHandler(InterbankNegotiationNotFoundException.class)
+    public ResponseEntity<Map<String, String>> outboundNotFound(InterbankNegotiationNotFoundException e) {
+        log.warn("Outbound not found: {}", e.getMessage());
+        return ResponseEntity.status(404).body(Map.of("error", e.getMessage()));
+    }
+
+    /** Partner vratio neki drugi 4xx/5xx — propagiramo originalni status. */
+    @ExceptionHandler(InterbankProtocolException.class)
+    public ResponseEntity<Map<String, String>> outboundProtocolFail(InterbankProtocolException e) {
+        log.warn("Outbound protocol error (status={}): {}", e.getStatusCode(), e.getMessage());
+        int status = e.getStatusCode() >= 500 ? 502 : e.getStatusCode();
+        return ResponseEntity.status(status).body(Map.of("error", e.getMessage()));
     }
 }

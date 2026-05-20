@@ -50,7 +50,13 @@ public class InterbankSecurityConfig {
                         "/public-stock",
                         "/public-stock/**",
                         "/negotiations",
-                        "/negotiations/**"
+                        "/negotiations/**",
+                        // Tim 2 bug T1-B: spec-default /user/{rn}/{id} alias (P2.1).
+                        // PROTECTED_PREFIXES u InterbankAuthFilter ima /user, ali
+                        // securityMatcher u Spring chain-u mora ekspliticno da uvuce
+                        // ovaj path da chain @Order(0) hvata pre security-lib JWT chain-a.
+                        "/user/*/*",
+                        "/user"
                 )
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(AbstractHttpConfigurer::disable)

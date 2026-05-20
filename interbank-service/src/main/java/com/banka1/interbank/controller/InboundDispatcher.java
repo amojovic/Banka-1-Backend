@@ -61,13 +61,18 @@ public class InboundDispatcher {
             return ResponseEntity.ok(vote);
         } catch (InterbankException e) {
             log.error("NEW_TX prepare failed", e);
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return persistAndReturnError(msg, 500, e.getMessage());
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             log.error("NEW_TX bad payload", e);
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+            return persistAndReturnError(msg, 400, e.getMessage());
+        } catch (IllegalArgumentException e) {
+            // Tim 2 bug T1-A: null/empty postings, missing transactionId, ostali
+            // tip-level validacioni problemi. 400 + razlog, ne 500.
+            log.warn("NEW_TX validation failed: {}", e.getMessage());
+            return persistAndReturnError(msg, 400, e.getMessage());
         } catch (Exception e) {
             log.error("NEW_TX unexpected error", e);
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+            return persistAndReturnError(msg, 500, e.getMessage());
         }
     }
 
@@ -84,6 +89,7 @@ public class InboundDispatcher {
             return ResponseEntity.noContent().build();
         } catch (Exception e) {
             log.error("COMMIT_TX failed", e);
+            persistErrorSilent(msg, 500, e.getMessage());
             return ResponseEntity.internalServerError().build();
         }
     }
@@ -101,7 +107,37 @@ public class InboundDispatcher {
             return ResponseEntity.noContent().build();
         } catch (Exception e) {
             log.error("ROLLBACK_TX failed", e);
+            persistErrorSilent(msg, 500, e.getMessage());
             return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
+     * Tim 2 §2.2 IMPORTANT-1: persist error response u idempotency cache i
+     * vrati ResponseEntity. Bez ovoga partner retry istog IdempotenceKey-a posle
+     * 5xx re-izvrsava {@code prepareLocal} umesto da vrati cached error
+     * (rizik dvostruke rezervacije / dvostrukog NO vote-a).
+     */
+    private ResponseEntity<?> persistAndReturnError(InterbankMessagePayload msg,
+                                                    int status,
+                                                    String errorMessage) {
+        Map<String, String> body = Map.of("error", errorMessage == null ? "" : errorMessage);
+        persistErrorSilent(msg, status, body);
+        return ResponseEntity.status(status).body(body);
+    }
+
+    /**
+     * Persist error response cache bez rethrow-a — ako cache save padne, log
+     * i nastavi (originalna greska je vec poslata pozivocu, ne smemo da je
+     * obscure-ujemo cache failure-om).
+     */
+    private void persistErrorSilent(InterbankMessagePayload msg, int status, Object body) {
+        try {
+            String json = body instanceof String s ? s : mapper.writeValueAsString(body);
+            messageService.persistInbound(msg, status, json);
+        } catch (Exception cacheEx) {
+            log.warn("Failed to persist error response for {} (status={}): {}",
+                    msg.idempotenceKey(), status, cacheEx.getMessage());
         }
     }
 }

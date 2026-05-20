@@ -35,7 +35,14 @@ public class UserDisplayController {
     private final UserInternalClient userClient;
     private final InterbankProperties props;
 
-    @GetMapping("/interbank/user/{rn}/{id}")
+    /**
+     * Tim 2 MINOR-1 (P2.1): spec §3.7 trazi {@code /user/{rn}/{id}} bez
+     * {@code /interbank/} prefiksa. Postojeci {@code /interbank/user/} ostaje
+     * radi backward compatibility-ja sa Tim 2 koji ga vec ima konfigurisan u
+     * njihovom {@code partner.user-info-path}. Banke koje literalno gadjaju
+     * spec path takodje rade.
+     */
+    @GetMapping({"/interbank/user/{rn}/{id}", "/user/{rn}/{id}"})
     public UserInformationDto user(@PathVariable int rn, @PathVariable String id) {
         if (rn != props.getMyRoutingNumber()) {
             throw new NegotiationNotFoundException(

@@ -99,4 +99,33 @@ public class BankingCoreInternalClient {
                 .retrieve()
                 .body(AccountResolveRes.class);
     }
+
+    // ===== Tim 2 §3.6 CRITICAL-1 helper ====================================
+
+    /**
+     * Vraca 18-cifren MONAS account broj za (ownerId, currency) par; null ako
+     * vlasnik nema racun u toj valuti (banking-core vraca 404).
+     *
+     * <p>Coordinator zove pri kontrukciji {@code accept} postings-a (premium
+     * leg mora biti {@code TxAccount.Account} sa pravim brojem racuna; default
+     * {@code TxAccount.Person} ostavlja banku partner-a bez nacina da resolve-uje
+     * INSUFFICIENT_ASSET / NO_SUCH_ACCOUNT).
+     */
+    public record AccountByOwnerRes(String accountNumber) {}
+
+    public String findAccountByOwnerAndCurrency(Long ownerId, CurrencyCode currency) {
+        try {
+            AccountByOwnerRes res = client.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/internal/interbank/account-by-owner")
+                            .queryParam("ownerId", ownerId)
+                            .queryParam("currency", currency.name())
+                            .build())
+                    .retrieve()
+                    .body(AccountByOwnerRes.class);
+            return res != null ? res.accountNumber() : null;
+        } catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
+            return null;
+        }
+    }
 }
