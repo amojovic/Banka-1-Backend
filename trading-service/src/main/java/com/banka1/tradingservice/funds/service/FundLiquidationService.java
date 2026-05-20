@@ -54,6 +54,7 @@ public class FundLiquidationService {
      */
     private final ObjectProvider<MarketPriceClient> marketPriceClientProvider;
     private final ObjectProvider<AccountServiceClient> accountServiceClientProvider;
+    private final FundValueSnapshotService snapshotService;
 
     @Transactional
     public Result liquidateForFund(Long fundId, BigDecimal targetAmount, String correlationId) {
@@ -126,6 +127,7 @@ public class FundLiquidationService {
         fund.setLikvidnaSredstva(fund.getLikvidnaSredstva().add(liquidatedTotal));
         fundRepository.save(fund);
         creditFundAccount(fund, liquidatedTotal, correlationId);
+        snapshotService.recordSnapshot(fundId, java.time.LocalDate.now());
 
         String liquidationId = UUID.randomUUID().toString();
         log.info("FundLiquidation: fundId={} target={} liquidatedRsd={} liquidatedUsd={} holdings={} live={} fallback={} liquidationId={} correlationId={}",
@@ -175,6 +177,7 @@ public class FundLiquidationService {
         fund.setLikvidnaSredstva(fund.getLikvidnaSredstva().add(proceeds));
         fundRepository.save(fund);
         creditFundAccount(fund, proceeds, "supervisor-sell");
+        snapshotService.recordSnapshot(fundId, java.time.LocalDate.now());
 
         log.info("Supervisor sold {}x {} from fund {} at {} = {} USD / {} RSD",
                 quantity, ticker, fundId, unitPrice, proceedsUsd, proceeds);
