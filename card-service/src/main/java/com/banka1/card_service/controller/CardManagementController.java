@@ -40,7 +40,7 @@ import java.util.List;
  * administrative lifecycle transitions such as unblock and deactivate.
  */
 @RestController
-@RequestMapping("/api/cards")
+@RequestMapping
 @RequiredArgsConstructor
 public class CardManagementController {
 

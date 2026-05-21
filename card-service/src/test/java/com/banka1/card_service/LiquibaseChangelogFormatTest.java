@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 class LiquibaseChangelogFormatTest {
 
     private static final Path CHANGELOG_PATH =
-            Path.of("src", "main", "resources", "db", "changelog", "001-beginning.sql");
+            Path.of("src", "main", "resources", "db", "changelog", "card", "001-beginning.sql");
 
     @Test
     void formattedSqlChangesetsMustIncludeAuthorAndId() throws IOException {
