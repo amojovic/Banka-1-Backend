@@ -41,6 +41,7 @@ dependencies {
 
     // PR_16 C16.1: phantom starter-webmvc-test uklonjen.
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.boot:spring-boot-webmvc-test'
     testImplementation 'org.springframework.security:spring-security-test'
     testRuntimeOnly 'com.h2database:h2'
 }
@@ -70,6 +71,6 @@ tasks.named('jacocoTestReport') {
     }
 }
 
-// PR_19 library mode
-bootJar { enabled = false }
+// PR_19 library mode by default. Docker builds can opt in to a standalone boot jar.
+bootJar { enabled = project.findProperty('stockServiceBootJar') == 'true' }
 jar { enabled = true; archiveClassifier = '' }

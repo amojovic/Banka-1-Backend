@@ -1,0 +1,9 @@
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local env overrides — secrets like DISCORD_BOT_TOKEN should never be committed
+.env
+.env.local
+.env.*.local

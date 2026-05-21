@@ -11,6 +11,21 @@ services:
       timeout: 5s
       retries: 10
 
+  influxdb:
+    image: influxdb:2.7
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: adminadminadmin
+      DOCKER_INFLUXDB_INIT_ORG: banka1
+      DOCKER_INFLUXDB_INIT_BUCKET: market_data
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: banka1-market-data-token
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   stock-service:
     build:
       context: ..
@@ -31,7 +46,15 @@ services:
       STOCK_FUTURES_SEED_ENABLED: "false"
       STOCK_FOREX_SEED_ENABLED: "false"
       STOCK_LISTING_REFRESH_ENABLED: "false"
+      STOCK_INFLUX_ENABLED: "true"
+      STOCK_INFLUX_URL: http://influxdb:8086
+      STOCK_INFLUX_ORG: banka1
+      STOCK_INFLUX_BUCKET: market_data
+      STOCK_INFLUX_TOKEN: banka1-market-data-token
       ALPHA_VANTAGE_API_KEY: ci-placeholder-key
+      MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "false"
     depends_on:
       postgres:
+        condition: service_healthy
+      influxdb:
         condition: service_healthy

@@ -1,5 +1,6 @@
 package com.banka1.tradingservice.funds.dto;
 
+import com.banka1.tradingservice.funds.domain.FundDividendStrategy;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -27,9 +28,14 @@ public class InvestmentFundDto {
     private BigDecimal likvidnaSredstva;
     private Long accountId;
     private String accountNumber;
+    private FundDividendStrategy dividendStrategy;
     private LocalDate datumKreiranja;
     /** Izvedeno: likvidnaSredstva + suma vrednosti hartija. */
     private BigDecimal totalValue;
     /** Izvedeno: totalValue - sumOfClientInvestments. */
     private BigDecimal profit;
+    private BigDecimal annualizedReturn;
+    private BigDecimal rewardToVariabilityRatio;
+    private BigDecimal maxDrawdown;
+    private BigDecimal volatility;
 }

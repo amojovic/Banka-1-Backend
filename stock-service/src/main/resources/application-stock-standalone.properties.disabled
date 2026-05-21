@@ -53,3 +53,9 @@ stock.market-data.base-url=${STOCK_MARKET_DATA_BASE_URL:https://www.alphavantage
 stock.market-data.alpha-vantage-api-key=${ALPHA_VANTAGE_API_KEY:}
 stock.market-data.api-key=#{ '${STOCK_MARKET_DATA_API_KEY:}'.isEmpty() ? '${ALPHA_VANTAGE_API_KEY:}' : '${STOCK_MARKET_DATA_API_KEY:}' }
 stock.market-data.daily-history-limit=${STOCK_MARKET_DATA_DAILY_HISTORY_LIMIT:30}
+
+stock.influx.enabled=${STOCK_INFLUX_ENABLED:false}
+stock.influx.url=${STOCK_INFLUX_URL:http://localhost:8086}
+stock.influx.org=${STOCK_INFLUX_ORG:banka1}
+stock.influx.bucket=${STOCK_INFLUX_BUCKET:market_data}
+stock.influx.token=${STOCK_INFLUX_TOKEN:}

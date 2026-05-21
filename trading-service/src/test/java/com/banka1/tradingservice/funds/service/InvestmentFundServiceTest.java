@@ -5,10 +5,12 @@ import com.banka1.tradingservice.funds.domain.ClientFundTransaction;
 import com.banka1.tradingservice.funds.domain.ClientFundTransactionStatus;
 import com.banka1.tradingservice.funds.domain.InvestmentFund;
 import com.banka1.tradingservice.funds.dto.CreateFundRequest;
+import com.banka1.tradingservice.funds.dto.FundMetricValuesDto;
 import com.banka1.tradingservice.funds.dto.InvestmentFundDto;
 import com.banka1.tradingservice.funds.dto.InvestmentRequest;
 import com.banka1.tradingservice.funds.dto.RedemptionRequest;
 import com.banka1.tradingservice.funds.client.AccountServiceClient;
+import com.banka1.tradingservice.funds.client.UserServiceClient;
 import com.banka1.tradingservice.funds.repository.ClientFundPositionRepository;
 import com.banka1.tradingservice.funds.repository.ClientFundTransactionRepository;
 import com.banka1.tradingservice.funds.repository.InvestmentFundRepository;
@@ -41,8 +43,12 @@ class InvestmentFundServiceTest {
     @Mock private FundAccountNumberGenerator accountNumberGenerator;
     @Mock private FundHoldingService fundHoldingService;
     @Mock private ObjectProvider<AccountServiceClient> accountServiceClientProvider;
+    @Mock private ObjectProvider<UserServiceClient> userServiceClientProvider;
+    @Mock private FundValueSnapshotService snapshotService;
+    @Mock private FundStatisticsService statisticsService;
+    @Mock private AccountServiceClient accountServiceClient;
 
-    @InjectMocks private InvestmentFundService service;
+    private InvestmentFundService service;
 
     private InvestmentFund fixture;
 
@@ -59,7 +65,24 @@ class InvestmentFundServiceTest {
         // holdings value = 0 unless overridden per test
         lenient().when(fundHoldingService.calculateHoldingsValue(anyLong())).thenReturn(BigDecimal.ZERO);
         // no account-service available in unit tests — fund creation skips REST call
-        lenient().when(accountServiceClientProvider.getIfAvailable()).thenReturn(null);
+        lenient().when(accountServiceClientProvider.getIfAvailable()).thenReturn(accountServiceClient);
+        lenient().when(userServiceClientProvider.getIfAvailable()).thenReturn(null);
+        lenient().when(statisticsService.metricsFor(anyLong())).thenReturn(FundMetricValuesDto.builder().build());
+        lenient().when(accountServiceClient.createSystemAccount(any(), any(), any(), any(), any()))
+                .thenReturn(new AccountServiceClient.CreatedSystemAccount(
+                        1L, "1234567812345674", -1002L, "RSD", BigDecimal.ZERO, "ACTIVE", "STANDARDNI"));
+        service = new InvestmentFundService(
+                fundRepository,
+                positionRepository,
+                transactionRepository,
+                rabbitTemplate,
+                accountNumberGenerator,
+                fundHoldingService,
+                snapshotService,
+                statisticsService,
+                accountServiceClientProvider,
+                userServiceClientProvider
+        );
     }
 
     @Test
@@ -72,7 +95,7 @@ class InvestmentFundServiceTest {
         });
         when(positionRepository.findByFundId(2L)).thenReturn(List.of());
 
-        CreateFundRequest req = new CreateFundRequest("Beta Fund", "Tech", new BigDecimal("500"));
+        CreateFundRequest req = new CreateFundRequest("Beta Fund", "Tech", new BigDecimal("500"), null);
 
         InvestmentFundDto dto = service.createFund(req, 60L);
 

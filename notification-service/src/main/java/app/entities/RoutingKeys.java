@@ -77,6 +77,10 @@ public final class RoutingKeys {
      * Routing key za uspesno naplaceni porez.
      */
     public static final String TAX_COLLECTED = "tax.collected";
+    public static final String OTC_COUNTERED = "otc.countered";
+    public static final String OTC_ACCEPTED = "otc.accepted";
+    public static final String OTC_CANCELED = "otc.canceled";
+    public static final String OTC_EXPIRY_REMINDER = "otc.expiry_reminder";
 
     private RoutingKeys() {}
 }
