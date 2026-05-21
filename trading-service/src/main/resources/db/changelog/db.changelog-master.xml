@@ -48,4 +48,7 @@
     <!-- Spark analytics materialized results. -->
     <include file="db/changelog/trading-analytics/011-create-analytics-results.sql"/>
 
+    <!-- OTC notifications/history + fund dividends/statistics. -->
+    <include file="db/changelog/trading-otc/012-otc-history-dividends-fund-snapshots.sql"/>
+
 </databaseChangeLog>

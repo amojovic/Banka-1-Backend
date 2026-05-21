@@ -1,14 +1,19 @@
 package com.banka1.tradingservice.funds.controller;
 
 import com.banka1.tradingservice.funds.domain.ClientFundTransaction;
+import com.banka1.tradingservice.funds.dto.FundDetailsAnalyticsDto;
+import com.banka1.tradingservice.funds.dto.FundDividendDistributionDto;
+import com.banka1.tradingservice.funds.dto.FundSortField;
 import com.banka1.tradingservice.funds.dto.ClientFundPositionDto;
 import com.banka1.tradingservice.funds.dto.CreateFundRequest;
 import com.banka1.tradingservice.funds.dto.FundHoldingDto;
 import com.banka1.tradingservice.funds.dto.FundPerformancePointDto;
 import com.banka1.tradingservice.funds.dto.InvestmentFundDto;
 import com.banka1.tradingservice.funds.dto.InvestmentRequest;
+import com.banka1.tradingservice.funds.dto.RecordFundDividendRequest;
 import com.banka1.tradingservice.funds.dto.ReassignManagerRequest;
 import com.banka1.tradingservice.funds.dto.RedemptionRequest;
+import com.banka1.tradingservice.funds.service.FundDividendService;
 import com.banka1.tradingservice.funds.service.FundLiquidationService;
 import com.banka1.tradingservice.funds.service.InvestmentFundService;
 import jakarta.validation.Valid;
@@ -24,6 +29,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import org.springframework.data.domain.Sort;
 
 @RestController
 @RequestMapping("/funds")
@@ -32,17 +38,25 @@ public class InvestmentFundController {
 
     private final InvestmentFundService fundService;
     private final FundLiquidationService fundLiquidationService;
+    private final FundDividendService fundDividendService;
 
     // -------------------- discovery --------------------
 
     @GetMapping
-    public ResponseEntity<List<InvestmentFundDto>> discovery() {
-        return ResponseEntity.ok(fundService.discovery());
+    public ResponseEntity<List<InvestmentFundDto>> discovery(
+            @RequestParam(required = false) FundSortField sortField,
+            @RequestParam(required = false) Sort.Direction sortDirection) {
+        return ResponseEntity.ok(fundService.discovery(sortField, sortDirection));
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<InvestmentFundDto> details(@PathVariable Long id) {
         return ResponseEntity.ok(fundService.details(id));
+    }
+
+    @GetMapping("/{id}/analytics")
+    public ResponseEntity<FundDetailsAnalyticsDto> analytics(@PathVariable Long id) {
+        return ResponseEntity.ok(fundService.analytics(id));
     }
 
     // -------------------- supervisor fund mgmt --------------------
@@ -165,6 +179,14 @@ public class InvestmentFundController {
     @GetMapping("/{id}/performance")
     public ResponseEntity<List<FundPerformancePointDto>> fundPerformance(@PathVariable("id") Long fundId) {
         return ResponseEntity.ok(fundService.fundPerformance(fundId));
+    }
+
+    @PostMapping("/{id}/dividends")
+    @PreAuthorize("hasAuthority('FUND_AGENT_MANAGE') or hasRole('SERVICE')")
+    public ResponseEntity<FundDividendDistributionDto> recordDividend(
+            @PathVariable("id") Long fundId,
+            @RequestBody @Valid RecordFundDividendRequest request) {
+        return new ResponseEntity<>(fundDividendService.recordDividend(fundId, request), HttpStatus.CREATED);
     }
 
     // -------------------- admin --------------------

@@ -82,6 +82,14 @@ class RoutingKeysConfigValidationTest {
                 "Missing routing key mapping for: " + RoutingKeys.ORDER_DECLINED);
         assertTrue(routingKeys.containsKey(RoutingKeys.TAX_COLLECTED),
                 "Missing routing key mapping for: " + RoutingKeys.TAX_COLLECTED);
+        assertTrue(routingKeys.containsKey(RoutingKeys.OTC_COUNTERED),
+                "Missing routing key mapping for: " + RoutingKeys.OTC_COUNTERED);
+        assertTrue(routingKeys.containsKey(RoutingKeys.OTC_ACCEPTED),
+                "Missing routing key mapping for: " + RoutingKeys.OTC_ACCEPTED);
+        assertTrue(routingKeys.containsKey(RoutingKeys.OTC_CANCELED),
+                "Missing routing key mapping for: " + RoutingKeys.OTC_CANCELED);
+        assertTrue(routingKeys.containsKey(RoutingKeys.OTC_EXPIRY_REMINDER),
+                "Missing routing key mapping for: " + RoutingKeys.OTC_EXPIRY_REMINDER);
     }
 
     /**
