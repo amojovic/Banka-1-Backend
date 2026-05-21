@@ -1,0 +1,2 @@
+discord-alert-bot has no public HTTP API — its only endpoint is the
+Alertmanager webhook receiver consumed internally on the banka-network.

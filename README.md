@@ -40,6 +40,44 @@ This will start:
 
 ---
 
+## Monitoring & Alerting (MLA)
+
+The stack ships with a complete metrics + alerting pipeline:
+
+```
+Spring Boot services
+  -> OpenTelemetry Collector (port 4318 OTLP / 8889 prom)
+    -> Prometheus (port 9090)              -> Grafana (port 3000)
+    -> Alertmanager (port 9093)
+      -> Discord Alert Bot (banka-network) -> Discord DM
+```
+
+What you get out of the box:
+
+- HTTP request count, status, latency (auto-instrumented by Micrometer via `company-observability-starter`)
+- JVM heap / GC / threads metrics
+- HikariCP DB pool metrics
+- Per-service down detection (alert fires after 2 min of missing metrics, covers all 8 backend services)
+- HTTP 5xx error rate alerts, p95 latency alerts, JVM heap pressure alerts
+- All alerts delivered as Discord DMs to whoever started the stack
+
+### One-time setup
+
+1. Create a Discord bot account at <https://discord.com/developers/applications>
+   and invite it to your team server. Full step-by-step in
+   [`discord-alert-bot/README.md`](discord-alert-bot/README.md).
+2. Copy `setup/.env.example` to `setup/.env` and fill in:
+   ```
+   DISCORD_BOT_TOKEN=<your bot token>
+   DEVELOPER_DISCORD_ID=<your Discord user ID>
+   ```
+3. Start the stack as usual — `docker compose -f ./setup/docker-compose.yml up -d`.
+
+Alert rules live in [`setup/prometheus-rules.yml`](setup/prometheus-rules.yml);
+Alertmanager routing in [`setup/alertmanager.yml`](setup/alertmanager.yml).
+
+---
+
 ## Pre-push Hooks
 
 Every `git push` automatically runs four checks. The push is aborted if any check fails.
