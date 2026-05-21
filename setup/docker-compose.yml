@@ -58,6 +58,29 @@ services:
         reservations:
           memory: 256M
 
+  # Redis (shared L2 cache — koristi se za market-service stock price feed cache).
+  # Alpine image, no persistence (cache-only, ne treba durability).
+  redis:
+    image: redis:7-alpine
+    container_name: banka_redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    networks:
+      - banka-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+        reservations:
+          memory: 64M
+
   # RabbitMQ (shared, koristi se za saga.events i notification events)
   # PR_19 C19.1: alpine variant + memory cap. RabbitMQ erlang VM ima sopstveni
   # high-watermark mehanizam — postavljen na 75% container limit-a.
@@ -486,6 +509,9 @@ services:
       TWELVE_DATA_API_KEY: ${TWELVE_DATA_API_KEY:-}
       ALPHA_VANTAGE_API_KEY: ${ALPHA_VANTAGE_API_KEY:-}
       STOCK_MARKET_DATA_BASE_URL: ${STOCK_MARKET_DATA_BASE_URL:-https://www.alphavantage.co}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      STOCK_PRICE_CACHE_TTL_SECONDS: ${STOCK_PRICE_CACHE_TTL_SECONDS:-15}
       MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
       MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
@@ -497,6 +523,7 @@ services:
       <<: *jvm-tuning
     depends_on:
       postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
       otel-collector: { condition: service_started }
     expose:
       - "${MARKET_SERVICE_PORT:-8085}"
