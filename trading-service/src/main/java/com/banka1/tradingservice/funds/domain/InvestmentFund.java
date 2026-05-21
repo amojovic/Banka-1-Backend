@@ -71,6 +71,11 @@ public class InvestmentFund {
     private String accountNumber;
 
     @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(name = "dividend_strategy", nullable = false, length = 24)
+    private FundDividendStrategy dividendStrategy = FundDividendStrategy.REINVEST;
+
+    @NotNull
     @Column(name = "datum_kreiranja", nullable = false)
     private LocalDate datumKreiranja = LocalDate.now();
 

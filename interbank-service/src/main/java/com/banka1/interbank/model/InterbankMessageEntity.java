@@ -13,6 +13,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.Version;
 import java.time.Instant;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -91,10 +92,23 @@ public class InterbankMessageEntity {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    /**
+     * Tim 2 IMPORTANT-5: JPA optimistic locking field. Bez ovoga dve scheduler
+     * instance mogu paralelno povuci isti PENDING_SEND red i poslati duplikat
+     * outbound poruke partneru (idempotency cache kod partner-a stop-uje
+     * duplikat-effect, ali spurious work i confusing logs).
+     */
+    @Version
+    @Column(name = "version", nullable = false)
+    private Long version;
+
     @PrePersist
     void onCreate() {
         if (createdAt == null) {
             createdAt = Instant.now();
+        }
+        if (version == null) {
+            version = 0L;
         }
     }
 }

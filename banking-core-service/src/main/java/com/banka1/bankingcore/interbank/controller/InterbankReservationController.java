@@ -2,6 +2,7 @@ package com.banka1.bankingcore.interbank.controller;
 
 import com.banka1.account_service.domain.Account;
 import com.banka1.account_service.domain.SystemAccountIds;
+import com.banka1.account_service.domain.enums.CurrencyCode;
 import com.banka1.account_service.repository.AccountRepository;
 import com.banka1.bankingcore.interbank.service.InterbankReservationService;
 import jakarta.validation.constraints.NotBlank;
@@ -69,6 +70,16 @@ public class InterbankReservationController {
             BigDecimal availableBalance
     ) {}
 
+    /**
+     * Tim 2 §3.6 helper — resolve 18-cifren MONAS account broj za (vlasnik,
+     * currency) par. Inter-bank coordinator zove pre nego sto izgradi
+     * Posting-e: premium leg mora referenicrati pravi {@link TxAccount.Account}
+     * (per spec), ne {@code TxAccount.Person} — inace partner-ova validacija
+     * ne moze NO_SUCH_ACCOUNT odgovor da povrati i premium konacuje na
+     * nekonzistentnom stanju.
+     */
+    public record AccountByOwnerRes(String accountNumber) {}
+
     @PostMapping("/reserve-monas")
     public ResponseEntity<ReserveMonasRes> reserveMonas(@RequestBody ReserveMonasReq req) {
         UUID id = reservationService.reserveMonas(
@@ -90,6 +101,30 @@ public class InterbankReservationController {
     public ResponseEntity<Void> release(@PathVariable UUID id) {
         reservationService.releaseReservation(id);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Tim 2 §3.6 CRITICAL-1 podrska: resolve user's primary MONAS account broj
+     * za datu valutu. Coordinator koristi pri konstrukciji {@code accept}
+     * postings-a (premium leg mora biti {@code TxAccount.Account} sa pravim
+     * brojem racuna).
+     *
+     * @return 200 + {accountNumber} ako postoji racun za (vlasnik, currency);
+     *         404 ako vlasnik nema racun u toj valuti.
+     */
+    @GetMapping("/account-by-owner")
+    public ResponseEntity<AccountByOwnerRes> accountByOwner(
+            @RequestParam("ownerId") Long ownerId,
+            @RequestParam("currency") String currency) {
+        CurrencyCode currencyCode;
+        try {
+            currencyCode = CurrencyCode.valueOf(currency);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
+        }
+        return accountRepository.findByVlasnikAndCurrencyCode(ownerId, currencyCode)
+                .map(a -> ResponseEntity.ok(new AccountByOwnerRes(a.getBrojRacuna())))
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @GetMapping("/account-resolve")

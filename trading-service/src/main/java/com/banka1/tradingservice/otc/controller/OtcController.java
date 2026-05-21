@@ -3,10 +3,13 @@ package com.banka1.tradingservice.otc.controller;
 import com.banka1.tradingservice.otc.dto.CounterOfferRequest;
 import com.banka1.tradingservice.otc.dto.CreateOtcOfferRequest;
 import com.banka1.tradingservice.otc.dto.CreateOtcPositionRequest;
+import com.banka1.tradingservice.otc.dto.OtcNegotiationHistoryFilterRequest;
+import com.banka1.tradingservice.otc.dto.OtcNegotiationHistoryResponse;
 import com.banka1.tradingservice.otc.dto.OtcOfferDto;
 import com.banka1.tradingservice.otc.dto.OtcPositionDto;
 import com.banka1.tradingservice.otc.dto.PublicStockDto;
 import com.banka1.tradingservice.otc.dto.UpdateOtcPositionRequest;
+import com.banka1.tradingservice.otc.service.OtcNegotiationHistoryService;
 import com.banka1.tradingservice.otc.service.OtcService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +31,7 @@ import java.util.List;
 public class OtcController {
 
     private final OtcService otcService;
+    private final OtcNegotiationHistoryService historyService;
 
     /**
      * Inicijalna ponuda kupca prodavcu (status PENDING_SELLER).
@@ -154,5 +158,13 @@ public class OtcController {
             @RequestParam(required = false) com.banka1.tradingservice.otc.domain.OptionContractStatus status) {
         Long userId = jwt.getClaim("id");
         return ResponseEntity.ok(otcService.myContracts(userId, status));
+    }
+
+    @GetMapping("/offers/history")
+    public ResponseEntity<List<OtcNegotiationHistoryResponse>> negotiationHistory(
+            @AuthenticationPrincipal Jwt jwt,
+            OtcNegotiationHistoryFilterRequest filter) {
+        Long userId = jwt.getClaim("id");
+        return ResponseEntity.ok(historyService.historyForUser(userId, filter));
     }
 }

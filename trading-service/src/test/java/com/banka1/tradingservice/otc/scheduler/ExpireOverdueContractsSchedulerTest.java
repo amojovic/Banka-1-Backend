@@ -3,6 +3,9 @@ package com.banka1.tradingservice.otc.scheduler;
 import com.banka1.tradingservice.otc.domain.OptionContract;
 import com.banka1.tradingservice.otc.domain.OptionContractStatus;
 import com.banka1.tradingservice.otc.repository.OptionContractRepository;
+import com.banka1.tradingservice.otc.repository.OtcContractExpiryReminderRepository;
+import com.banka1.tradingservice.otc.service.OtcNotificationService;
+import com.banka1.tradingservice.otc.service.OtcPortfolioService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -30,6 +33,9 @@ import static org.mockito.Mockito.when;
 class ExpireOverdueContractsSchedulerTest {
 
     @Mock private OptionContractRepository contractRepo;
+    @Mock private OtcPortfolioService portfolioService;
+    @Mock private OtcContractExpiryReminderRepository reminderRepository;
+    @Mock private OtcNotificationService notificationService;
 
     @InjectMocks private ExpireOverdueContractsScheduler scheduler;
 
@@ -58,6 +64,20 @@ class ExpireOverdueContractsSchedulerTest {
         scheduler.expireOverdueContracts();
 
         verify(contractRepo, never()).save(any(OptionContract.class));
+    }
+
+    @Test
+    void sendExpiryReminders_idempotentPoContractuIThreshold() {
+        OptionContract contract = newContract(5L, LocalDate.now().plusDays(3));
+        org.springframework.test.util.ReflectionTestUtils.setField(scheduler, "reminderDays", 3);
+        when(contractRepo.findByStatusAndSettlementDate(OptionContractStatus.ACTIVE, LocalDate.now().plusDays(3)))
+                .thenReturn(List.of(contract));
+        when(reminderRepository.existsByContractIdAndReminderDays(5L, 3)).thenReturn(false);
+
+        scheduler.sendExpiryReminders();
+
+        verify(notificationService).sendExpiryReminder(contract, 3);
+        verify(reminderRepository).save(any());
     }
 
     private static OptionContract newContract(long id, LocalDate settled) {

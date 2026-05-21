@@ -16,6 +16,10 @@ exporters:
       insecure: true
   prometheus:
     endpoint: 0.0.0.0:8889
+    # Promotes OTel resource attributes (e.g. service.name) to Prometheus labels
+    # so we can write per-service alerting rules and dashboards.
+    resource_to_telemetry_conversion:
+      enabled: true
 
 service:
   pipelines:

@@ -1,6 +1,10 @@
 package com.banka1.interbank.service;
 
 import com.banka1.interbank.config.InterbankProperties;
+import com.banka1.interbank.exception.InterbankAuthException;
+import com.banka1.interbank.exception.InterbankNegotiationConflictException;
+import com.banka1.interbank.exception.InterbankNegotiationNotFoundException;
+import com.banka1.interbank.exception.InterbankProtocolException;
 import com.banka1.interbank.model.InterbankMessageEntity;
 import com.banka1.interbank.model.enums.Direction;
 import com.banka1.interbank.model.enums.MessageStatus;
@@ -164,14 +168,19 @@ public class InterbankClient {
      */
     public ForeignBankId outboundCreateNegotiation(int partnerRouting, OtcOfferDto offer) {
         InterbankProperties.Partner partner = props.partnerOrThrow(partnerRouting);
-        ForeignBankId id = client.post()
-                .uri(partner.getBaseUrl() + "negotiations")
-                .header("X-Api-Key", partner.getOutboundToken())
-                .body(offer)
-                .retrieve()
-                .body(ForeignBankId.class);
-        log.info("Outbound POST /negotiations partner={} returned id={}", partnerRouting, id);
-        return id;
+        try {
+            ForeignBankId id = client.post()
+                    .uri(partner.getBaseUrl() + "negotiations")
+                    .header("X-Api-Key", partner.getOutboundToken())
+                    .body(offer)
+                    .retrieve()
+                    .body(ForeignBankId.class);
+            log.info("Outbound POST /negotiations partner={} returned id={}", partnerRouting, id);
+            return id;
+        } catch (HttpClientErrorException e) {
+            handleOutboundError("POST /negotiations", partnerRouting, e);
+            return null; // unreachable
+        }
     }
 
     /**
@@ -200,11 +209,9 @@ public class InterbankClient {
                     .retrieve()
                     .toBodilessEntity();
         } catch (HttpClientErrorException e) {
-            // 400 / 404 / 409 — propagate status code, swallow body (FE dobija
-            // status iz nas controller-a + clean error message kroz exception handler).
-            log.warn("Outbound PUT /negotiations/{}/{} partner returned {}: {}",
-                    negId.routingNumber(), negId.id(), e.getStatusCode(),
-                    e.getResponseBodyAsString());
+            handleOutboundError("PUT /negotiations/" + negId.routingNumber() + "/" + negId.id(),
+                    partnerRouting, e);
+            // unreachable — handleOutboundError throws
             return ResponseEntity.status(e.getStatusCode()).build();
         }
     }
@@ -233,8 +240,8 @@ public class InterbankClient {
                     .retrieve()
                     .toBodilessEntity();
         } catch (HttpClientErrorException e) {
-            log.warn("Outbound GET /negotiations/{}/{}/accept partner returned {}",
-                    negId.routingNumber(), negId.id(), e.getStatusCode());
+            handleOutboundError("GET /negotiations/" + negId.routingNumber() + "/" + negId.id()
+                    + "/accept", partnerRouting, e);
             return ResponseEntity.status(e.getStatusCode()).build();
         }
     }
@@ -257,8 +264,15 @@ public class InterbankClient {
                     .retrieve()
                     .toBodilessEntity();
         } catch (HttpClientErrorException e) {
-            log.warn("Outbound DELETE /negotiations/{}/{} partner returned {}",
-                    negId.routingNumber(), negId.id(), e.getStatusCode());
+            // Tim 2 P2.3 — partner 404 na DELETE tretiramo kao idempotent 204
+            // (negotiation vec obrisan).
+            if (e.getStatusCode().value() == 404) {
+                log.info("Outbound DELETE /negotiations/{}/{} partner returned 404 — treating as idempotent 204",
+                        negId.routingNumber(), negId.id());
+                return ResponseEntity.noContent().build();
+            }
+            handleOutboundError("DELETE /negotiations/" + negId.routingNumber() + "/" + negId.id(),
+                    partnerRouting, e);
             return ResponseEntity.status(e.getStatusCode()).build();
         }
     }
@@ -281,7 +295,19 @@ public class InterbankClient {
                     .body(com.banka1.interbank.otc.dto.PublicStockEntryDto[].class);
             return body != null ? java.util.Arrays.asList(body) : java.util.List.of();
         } catch (HttpClientErrorException e) {
+            // Tim 2 IMPORTANT-6: distinguish 401 (token misconfig — ERROR + throw)
+            // od ostalih 4xx/5xx (partner privremeno offline — WARN + empty).
+            if (e.getStatusCode().value() == 401) {
+                log.error("Outbound GET /public-stock to partner {} returned 401 — "
+                        + "outbound token misconfigured", partnerRouting);
+                throw new InterbankAuthException(
+                        "Outbound auth rejected by partner " + partnerRouting);
+            }
             log.warn("Outbound GET /public-stock to partner {} returned {}",
+                    partnerRouting, e.getStatusCode());
+            return java.util.List.of();
+        } catch (org.springframework.web.client.HttpServerErrorException e) {
+            log.warn("Outbound GET /public-stock to partner {} returned 5xx {}",
                     partnerRouting, e.getStatusCode());
             return java.util.List.of();
         } catch (RuntimeException e) {
@@ -289,6 +315,35 @@ public class InterbankClient {
                     partnerRouting, e.getMessage());
             return java.util.List.of();
         }
+    }
+
+    /**
+     * Tim 2 MINOR-5 (P2.4): centralni outbound error router. Mapira 401, 404,
+     * 409 i ostale 4xx na tipizirane exception-e koje FE wrapper hvata. 5xx
+     * propagira generic {@link InterbankProtocolException}.
+     */
+    private void handleOutboundError(String routeLabel, int partnerRouting, HttpClientErrorException e) {
+        int code = e.getStatusCode().value();
+        String body = e.getResponseBodyAsString();
+        if (code == 401) {
+            log.error("Outbound {} to partner {} returned 401 — outbound token misconfigured",
+                    routeLabel, partnerRouting);
+            throw new InterbankAuthException(
+                    "Outbound auth rejected by partner " + partnerRouting);
+        }
+        if (code == 404) {
+            log.warn("Outbound {} partner returned 404: {}", routeLabel, body);
+            throw new InterbankNegotiationNotFoundException(
+                    "Partner " + partnerRouting + " returned 404 for " + routeLabel);
+        }
+        if (code == 409) {
+            log.warn("Outbound {} partner returned 409: {}", routeLabel, body);
+            throw new InterbankNegotiationConflictException(
+                    "Partner " + partnerRouting + " returned 409 for " + routeLabel);
+        }
+        log.warn("Outbound {} partner returned {}: {}", routeLabel, code, body);
+        throw new InterbankProtocolException(code,
+                "Partner " + partnerRouting + " returned " + code + " for " + routeLabel);
     }
 
     /**

@@ -4,6 +4,7 @@ import com.banka1.tradingservice.funds.domain.FundHolding;
 import com.banka1.tradingservice.funds.service.FundHoldingService;
 import com.banka1.tradingservice.funds.service.InvestmentFundService;
 import com.banka1.tradingservice.funds.service.FundLiquidationService;
+import com.banka1.tradingservice.funds.service.FundValueSnapshotService;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
@@ -34,6 +35,7 @@ public class FundLiquidationController {
     private final FundLiquidationService liquidationService;
     private final FundHoldingService fundHoldingService;
     private final InvestmentFundService investmentFundService;
+    private final FundValueSnapshotService snapshotService;
 
     @PostMapping("/{fundId}/liquidate")
     @PreAuthorize("hasRole('SERVICE')")
@@ -53,8 +55,9 @@ public class FundLiquidationController {
     public ResponseEntity<FundHolding> addHolding(
             @PathVariable Long fundId,
             @RequestBody AddHoldingRequest req) {
-        return ResponseEntity.ok(
-                fundHoldingService.addOrUpdate(fundId, req.getTicker(), req.getQuantity(), req.getUnitPrice()));
+        FundHolding holding = fundHoldingService.addOrUpdate(fundId, req.getTicker(), req.getQuantity(), req.getUnitPrice());
+        snapshotService.recordSnapshot(fundId, java.time.LocalDate.now());
+        return ResponseEntity.ok(holding);
     }
 
     /** Called by order-service when a fund's bank account is debited for an order. */

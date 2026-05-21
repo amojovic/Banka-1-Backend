@@ -18,4 +18,7 @@
          je buyer (222) i per protokol §3.2 ona je authoritative. UPDATE fixuje. -->
     <include file="db/changelog/interbank/004-fix-dev-negotiations-authoritative.sql" relativeToChangelogFile="false"/>
 
+    <!-- Tim 2 IMPORTANT-5: @Version kolona za scheduler optimistic locking. -->
+    <include file="db/changelog/interbank/005-message-version-column.sql" relativeToChangelogFile="false"/>
+
 </databaseChangeLog>

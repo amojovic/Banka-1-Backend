@@ -1,0 +1,17 @@
+global:
+  resolve_timeout: 5m
+
+# Routing: every alert goes to the discord-alert-bot service, which forwards
+# it as a Discord DM to whoever started this stack (DEVELOPER_DISCORD_ID).
+route:
+  receiver: discord-bot
+  group_by: ['alertname', 'service', 'service_name']
+  group_wait: 10s          # wait before sending the first batch of a new group
+  group_interval: 30s      # wait between batches of the same group
+  repeat_interval: 4h      # re-send an unresolved alert every 4h
+
+receivers:
+  - name: discord-bot
+    webhook_configs:
+      - url: http://discord-alert-bot:9094/alert
+        send_resolved: true

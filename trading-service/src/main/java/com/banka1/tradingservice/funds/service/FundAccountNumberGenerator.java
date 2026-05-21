@@ -5,21 +5,17 @@ import org.springframework.stereotype.Component;
 import java.security.SecureRandom;
 
 /**
- * Generator za 19-cifrene RSD racune fondova (PR_04 C4.7).
- *
- * <p>Banking-core ima slican generator za korisnicke racune; trading-service
- * ne moze da ga importuje (cross-modul), pa drzi svoju lightweight implementaciju
- * koja generise 18 random cifara + mod-11 check-digit.
+ * Generator za 16-cifrene racune fondova.
  */
 @Component
 public class FundAccountNumberGenerator {
 
     private final SecureRandom random = new SecureRandom();
 
-    /** 18 random + 1 check-digit = 19 cifara. Mod-11 check-digit (kao ISO 11649 lite). */
+    /** 15 random + 1 check-digit = 16 cifara. */
     public String generate() {
-        StringBuilder sb = new StringBuilder(19);
-        for (int i = 0; i < 18; i++) sb.append(random.nextInt(10));
+        StringBuilder sb = new StringBuilder(16);
+        for (int i = 0; i < 15; i++) sb.append(random.nextInt(10));
         sb.append(checkDigit(sb.toString()));
         return sb.toString();
     }

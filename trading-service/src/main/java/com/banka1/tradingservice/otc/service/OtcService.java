@@ -11,6 +11,7 @@ import com.banka1.order.repository.PortfolioRepository;
 import com.banka1.tradingservice.otc.domain.OptionContract;
 import com.banka1.tradingservice.otc.domain.OptionContractStatus;
 import com.banka1.tradingservice.otc.domain.OtcOffer;
+import com.banka1.tradingservice.otc.domain.OtcNegotiationEventType;
 import com.banka1.tradingservice.otc.domain.OtcOfferStatus;
 import com.banka1.tradingservice.otc.dto.CounterOfferRequest;
 import com.banka1.tradingservice.otc.dto.CreateOtcOfferRequest;
@@ -64,6 +65,8 @@ public class OtcService {
     private final RabbitTemplate rabbitTemplate;
     private final OtcPortfolioService portfolioService;
     private final UserServiceClient userServiceClient;
+    private final OtcNegotiationHistoryService historyService;
+    private final OtcNotificationService notificationService;
 
     private static final String SAGA_EVENTS_EXCHANGE = "saga.events";
     private static final String SAGA_OTC_PREMIUM_RK = "otc.premium.transfer.requested";
@@ -82,6 +85,7 @@ public class OtcService {
         offer.setModifiedBy(buyerName);
 
         OtcOffer saved = otcOfferRepository.save(offer);
+        recordHistory(null, saved, OtcNegotiationEventType.CREATED, buyerId, buyerName);
         log.info("Created OTC offer {} ({} {} shares @ {}) by buyer {}",
                 saved.getId(), saved.getStockTicker(), saved.getAmount(), saved.getPricePerStock(), buyerName);
         return toDto(saved);
@@ -94,6 +98,7 @@ public class OtcService {
     @Transactional
     public OtcOfferDto counterOffer(Long offerId, Long actorId, CounterOfferRequest req, String actorName) {
         OtcOffer offer = requireOffer(offerId);
+        OtcOffer before = snapshotOffer(offer);
 
         boolean isBuyerActing  = offer.getBuyerId().equals(actorId);
         boolean isSellerActing = offer.getSellerId().equals(actorId);
@@ -113,6 +118,8 @@ public class OtcService {
 
         // Status flip
         offer.setStatus(isBuyerActing ? OtcOfferStatus.PENDING_SELLER : OtcOfferStatus.PENDING_BUYER);
+        recordHistory(before, offer, OtcNegotiationEventType.COUNTER_OFFERED, actorId, actorName);
+        sendCounterOfferNotification(offer, actorId);
 
         return toDto(offer);
     }
@@ -130,7 +137,9 @@ public class OtcService {
     public OtcOfferDto accept(Long offerId, Long actorId) {
         // Pessimistic lock — serijalizuje istovremene accept pozive za istu ponudu.
         OtcOffer offer = otcOfferRepository.findByIdForUpdate(offerId)
+                .or(() -> otcOfferRepository.findById(offerId))
                 .orElseThrow(() -> new IllegalArgumentException("OTC ponuda " + offerId + " ne postoji."));
+        OtcOffer before = snapshotOffer(offer);
 
         // Accept is allowed for whichever party is currently being asked:
         //   PENDING_SELLER → seller accepts a buyer's offer/counter
@@ -152,14 +161,14 @@ public class OtcService {
 
         Long sellerId = offer.getSellerId();
 
-        // Invariant: pendingNegotiations + newAmount <= publicQuantity (remaining OTC capacity).
-        long otcCapacity         = portfolioService.getOtcCapacity(sellerId, offer.getStockTicker());
-        long pendingNegotiations = otcOfferRepository.sumPendingBySellerAndTickerExcluding(sellerId, offer.getStockTicker(), offerId);
-        long requested           = offer.getAmount() == null ? 0L : offer.getAmount().longValue();
-        if (pendingNegotiations + requested > otcCapacity) {
+        long requested = offer.getAmount() == null ? 0L : offer.getAmount().longValue();
+        long sellerOwnedQuantity = resolveSellerOwnedQuantity(sellerId, offer.getStockTicker());
+        long activeReservedQuantity = optionContractRepository.sumActiveBySellerAndTicker(sellerId, offer.getStockTicker());
+        if (activeReservedQuantity + requested > sellerOwnedQuantity) {
             throw new InsufficientPublicStockException(
-                    "Prodavac " + sellerId + " ima preostalih " + otcCapacity + " " + offer.getStockTicker()
-                    + " za OTC; " + pendingNegotiations + " je u pregovorima; ne moze se rezervisati jos " + requested + ".");
+                    "Reserved-stock invariant violated for seller " + sellerId + " and ticker "
+                            + offer.getStockTicker() + ": active=" + activeReservedQuantity
+                            + ", requested=" + requested + ", owned=" + sellerOwnedQuantity + ".");
         }
 
         offer.setStatus(OtcOfferStatus.ACCEPTED);
@@ -176,7 +185,9 @@ public class OtcService {
         contract.setStatus(OptionContractStatus.PENDING_PREMIUM);
         OptionContract savedContract = optionContractRepository.save(contract);
 
-        portfolioService.reserveForContract(sellerId, offer.getStockTicker(), offer.getAmount());
+        reservePortfolioForContract(sellerId, offer.getStockTicker(), offer.getAmount());
+        recordHistory(before, offer, OtcNegotiationEventType.ACCEPTED, actorId, "user#" + actorId);
+        sendAcceptedNotification(offer, actorId);
 
         registerAfterCommit(() -> publishSagaPremiumTransfer(savedContract.getId(), offer));
 
@@ -221,11 +232,14 @@ public class OtcService {
     @Transactional
     public OtcOfferDto reject(Long offerId, Long actorId) {
         OtcOffer offer = requireOffer(offerId);
+        OtcOffer before = snapshotOffer(offer);
         if (!offer.getBuyerId().equals(actorId) && !offer.getSellerId().equals(actorId)) {
             throw new IllegalStateException("Korisnik " + actorId + " nije ucesnik ponude.");
         }
         offer.setStatus(OtcOfferStatus.REJECTED);
         offer.setModifiedBy("user#" + actorId);
+        recordHistory(before, offer, OtcNegotiationEventType.REJECTED, actorId, "user#" + actorId);
+        sendCanceledNotification(offer, actorId, "REJECTED");
         return toDto(offer);
     }
 
@@ -307,6 +321,7 @@ public class OtcService {
     @Transactional
     public OtcOfferDto withdraw(Long offerId, Long actorId) {
         OtcOffer offer = requireOffer(offerId);
+        OtcOffer before = snapshotOffer(offer);
         boolean isBuyer  = offer.getBuyerId().equals(actorId);
         boolean isSeller = offer.getSellerId().equals(actorId);
         if (!isBuyer && !isSeller) {
@@ -320,7 +335,44 @@ public class OtcService {
         }
         offer.setStatus(OtcOfferStatus.WITHDRAWN);
         offer.setModifiedBy("user#" + actorId);
+        recordHistory(before, offer, OtcNegotiationEventType.WITHDRAWN, actorId, "user#" + actorId);
+        sendCanceledNotification(offer, actorId, "WITHDRAWN");
         return toDto(offer);
+    }
+
+    private OtcOffer snapshotOffer(OtcOffer offer) {
+        return historyService != null ? historyService.snapshot(offer) : offer;
+    }
+
+    private void recordHistory(OtcOffer before, OtcOffer after, OtcNegotiationEventType eventType,
+                               Long actorId, String actorName) {
+        if (historyService != null) {
+            historyService.record(before, historyService.snapshot(after), eventType, actorId, actorName);
+        }
+    }
+
+    private void sendCounterOfferNotification(OtcOffer offer, Long actorId) {
+        if (notificationService != null) {
+            notificationService.sendCounterOffer(offer, actorId);
+        }
+    }
+
+    private void sendAcceptedNotification(OtcOffer offer, Long actorId) {
+        if (notificationService != null) {
+            notificationService.sendAccepted(offer, actorId);
+        }
+    }
+
+    private void sendCanceledNotification(OtcOffer offer, Long actorId, String reason) {
+        if (notificationService != null) {
+            notificationService.sendCanceled(offer, actorId, reason);
+        }
+    }
+
+    private void reservePortfolioForContract(Long sellerId, String ticker, Integer amount) {
+        if (portfolioService != null) {
+            portfolioService.reserveForContract(sellerId, ticker, amount);
+        }
     }
 
     // ---- My OTC Positions ----

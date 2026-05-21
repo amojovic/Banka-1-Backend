@@ -1,6 +1,7 @@
 package com.banka1.interbank.service;
 
 import com.banka1.interbank.config.InterbankProperties;
+import com.banka1.interbank.exception.InterbankSenderNotPartyException;
 import com.banka1.interbank.exception.InvalidNegotiationException;
 import com.banka1.interbank.exception.NegotiationClosedException;
 import com.banka1.interbank.exception.NegotiationNotFoundException;
@@ -119,16 +120,35 @@ public class OtcNegotiationService {
     /**
      * §3.4 GET /negotiations/{rn}/{id} — vraca trenutno stanje. Per Tim 2 §3.4,
      * {@code rn} u path-u je routing broj banke koja je gospodar (authoritative)
-     * pregovora. U nasoj implementaciji svi negotiationi sa is_authoritative=true
-     * imaju rn = myRouting, ali ne fail-ujemo ako se rn ne poklapa — samo
-     * vracamo ono sto imamo (mirror state za partner banke).
+     * pregovora. Lookup kroz {@link #findByAuthoritativeRef}.
      */
     @Transactional(readOnly = true)
     public OtcNegotiationDto getNegotiation(int rn, String id) {
-        InterbankNegotiationEntity entity = negRepo.findById(id)
+        InterbankNegotiationEntity entity = findByAuthoritativeRef(rn, id);
+        return toDto(entity);
+    }
+
+    /**
+     * Tim 2 spec §3.2 lookup: {rn, id} u URL-u je AUTHORITATIVE par.
+     * <ul>
+     *   <li>Ako rn = myRouting → mi smo authoritative → id je nas lokalni PK
+     *       (negRepo.findById).</li>
+     *   <li>Ako rn != myRouting → partner je authoritative → id je njihov
+     *       authoritative neg-id, mi ga cuvamo u {@code remote_negotiation_id}
+     *       polju (negRepo.findByRemoteNegotiationId).</li>
+     * </ul>
+     * Throw {@link NegotiationNotFoundException} (→ 404) ako entity ne postoji.
+     */
+    private InterbankNegotiationEntity findByAuthoritativeRef(int rn, String id) {
+        int my = props.getMyRoutingNumber();
+        if (rn == my) {
+            return negRepo.findById(id)
+                    .orElseThrow(() -> new NegotiationNotFoundException(
+                            "Negotiation " + rn + "/" + id + " not found"));
+        }
+        return negRepo.findByRemoteNegotiationId(id)
                 .orElseThrow(() -> new NegotiationNotFoundException(
                         "Negotiation " + rn + "/" + id + " not found"));
-        return toDto(entity);
     }
 
     /**
@@ -146,9 +166,7 @@ public class OtcNegotiationService {
      */
     @Transactional
     public void updateCounter(int rn, String id, OtcOfferDto offer, int senderRoutingNumber) {
-        InterbankNegotiationEntity entity = negRepo.findById(id)
-                .orElseThrow(() -> new NegotiationNotFoundException(
-                        "Negotiation " + id + " not found"));
+        InterbankNegotiationEntity entity = findByAuthoritativeRef(rn, id);
 
         if (!entity.isOngoing()) {
             throw new NegotiationClosedException("Negotiation " + id + " is closed");
@@ -204,17 +222,53 @@ public class OtcNegotiationService {
 
     /**
      * §3.5 DELETE /negotiations/{rn}/{id} — close negotiation.
-     * Idempotent: ako je vec zatvoren, ne baca exception (samo no-op flip).
+     *
+     * <p>Tim 2 MINOR-3 (P2.3): potpuno idempotent. Ponovljeni DELETE na vec
+     * obrisanom (ili nepoznatom) pregovoru ne baca 404 — vraca 204 No Content
+     * sa no-op log porukom. Per spec §3.5 i Tim 2 §6.5 retry logici, partner
+     * ne sme da dobije 404 na svoj drugi retry istog DELETE-a.
+     *
+     * <p>Tim 2 audit follow-up: senderRoutingNumber mora biti buyer ili
+     * seller routing iz pregovora. U 2-bank setup-u je no-op, ali kod N=3+
+     * banaka sprecava da bilo koji autentifikovan partner obrise tudji
+     * pregovor. Throw {@link InterbankSenderNotPartyException} → 403.
      */
     @Transactional
-    public void delete(int rn, String id) {
-        InterbankNegotiationEntity entity = negRepo.findById(id)
-                .orElseThrow(() -> new NegotiationNotFoundException(
-                        "Negotiation " + id + " not found"));
+    public void delete(int rn, String id, int senderRoutingNumber) {
+        int my = props.getMyRoutingNumber();
+        var entityOpt = rn == my
+                ? negRepo.findById(id)
+                : negRepo.findByRemoteNegotiationId(id);
+        if (entityOpt.isEmpty()) {
+            log.info("DELETE /negotiations/{}/{} — pregovor ne postoji, idempotent no-op",
+                    rn, id);
+            return;
+        }
+        InterbankNegotiationEntity entity = entityOpt.get();
+        requireSenderIsParty(entity, senderRoutingNumber);
         if (entity.isOngoing()) {
             entity.setOngoing(false);
             negRepo.save(entity);
-            log.info("Closed negotiation {}", id);
+            log.info("Closed negotiation {} (by sender routing={})", id, senderRoutingNumber);
+        } else {
+            log.debug("DELETE /negotiations/{}/{} — pregovor vec zatvoren, idempotent no-op",
+                    rn, id);
+        }
+    }
+
+    /**
+     * Tim 2 audit follow-up: helper koji verifikuje da je authenticated sender
+     * stranka u pregovoru (buyer ili seller routing). Ako nije, baca
+     * {@link InterbankSenderNotPartyException} → 403.
+     */
+    private void requireSenderIsParty(InterbankNegotiationEntity entity, int senderRoutingNumber) {
+        if (entity.getBuyerRoutingNumber() != senderRoutingNumber
+                && entity.getSellerRoutingNumber() != senderRoutingNumber) {
+            throw new InterbankSenderNotPartyException(
+                    "Sender routing=" + senderRoutingNumber
+                            + " nije stranka u pregovoru " + entity.getId()
+                            + " (buyer=" + entity.getBuyerRoutingNumber()
+                            + ", seller=" + entity.getSellerRoutingNumber() + ")");
         }
     }
 
@@ -225,9 +279,10 @@ public class OtcNegotiationService {
      * do 60s dok 2PC ne commit-uje.
      */
     public void acceptNegotiation(int rn, String id, int senderRoutingNumber) {
-        InterbankNegotiationEntity entity = negRepo.findById(id)
-                .orElseThrow(() -> new NegotiationNotFoundException(
-                        "Negotiation " + id + " not found"));
+        InterbankNegotiationEntity entity = findByAuthoritativeRef(rn, id);
+        // Tim 2 audit follow-up: sender mora biti stranka u pregovoru (N=3+
+        // banaka). U 2-bank setup-u uvek prolazi, ali odrzava semantiku.
+        requireSenderIsParty(entity, senderRoutingNumber);
         if (!entity.isOngoing()) {
             throw new NegotiationClosedException("Negotiation " + id + " is closed");
         }
