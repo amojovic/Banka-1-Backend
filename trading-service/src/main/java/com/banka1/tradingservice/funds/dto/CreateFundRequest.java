@@ -1,5 +1,6 @@
 package com.banka1.tradingservice.funds.dto;
 
+import com.banka1.tradingservice.funds.domain.FundDividendStrategy;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -26,4 +27,6 @@ public class CreateFundRequest {
     @NotNull
     @DecimalMin(value = "0.00")
     private BigDecimal minimumContribution;
+
+    private FundDividendStrategy dividendStrategy;
 }

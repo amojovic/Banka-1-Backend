@@ -1,0 +1,211 @@
+# Prometheus alerting rules for the Banka-1 backend.
+#
+# Metric names follow OpenTelemetry semantic conventions emitted by
+# spring-boot-starter-opentelemetry and exposed via the OTel collector's
+# prometheus exporter (dots -> underscores, units appended).
+#
+# `service.name` resource attribute becomes the `service_name` Prometheus
+# label thanks to resource_to_telemetry_conversion in otel-collector-config.yaml.
+#
+# Service names match OTEL_SERVICE_NAME in setup/docker-compose.yml.
+groups:
+  - name: infrastructure
+    interval: 30s
+    rules:
+      - alert: OtelCollectorDown
+        expr: up{job="otel-collector"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: infrastructure
+        annotations:
+          summary: "OTel Collector is down"
+          description: "Prometheus cannot scrape the OpenTelemetry collector. The entire metrics + tracing pipeline is blocked."
+
+      - alert: AlertmanagerDown
+        expr: up{job="alertmanager"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: infrastructure
+        annotations:
+          summary: "Alertmanager is down"
+          description: "Prometheus cannot scrape Alertmanager — alerts may not be delivered."
+
+  - name: service-availability
+    interval: 30s
+    rules:
+      - alert: NotificationServiceDown
+        expr: absent(jvm_memory_used_bytes{service_name="notification-service"})
+        for: 2m
+        labels:
+          severity: critical
+          service: notification-service
+        annotations:
+          summary: "notification-service is not reporting metrics"
+          description: "notification-service has not exported any JVM metrics for 2+ minutes. The container is likely down or unable to reach the OTel collector."
+
+      - alert: UserServiceDown
+        expr: absent(jvm_memory_used_bytes{service_name="user-service"})
+        for: 2m
+        labels:
+          severity: critical
+          service: user-service
+        annotations:
+          summary: "user-service is not reporting metrics"
+          description: "user-service has not exported any JVM metrics for 2+ minutes."
+
+      - alert: BankingCoreServiceDown
+        expr: absent(jvm_memory_used_bytes{service_name="banking-core-service"})
+        for: 2m
+        labels:
+          severity: critical
+          service: banking-core-service
+        annotations:
+          summary: "banking-core-service is not reporting metrics"
+          description: "banking-core-service has not exported any JVM metrics for 2+ minutes."
+
+      - alert: MarketServiceDown
+        expr: absent(jvm_memory_used_bytes{service_name="market-service"})
+        for: 2m
+        labels:
+          severity: critical
+          service: market-service
+        annotations:
+          summary: "market-service is not reporting metrics"
+          description: "market-service has not exported any JVM metrics for 2+ minutes."
+
+      - alert: TradingServiceDown
+        expr: absent(jvm_memory_used_bytes{service_name="trading-service"})
+        for: 2m
+        labels:
+          severity: critical
+          service: trading-service
+        annotations:
+          summary: "trading-service is not reporting metrics"
+          description: "trading-service has not exported any JVM metrics for 2+ minutes."
+
+      - alert: CreditServiceDown
+        expr: absent(jvm_memory_used_bytes{service_name="credit-service"})
+        for: 2m
+        labels:
+          severity: critical
+          service: credit-service
+        annotations:
+          summary: "credit-service is not reporting metrics"
+          description: "credit-service has not exported any JVM metrics for 2+ minutes."
+
+      - alert: SagaOrchestratorServiceDown
+        expr: absent(jvm_memory_used_bytes{service_name="saga-orchestrator-service"})
+        for: 2m
+        labels:
+          severity: critical
+          service: saga-orchestrator-service
+        annotations:
+          summary: "saga-orchestrator-service is not reporting metrics"
+          description: "saga-orchestrator-service has not exported any JVM metrics for 2+ minutes."
+
+      - alert: InterbankServiceDown
+        expr: absent(jvm_memory_used_bytes{service_name="interbank-service"})
+        for: 2m
+        labels:
+          severity: critical
+          service: interbank-service
+        annotations:
+          summary: "interbank-service is not reporting metrics"
+          description: "interbank-service has not exported any JVM metrics for 2+ minutes."
+
+  - name: http-health
+    interval: 30s
+    rules:
+      - alert: HighHttp5xxErrorRate
+        expr: |
+          (
+            sum by (service_name) (
+              rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[5m])
+            )
+            /
+            clamp_min(
+              sum by (service_name) (rate(http_server_request_duration_seconds_count[5m])),
+              0.001
+            )
+          ) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+          category: http
+        annotations:
+          summary: "High 5xx error rate on {{ $labels.service_name }}"
+          description: "{{ $labels.service_name }} has > 5% HTTP 5xx responses in the last 5 minutes (current ratio: {{ $value | humanizePercentage }})."
+
+      - alert: HighHttpLatencyP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (service_name, le) (rate(http_server_request_duration_seconds_bucket[5m]))
+          ) > 1.5
+        for: 5m
+        labels:
+          severity: warning
+          category: http
+        annotations:
+          summary: "High HTTP p95 latency on {{ $labels.service_name }}"
+          description: "{{ $labels.service_name }} HTTP request p95 latency is above 1.5s for 5+ minutes (current: {{ $value }}s)."
+
+  - name: jvm-health
+    interval: 30s
+    rules:
+      - alert: HighJvmHeapUsage
+        expr: |
+          (
+            sum by (service_name) (jvm_memory_used_bytes{jvm_memory_type="heap"})
+            /
+            sum by (service_name) (jvm_memory_committed_bytes{jvm_memory_type="heap"})
+          ) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          category: jvm
+        annotations:
+          summary: "High JVM heap usage on {{ $labels.service_name }}"
+          description: "{{ $labels.service_name }} JVM heap is above 85% of committed for 5+ minutes (current: {{ $value | humanizePercentage }}). Risk of OutOfMemoryError."
+
+      - alert: HighGcPressure
+        expr: |
+          sum by (service_name) (rate(jvm_gc_duration_seconds_sum[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          category: jvm
+        annotations:
+          summary: "High GC pressure on {{ $labels.service_name }}"
+          description: "{{ $labels.service_name }} JVM spends more than 0.5s/s in GC for 5+ minutes (current: {{ $value }}s/s). Latency will be affected."
+
+      - alert: HighBlockedThreads
+        expr: |
+          sum by (service_name) (jvm_threads_states_threads{jvm_thread_state="blocked"}) > 50
+        for: 5m
+        labels:
+          severity: warning
+          category: jvm
+        annotations:
+          summary: "Many blocked threads on {{ $labels.service_name }}"
+          description: "{{ $labels.service_name }} has more than 50 BLOCKED threads for 5+ minutes (current: {{ $value }}). Possible deadlock or DB contention."
+
+  - name: database-health
+    interval: 30s
+    rules:
+      - alert: HikariPoolNearExhaustion
+        expr: |
+          (
+            sum by (service_name) (hikaricp_connections_active)
+            /
+            sum by (service_name) (hikaricp_connections_max)
+          ) > 0.9
+        for: 2m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "DB connection pool near exhaustion on {{ $labels.service_name }}"
+          description: "{{ $labels.service_name }} HikariCP pool is above 90% utilization for 2+ minutes (current: {{ $value | humanizePercentage }}). Subsequent DB calls will queue and time out."

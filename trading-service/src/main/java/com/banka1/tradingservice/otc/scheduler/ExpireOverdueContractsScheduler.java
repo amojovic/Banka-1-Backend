@@ -2,8 +2,11 @@ package com.banka1.tradingservice.otc.scheduler;
 
 import com.banka1.tradingservice.otc.domain.OptionContract;
 import com.banka1.tradingservice.otc.domain.OptionContractStatus;
+import com.banka1.tradingservice.otc.domain.OtcContractExpiryReminder;
 import com.banka1.tradingservice.otc.repository.OptionContractRepository;
+import com.banka1.tradingservice.otc.repository.OtcContractExpiryReminderRepository;
 import com.banka1.tradingservice.otc.service.OtcPortfolioService;
+import com.banka1.tradingservice.otc.service.OtcNotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -32,6 +35,11 @@ public class ExpireOverdueContractsScheduler {
 
     private final OptionContractRepository contractRepo;
     private final OtcPortfolioService portfolioService;
+    private final OtcContractExpiryReminderRepository reminderRepository;
+    private final OtcNotificationService notificationService;
+
+    @org.springframework.beans.factory.annotation.Value("${otc.contract.expiration-notification-days:3}")
+    private int reminderDays;
 
     @Scheduled(cron = "${otc.expire.cron:0 5 0 * * *}")
     @Transactional
@@ -55,5 +63,22 @@ public class ExpireOverdueContractsScheduler {
                     contract.getSettlementDate());
         }
         log.info("expireOverdueContracts: expired {} contracts (today={})", stale.size(), today);
+    }
+
+    @Scheduled(cron = "${otc.contract.expiration-check-cron:0 30 8 * * *}")
+    @Transactional
+    public void sendExpiryReminders() {
+        LocalDate targetDate = LocalDate.now().plusDays(reminderDays);
+        List<OptionContract> contracts = contractRepo.findByStatusAndSettlementDate(OptionContractStatus.ACTIVE, targetDate);
+        for (OptionContract contract : contracts) {
+            if (reminderRepository.existsByContractIdAndReminderDays(contract.getId(), reminderDays)) {
+                continue;
+            }
+            notificationService.sendExpiryReminder(contract, reminderDays);
+            OtcContractExpiryReminder reminder = new OtcContractExpiryReminder();
+            reminder.setContractId(contract.getId());
+            reminder.setReminderDays(reminderDays);
+            reminderRepository.save(reminder);
+        }
     }
 }

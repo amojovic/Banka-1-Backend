@@ -15,6 +15,7 @@ import com.banka1.stock_service.repository.ForexPairRepository;
 import com.banka1.stock_service.repository.ListingDailyPriceInfoRepository;
 import com.banka1.stock_service.repository.ListingRepository;
 import com.banka1.stock_service.repository.StockRepository;
+import com.banka1.stock_service.service.ListingPriceHistoryRecorder;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -59,6 +60,9 @@ class ListingMarketDataRefreshServiceImplTest {
 
     @Mock
     private AlphaVantageClient alphaVantageClient;
+
+    @Mock
+    private ListingPriceHistoryRecorder listingPriceHistoryRecorder;
 
     @Test
     void refreshListingUpdatesStockSnapshotAndCreatesDailyEntry() {
@@ -110,6 +114,7 @@ class ListingMarketDataRefreshServiceImplTest {
         assertThat(persistedDaily.getVolume()).isEqualTo(25_000L);
 
         verify(listingRepository).save(listing);
+        verify(listingPriceHistoryRecorder).recordAfterCommit(listing, java.util.List.of(persistedDaily));
         verify(forexPairRepository, never()).save(any());
     }
 
@@ -166,6 +171,7 @@ class ListingMarketDataRefreshServiceImplTest {
         verify(forexPairRepository).save(forexPair);
         verify(listingDailyPriceInfoRepository).save(existingDaily);
         verify(listingRepository).save(listing);
+        verify(listingPriceHistoryRecorder).recordAfterCommit(listing, java.util.List.of(existingDaily));
     }
 
     @Test
@@ -202,6 +208,7 @@ class ListingMarketDataRefreshServiceImplTest {
         verify(forexPairRepository, never()).save(any());
         verify(listingDailyPriceInfoRepository, never()).save(any());
         verify(listingRepository, never()).save(listing);
+        verify(listingPriceHistoryRecorder, never()).recordAfterCommit(any(), any());
     }
 
     @Test
@@ -217,6 +224,7 @@ class ListingMarketDataRefreshServiceImplTest {
 
         verify(alphaVantageClient, never()).fetchQuote(any());
         verify(alphaVantageClient, never()).fetchExchangeRate(any(), any());
+        verify(listingPriceHistoryRecorder, never()).recordAfterCommit(any(), any());
     }
 
     private ListingMarketDataRefreshServiceImpl serviceAt(String instant) {
@@ -227,6 +235,7 @@ class ListingMarketDataRefreshServiceImplTest {
                 stockRepository,
                 forexPairRepository,
                 alphaVantageClient,
+                listingPriceHistoryRecorder,
                 clock
         );
     }

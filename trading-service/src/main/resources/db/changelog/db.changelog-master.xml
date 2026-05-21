@@ -45,4 +45,13 @@
     <!-- DEV-only normalized RSD-only multi-fund fixtures. -->
     <include file="db/changelog/trading-otc/010-fund-seed-rsd-multi-funds.sql"/>
 
+    <!-- Tim 2 IMPORTANT-2: persist inter-bank option reservations u DB (orphaned
+         shares ako trading-service restartuje izmedju accept i exercise). -->
+    <include file="db/changelog/trading-otc/011-interbank-option-reservations.sql"/>
+    <!-- Spark analytics materialized results. -->
+    <include file="db/changelog/trading-analytics/011-create-analytics-results.sql"/>
+
+    <!-- OTC notifications/history + fund dividends/statistics. -->
+    <include file="db/changelog/trading-otc/012-otc-history-dividends-fund-snapshots.sql"/>
+
 </databaseChangeLog>

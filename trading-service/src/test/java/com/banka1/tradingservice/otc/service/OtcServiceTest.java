@@ -32,6 +32,10 @@ class OtcServiceTest {
     @Mock private com.banka1.order.repository.PortfolioRepository portfolioRepository;
     @Mock private com.banka1.order.client.StockClient stockClient;
     @Mock private RabbitTemplate rabbitTemplate;
+    @Mock private com.banka1.order.client.ClientClient clientClient;
+    @Mock private com.banka1.tradingservice.otc.client.UserServiceClient userServiceClient;
+    @Mock private OtcNegotiationHistoryService historyService;
+    @Mock private OtcNotificationService notificationService;
 
     @InjectMocks private OtcService service;
 
@@ -43,6 +47,7 @@ class OtcServiceTest {
             o.setId(1L);
             return o;
         });
+        lenient().when(historyService.snapshot(any())).thenAnswer(inv -> inv.getArgument(0));
     }
 
     @Test
@@ -72,6 +77,7 @@ class OtcServiceTest {
         OtcOfferDto resp = service.counterOffer(1L, 100L, req, "Buyer");
 
         assertThat(resp.getStatus()).isEqualTo(OtcOfferStatus.PENDING_SELLER);
+        verify(notificationService).sendCounterOffer(existing, 100L);
     }
 
     @Test

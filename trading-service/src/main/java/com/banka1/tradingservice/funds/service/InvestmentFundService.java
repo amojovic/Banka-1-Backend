@@ -5,12 +5,16 @@ import com.banka1.tradingservice.funds.client.UserServiceClient;
 import com.banka1.tradingservice.funds.domain.ClientFundPosition;
 import com.banka1.tradingservice.funds.domain.ClientFundTransaction;
 import com.banka1.tradingservice.funds.domain.ClientFundTransactionStatus;
+import com.banka1.tradingservice.funds.domain.FundDividendStrategy;
 import com.banka1.tradingservice.funds.domain.FundHolding;
 import com.banka1.tradingservice.funds.domain.InvestmentFund;
 import com.banka1.tradingservice.funds.dto.ClientFundPositionDto;
 import com.banka1.tradingservice.funds.dto.CreateFundRequest;
 import com.banka1.tradingservice.funds.dto.FundHoldingDto;
 import com.banka1.tradingservice.funds.dto.FundPerformancePointDto;
+import com.banka1.tradingservice.funds.dto.FundDetailsAnalyticsDto;
+import com.banka1.tradingservice.funds.dto.FundMetricValuesDto;
+import com.banka1.tradingservice.funds.dto.FundSortField;
 import com.banka1.tradingservice.funds.dto.InvestmentFundDto;
 import com.banka1.tradingservice.funds.dto.InvestmentRequest;
 import com.banka1.tradingservice.funds.dto.RedemptionRequest;
@@ -28,6 +32,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -45,6 +50,8 @@ public class InvestmentFundService {
     private final RabbitTemplate rabbitTemplate;
     private final FundAccountNumberGenerator accountNumberGenerator;
     private final FundHoldingService fundHoldingService;
+    private final FundValueSnapshotService snapshotService;
+    private final FundStatisticsService statisticsService;
     private final ObjectProvider<AccountServiceClient> accountServiceClientProvider;
     private final ObjectProvider<UserServiceClient> userServiceClientProvider;
 
@@ -63,6 +70,7 @@ public class InvestmentFundService {
         fund.setManagerId(managerId);
         fund.setLikvidnaSredstva(BigDecimal.ZERO);
         fund.setAccountNumber(accountNumber);
+        fund.setDividendStrategy(req.getDividendStrategy() != null ? req.getDividendStrategy() : FundDividendStrategy.REINVEST);
 
         InvestmentFund saved = fundRepository.save(fund);
 
@@ -89,22 +97,39 @@ public class InvestmentFundService {
         }
 
         log.info("Created InvestmentFund {} ('{}') by manager {}", saved.getId(), saved.getNaziv(), managerId);
-        return toDto(saved);
+        snapshotService.recordSnapshot(saved.getId(), LocalDate.now());
+        return toDto(saved, statisticsService.metricsFor(saved.getId()));
     }
 
     // ----------------------------- read ------------------------------
 
     @Transactional(readOnly = true)
-    public List<InvestmentFundDto> discovery() {
-        return fundRepository.findByDeletedFalseOrderByNazivAsc()
-                .stream().map(this::toDto).toList();
+    public List<InvestmentFundDto> discovery(FundSortField sortField, org.springframework.data.domain.Sort.Direction sortDirection) {
+        List<InvestmentFundDto> funds = fundRepository.findByDeletedFalseOrderByNazivAsc()
+                .stream()
+                .map(fund -> toDto(fund, statisticsService.metricsFor(fund.getId())))
+                .toList();
+        return statisticsService.sort(funds,
+                sortField != null ? sortField : FundSortField.NAME,
+                sortDirection != null ? sortDirection : org.springframework.data.domain.Sort.Direction.ASC);
     }
 
     @Transactional(readOnly = true)
     public InvestmentFundDto details(Long fundId) {
         return fundRepository.findById(fundId)
-                .map(this::toDto)
+                .map(fund -> toDto(fund, statisticsService.metricsFor(fundId)))
                 .orElseThrow(() -> new IllegalArgumentException("Fond " + fundId + " ne postoji."));
+    }
+
+    @Transactional(readOnly = true)
+    public FundDetailsAnalyticsDto analytics(Long fundId) {
+        InvestmentFundDto fund = details(fundId);
+        return FundDetailsAnalyticsDto.builder()
+                .fund(fund)
+                .metrics(statisticsService.metricsFor(fundId))
+                .historicalValuePoints(snapshotService.history(fundId))
+                .averageFundPerformancePoints(snapshotService.averagePerformance(fundId))
+                .build();
     }
 
     @Transactional(readOnly = true)
@@ -116,7 +141,9 @@ public class InvestmentFundService {
     @Transactional(readOnly = true)
     public List<InvestmentFundDto> supervisedBy(Long managerId) {
         return fundRepository.findByManagerIdAndDeletedFalse(managerId)
-                .stream().map(this::toDto).toList();
+                .stream()
+                .map(fund -> toDto(fund, statisticsService.metricsFor(fund.getId())))
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -196,6 +223,7 @@ public class InvestmentFundService {
         BigDecimal current = fund.getLikvidnaSredstva() == null ? BigDecimal.ZERO : fund.getLikvidnaSredstva();
         fund.setLikvidnaSredstva(current.subtract(amount).setScale(2, RoundingMode.HALF_UP));
         fundRepository.save(fund);
+        snapshotService.recordSnapshot(fundId, LocalDate.now());
         log.info("Fund liquidity debited: fundId={} amount={} newLiquidity={} reason={}",
                 fundId, amount, fund.getLikvidnaSredstva(), reason);
     }
@@ -369,6 +397,7 @@ public class InvestmentFundService {
             fund.setLikvidnaSredstva(fund.getLikvidnaSredstva().add(amount));
             fundRepository.save(fund);
         });
+        snapshotService.recordSnapshot(fundId, LocalDate.now());
 
         log.info("completeInvest: txId={} clientId={} fundId={} amount={}", txId, clientId, fundId, amount);
     }
@@ -423,6 +452,7 @@ public class InvestmentFundService {
             fund.setLikvidnaSredstva(newLiquidity.max(BigDecimal.ZERO));
             fundRepository.save(fund);
         });
+        snapshotService.recordSnapshot(fundId, LocalDate.now());
 
         log.info("completeRedeem: txId={} clientId={} fundId={} amount={}", txId, clientId, fundId, amount);
     }
@@ -481,7 +511,7 @@ public class InvestmentFundService {
         return pct.multiply(fundValue).setScale(2, RoundingMode.HALF_UP);
     }
 
-    private InvestmentFundDto toDto(InvestmentFund f) {
+    private InvestmentFundDto toDto(InvestmentFund f, FundMetricValuesDto metrics) {
         BigDecimal holdingsValue = fundHoldingService.calculateHoldingsValue(f.getId());
         BigDecimal totalValue = f.getLikvidnaSredstva().add(holdingsValue);
         BigDecimal investedSum = positionRepository.findByFundId(f.getId()).stream()
@@ -514,9 +544,14 @@ public class InvestmentFundService {
                 .likvidnaSredstva(f.getLikvidnaSredstva())
                 .accountId(accountId)
                 .accountNumber(f.getAccountNumber())
+                .dividendStrategy(f.getDividendStrategy())
                 .datumKreiranja(f.getDatumKreiranja())
                 .totalValue(totalValue)
                 .profit(profit)
+                .annualizedReturn(metrics != null ? metrics.getAnnualizedReturn() : null)
+                .rewardToVariabilityRatio(metrics != null ? metrics.getRewardToVariabilityRatio() : null)
+                .maxDrawdown(metrics != null ? metrics.getMaxDrawdown() : null)
+                .volatility(metrics != null ? metrics.getVolatility() : null)
                 .build();
     }
 

@@ -71,6 +71,6 @@ tasks.named('jacocoTestReport') {
     }
 }
 
-// PR_19 library mode
-bootJar { enabled = false }
+// PR_19 library mode by default. Docker builds can opt in to a standalone boot jar.
+bootJar { enabled = project.findProperty('stockServiceBootJar') == 'true' }
 jar { enabled = true; archiveClassifier = '' }

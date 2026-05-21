@@ -19,6 +19,8 @@ public interface OptionContractRepository extends JpaRepository<OptionContract, 
     /** Cron za auto-expire ugovora kojima je settlement date prosao. */
     List<OptionContract> findByStatusAndSettlementDateBefore(OptionContractStatus status, LocalDate before);
 
+    List<OptionContract> findByStatusAndSettlementDate(OptionContractStatus status, LocalDate settlementDate);
+
     /**
      * PR_32 Phase 12 KRIT #3: sumira amount-e svih jos uvek zivih ugovora
      * gde je dati user prodavac konkretnog ticker-a. Koristi se u

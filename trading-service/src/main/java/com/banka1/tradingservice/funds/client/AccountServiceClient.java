@@ -85,6 +85,22 @@ public class AccountServiceClient {
                 .block();
     }
 
+    public void debitAccount(String accountNumber, BigDecimal amount, Long ownerId) {
+        log.info("[account-service] debitAccount accountNumber={} ownerId={} amount={}",
+                accountNumber, ownerId, amount);
+
+        webClient(jwtService.generateJwtToken()).post()
+                .uri("/internal/accounts/debit")
+                .bodyValue(Map.of(
+                        "accountNumber", accountNumber,
+                        "amount", amount,
+                        "clientId", ownerId))
+                .retrieve()
+                .toBodilessEntity()
+                .timeout(Duration.ofSeconds(10))
+                .block();
+    }
+
     public AccountDetails getByNumber(String accountNumber) {
         return webClient(currentBearerOrServiceToken()).get()
                 .uri("/internal/accounts/{accountNumber}/details", accountNumber)

@@ -1,0 +1,17 @@
+{
+  "name": "discord-alert-bot",
+  "version": "1.0.0",
+  "description": "Receives Alertmanager webhooks and forwards them as Discord DMs to the developer running this stack.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "express": "^4.21.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
