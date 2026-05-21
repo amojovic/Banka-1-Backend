@@ -52,6 +52,10 @@ public class Jackson2ObjectMapperConfig implements WebMvcConfigurer {
         mapper.registerModule(new JavaTimeModule());
         mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         mapper.enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
+        // Tim 2 IMPORTANT-3: bez ovoga BigDecimal 0.00000001 serijalizuje kao
+        // "1E-8" i partner-i koji parse scientific notation kao Double gube
+        // precision (spec §2.5 zahteva BigDecimal end-to-end).
+        mapper.enable(SerializationFeature.WRITE_BIGDECIMAL_AS_PLAIN);
         return mapper;
     }
 

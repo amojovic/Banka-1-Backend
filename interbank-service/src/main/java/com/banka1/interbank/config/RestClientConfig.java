@@ -103,8 +103,11 @@ public class RestClientConfig {
      * nosi service JWT — partner zahteva {@code X-Api-Key} header koji se
      * setuje ad-hoc po pozivu (outboundToken iz {@link InterbankProperties}).
      *
-     * <p>Connect timeout 10s, read timeout 20s — partner banke mogu biti spore
-     * pri 2PC commit fazi, ali ne sme da blokira indefinitno.
+     * <p>Connect timeout 10s, read timeout 60s — Tim 2 §6.6 CRITICAL-2: partner-side
+     * {@code GET /negotiations/{rn}/{id}/accept} pokrece pun sinhroni 2PC unutar
+     * request handler-a (lokalni prepare + outbound NEW_TX + local commit + outbound
+     * COMMIT_TX) i lako prelazi 20s pod demo opterecenjem. 60s mirror-uje Tim 2
+     * podesavanje pa nijedna strana ne tajme-uje pre druge.
      */
     @Bean
     public RestClient interbankOutboundRestClient(
@@ -113,7 +116,7 @@ public class RestClientConfig {
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
-        requestFactory.setReadTimeout(Duration.ofSeconds(20));
+        requestFactory.setReadTimeout(Duration.ofSeconds(60));
 
         // Critical: InterbankMessagePayload sadrzi Jackson 2 JsonNode polje. Default
         // RestClient.builder() bira Jackson 3 message converter koji ne ume da serijalizuje

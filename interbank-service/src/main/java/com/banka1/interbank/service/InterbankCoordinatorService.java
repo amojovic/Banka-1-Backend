@@ -1,5 +1,6 @@
 package com.banka1.interbank.service;
 
+import com.banka1.interbank.client.BankingCoreInternalClient;
 import com.banka1.interbank.config.InterbankProperties;
 import com.banka1.interbank.model.InterbankContractEntity;
 import com.banka1.interbank.model.InterbankNegotiationEntity;
@@ -73,6 +74,7 @@ public class InterbankCoordinatorService {
     private final InterbankNegotiationRepository negRepo;
     private final InterbankContractRepository contractRepo;
     private final InterbankProperties props;
+    private final BankingCoreInternalClient bankingCore;
     private final SecureRandom random = new SecureRandom();
 
     /**
@@ -105,17 +107,26 @@ public class InterbankCoordinatorService {
                 neg.getAmount()
         );
 
+        // Tim 2 §3.6 CRITICAL-1: MONAS legovi moraju biti TxAccount.Account sa
+        // 18-cifrenim brojem racuna, ne TxAccount.Person. Za strane u nasoj banci
+        // resolvujemo pravi broj racuna preko banking-core; za partner-side strane
+        // koristimo Person (partner ce internsko resolve-ovati). Ako resolve
+        // fail-uje (vlasnik nema racun u datoj valuti), localni prepare ce dati
+        // NO_SUCH_ACCOUNT umesto da partner debit-uje a mi tiho no-op-ujemo.
+        TxAccount buyerCashAccount = resolveMonasAccount(
+                neg.getBuyerRoutingNumber(), neg.getBuyerId(), premCurr, myRouting);
+        TxAccount sellerCashAccount = resolveMonasAccount(
+                neg.getSellerRoutingNumber(), neg.getSellerId(), premCurr, myRouting);
+
         List<Posting> postings = List.of(
                 // a) Buyer credit premium (-amount): nadoknada izlazi iz buyer-a.
                 new Posting(
-                        new TxAccount.Person(new ForeignBankId(
-                                neg.getBuyerRoutingNumber(), neg.getBuyerId())),
+                        buyerCashAccount,
                         totalPremium.negate(),
                         new Asset.Monas(new MonetaryAsset(premCurr))),
                 // b) Seller debit premium (+amount): mi primamo premium.
                 new Posting(
-                        new TxAccount.Person(new ForeignBankId(
-                                neg.getSellerRoutingNumber(), neg.getSellerId())),
+                        sellerCashAccount,
                         totalPremium,
                         new Asset.Monas(new MonetaryAsset(premCurr))),
                 // c) Seller option pseudo-account credit (-1 unit option)
@@ -215,6 +226,42 @@ public class InterbankCoordinatorService {
 
         log.info("Accepted negotiation {} — contract {} ACTIVE (tx {})",
                 neg.getId(), contract.getId(), txId);
+    }
+
+    /**
+     * Resolve MONAS account za {@code (foreignBankId, currency)} par. Ako je
+     * userRouting == myRouting (strana u nasoj banci), zovemo banking-core za
+     * pravi 18-cifren broj racuna i vracamo {@link TxAccount.Account}. Inace
+     * (partner-side), vracamo {@link TxAccount.Person} — partner ce sam
+     * resolve-ovati.
+     *
+     * <p>Ako je strana u nasoj banci ali vlasnik nema racun u toj valuti, fall
+     * back na Person — local prepare ce dati NO_SUCH_ACCOUNT (defenzivna grana
+     * u {@link TransactionExecutorService#validatePosting}).
+     */
+    private TxAccount resolveMonasAccount(int userRouting, String userId,
+                                          CurrencyCode currency, int myRouting) {
+        if (userRouting != myRouting) {
+            return new TxAccount.Person(new ForeignBankId(userRouting, userId));
+        }
+        // Lokalna strana — resolve preko banking-core
+        try {
+            String numericPart = userId;
+            if (userId != null && (userId.startsWith("C-") || userId.startsWith("E-"))) {
+                numericPart = userId.substring(2);
+            }
+            Long ownerId = Long.valueOf(numericPart);
+            String accountNum = bankingCore.findAccountByOwnerAndCurrency(ownerId, currency);
+            if (accountNum != null) {
+                return new TxAccount.Account(accountNum);
+            }
+            log.warn("Local user {} nema racun u valuti {} — fallback na Person; "
+                    + "local prepare ce dati NO_SUCH_ACCOUNT", userId, currency);
+        } catch (Exception e) {
+            log.warn("Resolve MONAS account za {}/{} ({}) failed; fallback na Person",
+                    userRouting, userId, currency, e);
+        }
+        return new TxAccount.Person(new ForeignBankId(userRouting, userId));
     }
 
     private void safeRollbackLocal(ForeignBankId txId) {

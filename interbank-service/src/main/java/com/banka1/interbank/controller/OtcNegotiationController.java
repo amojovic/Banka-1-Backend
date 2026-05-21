@@ -83,7 +83,8 @@ public class OtcNegotiationController {
      */
     @DeleteMapping("/negotiations/{rn}/{id}")
     public ResponseEntity<Void> delete(@PathVariable int rn, @PathVariable String id) {
-        service.delete(rn, id);
+        int senderRouting = requireSenderRouting();
+        service.delete(rn, id, senderRouting);
         return ResponseEntity.noContent().build();
     }
 

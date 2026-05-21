@@ -74,8 +74,8 @@ services:
       # configuration ide kroz rabbitmq.conf ili rabbitmq.env. Container memory
       # cap (deploy.resources.limits.memory) je dovoljan za hard limit.
     ports:
-      - "${RABBITMQ_PORT:-5672}:5672"
-      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+      - "${RABBITMQ_HOST_PORT:-5672}:5672"
+      - "${RABBITMQ_HOST_MANAGEMENT_PORT:-15672}:15672"
     networks:
       - banka-network
     healthcheck:
@@ -713,7 +713,7 @@ services:
       SERVICES_USER_URL: http://user-service:${USER_SERVICE_PORT:-8081}
       SERVICES_BANKING_CORE_URL: http://banking-core-service:${BANKING_CORE_SERVICE_PORT:-8084}
       SERVICES_TRADING_URL: http://trading-service:${TRADING_SERVICE_PORT:-8088}
-      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev,mock-partner}
+      SPRING_PROFILES_ACTIVE: ${INTERBANK_SPRING_PROFILES:-dev}
       RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
       RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
@@ -800,7 +800,7 @@ services:
   # =========================================================================
   frontend:
     build:
-      context: ../../Banka-1-Frontend
+      context: ../../Banka-1-Frontend-frontendNew
       dockerfile: Dockerfile
     container_name: banka_frontend
     restart: unless-stopped

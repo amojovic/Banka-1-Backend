@@ -10,6 +10,7 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Profile;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -67,7 +68,13 @@ public class InterbankRetryScheduler {
             if (!shouldAttempt(msg)) {
                 continue;
             }
-            tryOnce(msg);
+            try {
+                tryOnce(msg);
+            } catch (ObjectOptimisticLockingFailureException race) {
+                // Tim 2 IMPORTANT-5: druga scheduler instanca je upravo pokupila
+                // ovaj red. Skip — partner ce dobiti pokusaj od one druge.
+                log.debug("retry race, skipping message id={}", msg.getId());
+            }
         }
     }
 

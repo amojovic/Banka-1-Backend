@@ -276,10 +276,32 @@ public class InterbankOtcOutboundService {
                 modifier
         );
 
+        // KRITICNO: split flow po authoritative flag-u.
+        // - is_authoritative=TRUE → partner je inicirao pregovor i salje GET ka
+        //   nama za state. Counter-offer ide LOKALNO (`updateCounter`), bez
+        //   outbound poziva. Partner ce promenu pokupiti pri sledecem GET-u.
+        // - is_authoritative=FALSE → mi smo inicirali, partner cuva authoritative
+        //   kopiju. Counter-offer ide kao outbound PUT ka partner-u.
+        ForeignBankId remoteRef = remoteForeignBankIdOf(entity);
+
+        if (entity.isAuthoritative()) {
+            // Kad smo MI authoritative, (authoritative_rn, authoritative_id) =
+            // (myRouting, entity.getId()) per spec §3.2. Predaja
+            // entity.getBuyerRoutingNumber()-a bi pogresila rute za pregovore
+            // koje je partner inicirao (buyer=222 ali mi smo seller/authoritative).
+            otcService.updateCounter(myRouting, entity.getId(), offer, myRouting);
+            log.info("Counter-offer LOCAL update na authoritative pregovor {} by {}",
+                    entity.getId(), myUserIdStr);
+            // Reload entity sa svezim updateCounter promenama da bi response imao
+            // azuriran payload (entity reference je iz pre updateCounter-a).
+            InterbankNegotiationEntity refreshed = negRepo.findById(entity.getId()).orElse(entity);
+            return ResponseEntity.ok(
+                    new OutboundNegotiationResponse(refreshed.getId(), remoteRef, otcService.toDto(refreshed)));
+        }
+
         int partnerRouting = (entity.getBuyerRoutingNumber() == myRouting)
                 ? entity.getSellerRoutingNumber()
                 : entity.getBuyerRoutingNumber();
-        ForeignBankId remoteRef = remoteForeignBankIdOf(entity);
 
         ResponseEntity<Void> partnerResp = interbankClient.outboundPutCounter(
                 partnerRouting, remoteRef, offer);

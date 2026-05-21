@@ -37,7 +37,9 @@ public class InterbankAuthFilter extends OncePerRequestFilter {
     private static final String[] PROTECTED_PREFIXES = {
         "/interbank",
         "/public-stock",
-        "/negotiations"
+        "/negotiations",
+        // Tim 2 MINOR-1 (P2.1): spec §3.7 default path
+        "/user"
     };
 
     private static final String ACTUATOR_HEALTH_PREFIX = "/actuator/health";
