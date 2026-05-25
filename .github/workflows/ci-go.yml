@@ -60,19 +60,25 @@ jobs:
           TEST_DATABASE_URL: "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
   lint:
     runs-on: ubuntu-latest
-    env:
-      GOWORK: off
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'interbank-service/go.mod'
           cache: true
+      - name: install buf
+        uses: bufbuild/buf-setup-action@v1
+        with:
+          version: 1.50.0
+      - name: buf generate
+        run: |
+          cd proto
+          buf generate
       - uses: golangci/golangci-lint-action@v6
         with:
           version: v1.62.2
           working-directory: interbank-service
-          args: --timeout=5m
+          args: --timeout=5m ./cmd/... ./internal/...
   docker-build:
     runs-on: ubuntu-latest
     needs: [test, lint]
