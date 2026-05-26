@@ -15,6 +15,13 @@ upstream user_service {
 upstream market_service {
     server market-service:${MARKET_SERVICE_PORT};
 }
+# Go switch-over (disabled): point at market-service-go from the `go-market`
+# compose profile. Replace the upstream above (or copy this block and rename
+# `market_service` references in the location {} entries below) only AFTER
+# the parity sweep is green. Rollback = restore the line above.
+# upstream market_service {
+#     server market-service-go:${MARKET_SERVICE_GO_PORT};
+# }
 
 upstream banking_core_service {
     server banking-core-service:${BANKING_CORE_SERVICE_PORT};
@@ -23,6 +30,12 @@ upstream banking_core_service {
 upstream trading_service {
     server trading-service:${TRADING_SERVICE_PORT};
 }
+# Go switch-over (disabled): trading-service-go from the `go-trading` overlay
+# (setup/docker-compose.go-trading.yml). Do NOT enable until trading-service-go
+# parity is signed off.
+# upstream trading_service {
+#     server trading-service-go:${TRADING_SERVICE_GO_PORT};
+# }
 
 upstream credit_service {
     server credit-service:${CREDIT_SERVER_PORT};

@@ -1,16 +1,17 @@
 package platform
 
 import (
-	"context"
 	"log/slog"
 	"net/http"
-	"slices"
-	"strings"
-	"time"
 
+	gpdb "banka1/go-platform/db"
+	gphealth "banka1/go-platform/health"
+	"banka1/go-platform/httpx"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// RouterDeps wires the HTTP server. Same shape as before so cmd/server/main.go
+// keeps compiling.
 type RouterDeps struct {
 	Config        Config
 	Logger        *slog.Logger
@@ -19,83 +20,50 @@ type RouterDeps struct {
 	Register      func(*Mux, *JWTService)
 }
 
+// Mux is a tiny wrapper over http.ServeMux supplying the `METHOD path` syntax
+// the handlers already use.
 type Mux struct {
 	mux *http.ServeMux
 }
 
+// NewRouter assembles the HTTP handler using the go-platform middleware stack:
+//
+//	correlation -> recover -> request-log -> CORS
+//
+// Health endpoints are mounted via go-platform/health so /actuator/* shapes
+// stay identical to other Go services.
 func NewRouter(deps RouterDeps) http.Handler {
 	m := &Mux{mux: http.NewServeMux()}
 	registerPlatformRoutes(m, deps.DB)
 	deps.Register(m, deps.Authenticator)
 
-	var handler http.Handler = m.mux
-	handler = recoverMiddleware(deps.Logger, handler)
-	handler = requestLogMiddleware(deps.Logger, handler)
-	handler = corsMiddleware(deps.Config.CORS, handler)
-	return handler
+	cors := httpx.CORSConfig{
+		AllowedOrigins:   deps.Config.CORS.AllowedOrigins,
+		AllowedMethods:   deps.Config.CORS.AllowedMethods,
+		AllowedHeaders:   []string{"Authorization", "Content-Type", httpx.HeaderCorrelationID},
+		ExposedHeaders:   []string{"Location", httpx.HeaderCorrelationID},
+		AllowCredentials: true,
+	}
+	return httpx.Default(deps.Logger, cors)(m.mux)
 }
 
+// Handle registers a `method path` route.
 func (m *Mux) Handle(method, pattern string, handler http.Handler) {
 	m.mux.Handle(method+" "+pattern, handler)
 }
 
+// HandleFunc registers a `method path` handlerfunc.
 func (m *Mux) HandleFunc(method, pattern string, handler http.HandlerFunc) {
 	m.Handle(method, pattern, handler)
 }
 
 func registerPlatformRoutes(m *Mux, db *pgxpool.Pool) {
-	health := func(w http.ResponseWriter, r *http.Request) {
-		JSON(w, http.StatusOK, map[string]string{"status": "UP"})
+	h := gphealth.NewHandler()
+	if db != nil {
+		h.Register(gpdb.Checker("postgres", db))
 	}
-	m.HandleFunc(http.MethodGet, "/actuator/health/liveness", health)
-	m.HandleFunc(http.MethodGet, "/actuator/health/readiness", func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-		defer cancel()
-		if err := db.Ping(ctx); err != nil {
-			Error(w, http.StatusServiceUnavailable, "DB_UNAVAILABLE", "Database is not ready")
-			return
-		}
-		JSON(w, http.StatusOK, map[string]string{"status": "UP"})
-	})
-	m.HandleFunc(http.MethodGet, "/actuator/info", func(w http.ResponseWriter, r *http.Request) {
-		JSON(w, http.StatusOK, map[string]string{"service": "user-service-go"})
-	})
-}
-
-func corsMiddleware(cfg CORSConfig, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := r.Header.Get("Origin")
-		if origin != "" && (slices.Contains(cfg.AllowedOrigins, origin) || slices.Contains(cfg.AllowedOrigins, "*")) {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
-		}
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization,Content-Type,X-Correlation-Id")
-		w.Header().Set("Access-Control-Allow-Methods", strings.Join(cfg.AllowedMethods, ","))
-		if r.Method == http.MethodOptions {
-			NoContent(w, http.StatusNoContent)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func requestLogMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		next.ServeHTTP(w, r)
-		logger.Info("http request", "method", r.Method, "path", r.URL.Path, "duration_ms", time.Since(start).Milliseconds())
-	})
-}
-
-func recoverMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer func() {
-			if recovered := recover(); recovered != nil {
-				logger.Error("panic recovered", "panic", recovered)
-				Error(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error")
-			}
-		}()
-		next.ServeHTTP(w, r)
-	})
+	m.HandleFunc(http.MethodGet, "/actuator/health", h.Aggregate)
+	m.HandleFunc(http.MethodGet, "/actuator/health/liveness", h.Liveness)
+	m.HandleFunc(http.MethodGet, "/actuator/health/readiness", h.Readiness)
+	m.HandleFunc(http.MethodGet, "/actuator/info", h.Info)
 }

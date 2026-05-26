@@ -539,6 +539,49 @@ services:
       start_period: 30s
     deploy: *app-resource-limits
 
+  # Optional side-by-side Go variant for validation only.
+  # It is not part of the default stack and does not receive gateway traffic.
+  market-service-go:
+    profiles: ["go-market"]
+    build:
+      context: ..
+      dockerfile: market-service-go/Dockerfile
+    container_name: banka_market_service_go
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SERVER_PORT: ${MARKET_SERVICE_GO_PORT:-18085}
+      GRPC_PORT: ${MARKET_SERVICE_GO_GRPC_PORT:-19085}
+      MARKET_SERVICE_DB_HOST: postgres
+      MARKET_SERVICE_DB_PORT: ${MARKET_SERVICE_DB_PORT:-5432}
+      MARKET_SERVICE_DB_NAME: ${MARKET_SERVICE_DB_NAME:-market_service}
+      MARKET_SERVICE_DB_USER: ${MARKET_SERVICE_DB_USER:-postgres}
+      MARKET_SERVICE_DB_PASSWORD: ${MARKET_SERVICE_DB_PASSWORD:-postgres}
+      JWT_SECRET: ${JWT_SECRET}
+      TWELVE_DATA_API_KEY: ${TWELVE_DATA_API_KEY:-}
+      ALPHA_VANTAGE_API_KEY: ${ALPHA_VANTAGE_API_KEY:-}
+      STOCK_MARKET_DATA_BASE_URL: ${STOCK_MARKET_DATA_BASE_URL:-https://www.alphavantage.co}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      STOCK_PRICE_CACHE_TTL_SECONDS: ${STOCK_PRICE_CACHE_TTL_SECONDS:-15}
+      EXCHANGE_RATES_FETCH_ON_STARTUP: ${EXCHANGE_RATES_FETCH_ON_STARTUP:-true}
+      EXCHANGE_RATES_FETCH_CRON: ${EXCHANGE_RATES_FETCH_CRON:-0 0 8 * * *}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    ports:
+      - "${MARKET_SERVICE_GO_PORT:-18085}:${MARKET_SERVICE_GO_PORT:-18085}"
+      - "${MARKET_SERVICE_GO_GRPC_PORT:-19085}:${MARKET_SERVICE_GO_GRPC_PORT:-19085}"
+    networks:
+      - banka-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:${MARKET_SERVICE_GO_PORT:-18085}/actuator/health/liveness || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
   # 5/7. Trading Service (order + future margin/otc/funds; PR_02 C2.13)
   trading-service:
     build:
