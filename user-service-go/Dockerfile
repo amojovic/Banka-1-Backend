@@ -1,10 +1,15 @@
-FROM golang:1.23-alpine AS build
+FROM golang:1.25-alpine AS build
 
-WORKDIR /src
-COPY user-service-go/go.mod ./
+WORKDIR /workspace
+
+# Build context is the repo root (configured in setup/docker-compose.yml).
+# We need both the shared go-platform module and this service so the replace
+# directive in user-service-go/go.mod resolves.
+COPY go-platform/ ./go-platform/
+COPY user-service-go/ ./user-service-go/
+
+WORKDIR /workspace/user-service-go
 RUN go mod download
-
-COPY user-service-go/ ./
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/user-service ./cmd/server
 
 FROM alpine:3.21

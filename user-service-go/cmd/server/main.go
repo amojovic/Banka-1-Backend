@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -11,10 +10,12 @@ import (
 
 	"banka1/user-service-go/internal/platform"
 	"banka1/user-service-go/internal/user"
+
+	gplog "banka1/go-platform/log"
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	logger := gplog.New("user-service-go", gplog.Level(os.Getenv("LOG_LEVEL_APP")))
 	cfg := platform.LoadConfig()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

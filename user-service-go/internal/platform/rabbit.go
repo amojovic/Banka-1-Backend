@@ -2,18 +2,14 @@ package platform
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
-	"time"
 
-	amqp "github.com/rabbitmq/amqp091-go"
+	gprabbit "banka1/go-platform/rabbitmq"
 )
 
-type NotificationPublisher interface {
-	PublishEmail(ctx context.Context, routingKey string, payload EmailNotification) error
-	Close()
-}
-
+// EmailNotification is the wire shape the existing Java notification-service
+// listener decodes. Stays in user-service-go because the field set is
+// domain-specific.
 type EmailNotification struct {
 	UserEmail         string            `json:"userEmail"`
 	Username          string            `json:"username"`
@@ -21,60 +17,45 @@ type EmailNotification struct {
 	TemplateVariables map[string]string `json:"templateVariables,omitempty"`
 }
 
-type RabbitPublisher struct {
-	logger   *slog.Logger
-	exchange string
-	conn     *amqp.Connection
-	ch       *amqp.Channel
+// NotificationPublisher exposes the email-shaped publish call the service
+// layer wants. Under the hood it delegates to the shared Rabbit publisher
+// (which keeps the on-wire shape Java listeners expect — raw JSON body, no
+// envelope wrapping).
+type NotificationPublisher interface {
+	PublishEmail(ctx context.Context, routingKey string, payload EmailNotification) error
+	Close()
 }
 
-func NewRabbitPublisher(ctx context.Context, cfg Config, logger *slog.Logger) (NotificationPublisher, error) {
-	_ = ctx
-	conn, err := amqp.Dial(cfg.RabbitURL())
-	if err != nil {
-		logger.Warn("rabbitmq unavailable; email events will be logged only", "error", err)
-		return NoopPublisher{logger: logger}, nil
-	}
-	ch, err := conn.Channel()
-	if err != nil {
-		_ = conn.Close()
-		return nil, err
-	}
-	if err := ch.ExchangeDeclare(cfg.RabbitMQ.Exchange, "topic", true, false, false, false, nil); err != nil {
-		_ = ch.Close()
-		_ = conn.Close()
-		return nil, err
-	}
-	return &RabbitPublisher{logger: logger, exchange: cfg.RabbitMQ.Exchange, conn: conn, ch: ch}, nil
-}
-
-func (p *RabbitPublisher) PublishEmail(ctx context.Context, routingKey string, payload EmailNotification) error {
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	return p.ch.PublishWithContext(ctx, p.exchange, routingKey, false, false, amqp.Publishing{
-		ContentType:  "application/json",
-		DeliveryMode: amqp.Persistent,
-		Timestamp:    time.Now(),
-		Body:         body,
-	})
-}
-
-func (p *RabbitPublisher) Close() {
-	_ = p.ch.Close()
-	_ = p.conn.Close()
-}
-
-type NoopPublisher struct {
+type rabbitPublisher struct {
 	logger *slog.Logger
+	pub    gprabbit.Publisher
 }
 
-func (p NoopPublisher) PublishEmail(ctx context.Context, routingKey string, payload EmailNotification) error {
-	p.logger.Warn("email event skipped because rabbitmq is unavailable", "routingKey", routingKey, "email", payload.UserEmail)
-	return nil
+// NewRabbitPublisher dials the broker via the shared go-platform layer. When
+// the broker is unreachable, it returns a NoopPublisher (logs and discards)
+// to preserve previous behavior — set RABBITMQ_ALLOW_NOOP=false to make a
+// missing broker fatal.
+func NewRabbitPublisher(ctx context.Context, cfg Config, logger *slog.Logger) (NotificationPublisher, error) {
+	rc := gprabbit.LoadConfig()
+	rc.Host = cfg.RabbitMQ.Host
+	rc.Port = cfg.RabbitMQ.Port
+	rc.Username = cfg.RabbitMQ.Username
+	rc.Password = cfg.RabbitMQ.Password
+	rc.Exchange = cfg.RabbitMQ.Exchange
+	if !envHasKey("RABBITMQ_ALLOW_NOOP") {
+		rc.AllowNoop = true
+	}
+	pub, err := gprabbit.NewPublisher(ctx, rc, logger)
+	if err != nil {
+		return nil, err
+	}
+	return &rabbitPublisher{logger: logger, pub: pub}, nil
 }
 
-func (p NoopPublisher) Close() {}
+func (p *rabbitPublisher) PublishEmail(ctx context.Context, routingKey string, payload EmailNotification) error {
+	return p.pub.Publish(ctx, routingKey, payload)
+}
+
+func (p *rabbitPublisher) Close() {
+	_ = p.pub.Close()
+}
