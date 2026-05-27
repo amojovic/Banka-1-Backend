@@ -6,6 +6,7 @@ import com.banka1.order.dto.CreateSellOrderRequest;
 import com.banka1.order.dto.OrderOverviewResponse;
 import com.banka1.order.dto.OrderResponse;
 import com.banka1.order.dto.PartialCancelOrderRequest;
+import com.banka1.order.entity.enums.ListingType;
 import com.banka1.order.entity.enums.OrderOverviewStatusFilter;
 import com.banka1.order.service.OrderCreationService;
 import jakarta.validation.Valid;
@@ -14,12 +15,14 @@ import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -79,6 +82,26 @@ public class OrderController {
     @PreAuthorize("hasAnyRole('CLIENT_BASIC','CLIENT_TRADING','CLIENT')")
     public ResponseEntity<List<OrderResponse>> getMyOrders(@AuthenticationPrincipal Jwt jwt) {
         return ResponseEntity.ok(orderCreationService.getMyOrders(toAuthenticatedUser(jwt)));
+    }
+
+    /**
+     * Filtered, paginated view of the authenticated client's own orders. Backs the mobile
+     * My Orders screen. The flat {@link #getMyOrders(Jwt)} endpoint is left untouched for the
+     * existing web frontend.
+     */
+    @GetMapping("/my-orders/paged")
+    @PreAuthorize("hasAnyRole('CLIENT_BASIC','CLIENT_TRADING','CLIENT')")
+    public ResponseEntity<Page<OrderResponse>> getMyOrdersPaged(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(defaultValue = "ALL") OrderOverviewStatusFilter status,
+            @RequestParam(required = false) ListingType listingType,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo,
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
+    ) {
+        return ResponseEntity.ok(orderCreationService.getMyOrdersPaged(
+                toAuthenticatedUser(jwt), status, listingType, dateFrom, dateTo, PageRequest.of(page, size)));
     }
 
     @PostMapping("/{id}/confirm")

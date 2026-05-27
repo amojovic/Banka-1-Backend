@@ -74,6 +74,8 @@ class OrderExecutionServiceTest {
     private OrderExecutionService self;
     @Mock
     private TaskScheduler orderExecutionTaskScheduler;
+    @Mock
+    private com.banka1.order.rabbitmq.OrderEventNotifier orderEventNotifier;
 
     @InjectMocks
     private OrderExecutionServiceImpl service;
