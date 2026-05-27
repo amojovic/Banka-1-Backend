@@ -8,8 +8,8 @@
 #     --profile go-trading `
 #     up -d trading-service-go
 #
-# Java trading-service remains the default upstream until you intentionally switch
-# the api-gateway upstream (see docs/go-platform.md → "Gateway switch procedure").
+# Java trading-service remains the default upstream until trading-service-go is
+# implemented and intentionally switched in the api-gateway.
 #
 # This file is NOT linted by docker compose config unless explicitly passed via -f,
 # so it is safe to keep here even before trading-service-go/Dockerfile exists.
@@ -46,8 +46,6 @@ services:
       NOTIFICATION_TAX_ROUTING_KEY: ${NOTIFICATION_TAX_ROUTING_KEY:-tax.#}
       SERVICES_USER_URL: http://user-service:${USER_SERVICE_PORT:-8081}
       SERVICES_BANKING_CORE_URL: http://banking-core-service:${BANKING_CORE_SERVICE_PORT:-8084}
-      # Point at the Java market-service while market-service-go is still opt-in.
-      # Switch to http://market-service-go:${MARKET_SERVICE_GO_PORT:-18085} after parity.
       SERVICES_MARKET_URL: http://market-service:${MARKET_SERVICE_PORT:-8085}
     depends_on:
       postgres: { condition: service_healthy }

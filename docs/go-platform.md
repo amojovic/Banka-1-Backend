@@ -3,7 +3,8 @@
 This document captures the infrastructure conventions every Go service in this
 repo follows so that:
 
-* a Go service runs side-by-side with the Java stack without surprises;
+* a Go service can run without the retired Java service;
+* a Go service can still run side-by-side with the Java stack when needed;
 * adding a new Go service (next up: `trading-service-go`) is mechanical;
 * gateway/DB/RabbitMQ/JWT/observability behave the same as the Java services;
 * there is one well-defined procedure to switch traffic to a Go service and
@@ -19,15 +20,15 @@ scope here.
 | Service              | Language | Default in compose | Profile gate     |
 |----------------------|----------|--------------------|------------------|
 | `user-service`       | Go       | yes (replaces Java) | none             |
-| `market-service`     | Java     | yes                | `go-market` to also start `market-service-go` |
-| `market-service-go`  | Go       | no                  | `go-market`      |
+| `market-service`     | Go       | yes (replaces Java) | none             |
+| `market-service-go`  | Go       | no                  | `go-market` for alternate-port validation |
 | `trading-service`    | Java     | yes                | `go-trading` overlay to also start `trading-service-go` |
 | `trading-service-go` | Go       | not built yet       | `go-trading` (overlay file)   |
 | `banking-core-service`, `credit-service`, `notification-service`, `saga-orchestrator-service`, `interbank-service` | Java | yes | none |
 
-`user-service-go/Dockerfile` is built by the `user-service` compose entry — the
-Go binary already serves traffic by default. The Java user-service was retired
-in PR_02 C2.7.
+`user-service-go/Dockerfile` is built by the `user-service` compose entry.
+`market-service-go/Dockerfile` is built by the `market-service` compose entry.
+Those Go binaries serve traffic by default.
 
 ---
 
@@ -36,7 +37,7 @@ in PR_02 C2.7.
 | Service                   | Java/REST | Go REST | gRPC  |
 |---------------------------|-----------|---------|-------|
 | user-service              | 8081 (Go) | 8081    | —     |
-| market-service / -go      | 8085      | 18085   | 19085 |
+| market-service / -go      | 8085      | 18085   | 9085 default / 19085 alternate |
 | trading-service / -go     | 8088      | 18088   | 19088 |
 | banking-core-service      | 8084      | —       | —     |
 | credit-service            | 8089      | —       | —     |
@@ -72,11 +73,13 @@ works:
 
 * `user-service-go` owns and migrates the `user_service` schema (the Go
   service runs its own migrations from `user-service-go/migrations`).
-* `market-service-go` **does not** migrate. Until the gateway switch, the Java
-  `market-service` is the schema owner and runs Liquibase. The Go service
-  connects read/write against that schema for parity testing.
-* `trading-service-go` will follow the same rule: Java `trading-service` keeps
-  Liquibase ownership until the cut-over.
+* `market-service-go` owns and migrates the `market_service` schema when it is
+  running as the default `market-service` compose entry. The migrations are
+  copied from the former exchange/stock Liquibase SQL files into
+  `market-service-go/migrations`.
+* `trading-service-go` is not implemented in this repository yet. When it is
+  added, it must own and run its own `trading` migrations before it can be used
+  without the Java service.
 
 If you ever need a Go-owned schema for a future service, use `migrations/` next
 to the binary and a small migration runner (see
@@ -86,7 +89,7 @@ to the binary and a small migration runner (see
 
 Duplicating Java Liquibase XML in Go is a maintenance trap: two sources of
 truth, one will drift. The current rule is "the language that owns writes owns
-migrations". Until the Java service is retired, leave its Liquibase alone.
+migrations". For Go-owned services, keep migrations next to the Go binary and do not rely on Java Liquibase.
 
 ---
 
@@ -163,38 +166,23 @@ NOTIFICATION_<DOMAIN>_ROUTING_KEY=<domain>.#
 
 ## 5. API gateway
 
-`api-gateway/default.conf.template` proxies the public paths to the upstream
-services. The Go side-by-side variants are **not** in the gateway config and
-**do not** receive gateway traffic.
+`api-gateway/default.conf.template` proxies public paths to the logical service
+names used by Docker Compose. `market-service` is now the Go implementation
+built from `market-service-go/Dockerfile`; there is no Java market-service
+upstream or gateway switch procedure.
 
-### Switch procedure (later, not now)
+The gateway resolves upstream service names at request time through Docker DNS,
+so a partial Go-only stack can start even when unrelated Java services are not
+running. Go health checks are exposed through:
 
-1. **Verify parity.** Run the service's parity sweep (`market-service-go` has
-   `cmd/paritycheck` + `parity.endpoints.example.json`). Sweep must exit 0.
-2. **Update the upstream block.** Replace `server market-service:...;` with
-   `server market-service-go:${MARKET_SERVICE_GO_PORT};`. A commented-out
-   alternative is already in the template next to each Java upstream.
-3. **Rebuild api-gateway** so nginx picks up the new template:
-   ```powershell
-   docker compose -f .\setup\docker-compose.yml up -d --build api-gateway
-   ```
-4. **Smoke test** through `http://localhost/<feature>` for the affected
-   routes.
+```text
+GET /health/user
+GET /health/market
+```
 
-### Rollback
-
-1. Restore the previous `upstream <name> { server <java-host>:<port>; }` line
-   (revert the commented swap).
-2. `docker compose -f .\setup\docker-compose.yml up -d --build api-gateway`.
-3. Java service is still in the default stack — no need to start it
-   separately, it never stopped.
-
-The Java service container stays running the whole time. The switch is a pure
-nginx-upstream change; there is no DB cut-over because Go and Java share the
-same Postgres.
+Both proxy to `/actuator/health/readiness`, which checks Postgres connectivity.
 
 ---
-
 ## 6. JWT / service auth
 
 All Go services share the JWT contract from `security-lib` (Java side):
@@ -216,7 +204,7 @@ All Go services share the JWT contract from `security-lib` (Java side):
   `@PreAuthorize("hasRole('SERVICE')")`; Go protects them with
   `auth.RequireRoles("SERVICE")`.
 * Permit-all quirks are explicit, not derived. The Java config in
-  `market-service/.../application.properties` whitelists:
+  `market-service-go/internal/http/router.go` whitelists:
   `/stocks/public/**, /stocks/internal/**, /internal/calculate/**,
   /exchange/rates/current, /v3/api-docs/**, /v3/api-docs.yaml,
   /swagger-ui/**, /swagger-ui.html, /actuator/health/liveness,
@@ -372,25 +360,22 @@ healthcheck:
 
 ## 10. Operational recipes
 
-### Run the default Java stack
+### Run the default stack
 
 ```powershell
 docker compose --env-file .\setup\.env -f .\setup\docker-compose.yml up -d
 ```
 
-### Run the default stack + Go market service for parity
+### Run only Go market/user services and required infra
 
 ```powershell
 docker compose --env-file .\setup\.env -f .\setup\docker-compose.yml `
-    --profile go-market up -d
+    up -d --build postgres redis rabbitmq otel-collector jaeger user-service market-service api-gateway
 ```
 
-### Run only the Go services you care about
+### Optional alternate market-service-go instance
 
 ```powershell
-docker compose --env-file .\setup\.env -f .\setup\docker-compose.yml `
-    up -d postgres redis market-service
-
 docker compose --env-file .\setup\.env -f .\setup\docker-compose.yml `
     --profile go-market up -d market-service-go
 ```
@@ -406,20 +391,9 @@ docker compose --env-file .\setup\.env `
 ```
 
 The overlay is in `setup/docker-compose.go-trading.yml`. It is not loaded by
-default and not validated unless you pass it via `-f`, so the rest of the
-default compose stays clean.
-
-### Tear down
-
-```powershell
-docker compose --env-file .\setup\.env -f .\setup\docker-compose.yml `
-    --profile go-market down market-service-go
-```
-
-Use `down` instead of `stop` when you also want to remove the container.
+default and not validated unless you pass it via `-f`.
 
 ---
-
 ## 11. Validation matrix
 
 For each Go service, run:
@@ -455,12 +429,10 @@ curl -u guest:guest http://localhost:15672/api/queues/%2F/notification-service-q
 
 ---
 
-## 12. Don'ts (until explicitly approved)
+## 12. Current boundaries
 
-* **Do not** delete Java services.
-* **Do not** change the default compose stack to route gateway traffic to a Go
-  service.
-* **Do not** start `trading-service-go` business logic.
-* **Do not** invent new RabbitMQ exchange names — reuse `employee.events`.
-* **Do not** add new public endpoints to the gateway that Java does not also
-  serve; Go services are validated as drop-in replacements first.
+* `market-service` is Go-only in Docker Compose and does not depend on the Java
+  `market-service` folder.
+* `trading-service-go` is not implemented yet; keep Java `trading-service` as
+  the active trading implementation until that service exists.
+* Reuse the existing RabbitMQ exchange names, especially `employee.events`.

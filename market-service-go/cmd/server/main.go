@@ -24,12 +24,20 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	if err := platform.EnsurePostgresDatabase(ctx, cfg); err != nil {
+		logger.Error("database ensure failed", "error", err)
+		os.Exit(1)
+	}
 	db, err := platform.OpenPostgres(ctx, cfg.DatabaseURL())
 	if err != nil {
 		logger.Error("database connection failed", "error", err)
 		os.Exit(1)
 	}
 	defer db.Close()
+	if err := platform.RunMigrations(ctx, db, "migrations"); err != nil {
+		logger.Error("database migration failed", "error", err)
+		os.Exit(1)
+	}
 
 	app, err := httpapi.NewApp(ctx, cfg, db, logger)
 	if err != nil {
@@ -76,4 +84,3 @@ func main() {
 	_ = httpServer.Shutdown(shutdownCtx)
 	grpcSrv.GracefulStop()
 }
-

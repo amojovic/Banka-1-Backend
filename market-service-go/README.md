@@ -1,10 +1,10 @@
 # market-service-go
 
-Standalone Go implementation of the current Java `market-service` (which already
-consolidates `stock-service` + `exchange-service`).
+Standalone Go implementation of the market service API. It replaces the former Java `market-service` module and serves the stock + exchange contracts.
 
-This service is **not** wired into gateway traffic. The Java `market-service`
-remains the source of truth until parity is signed off.
+The default compose `market-service` entry builds this Go implementation, so it
+is wired into gateway traffic by default. It owns the `market_service` schema
+through SQL migrations in `market-service-go/migrations`.
 
 ## Proto generation
 
@@ -38,11 +38,9 @@ $env:EXCHANGE_RATES_FETCH_ON_STARTUP='false'   # set to true only with a real AP
 go run ./cmd/server
 ```
 
-## Side-by-side validation against the Java service
+## Docker run
 
-The validation goal is: same Postgres, same Redis, same env vars, two ports.
-
-### 1. Start shared dependencies + the Java service
+Start Postgres, Redis, and the default Go-backed market service:
 
 ```powershell
 cd D:\Banka-1-Backend
@@ -55,14 +53,14 @@ Wait until `banka_market_service` reports `healthy`:
 docker compose --env-file .\setup\.env -f .\setup\docker-compose.yml ps market-service
 ```
 
-### 2. Start the optional Go service via the `go-market` profile
+### Optional alternate Go instance
 
 ```powershell
 docker compose --env-file .\setup\.env -f .\setup\docker-compose.yml --profile go-market up -d market-service-go
 ```
 
-The Go service binds REST on `18085` and gRPC on `19085`, and reuses the same
-Postgres database (`market_service`) and Redis container the Java service uses.
+The alternate instance binds REST on `18085` and gRPC on `19085`, and reuses the
+same Postgres database (`market_service`) and Redis container.
 
 ### 2-alt. Run the Go service directly (skip Docker build)
 
@@ -87,9 +85,7 @@ go run ./cmd/server
 
 ### 3. Mint a JWT for protected endpoints
 
-Most parity endpoints require a Bearer token. The Java and Go services share
-the same `JWT_SECRET`, issuer (`banka1`), id-claim, roles-claim and
-permissions-claim. The fastest way to produce a token is to log in through
+Most protected endpoints require a Bearer token. The Go service uses the same `JWT_SECRET`, issuer (`banka1`), id-claim, roles-claim and permissions-claim as the rest of the stack. The fastest way to produce a token is to log in through
 `user-service`:
 
 ```powershell
@@ -117,12 +113,12 @@ payload: {
 all parity endpoints in the safe list except `forex`, which also accepts
 `BASIC`.
 
-### 4. Run the parity checker (safe, read-only endpoints)
+### 4. Optional response comparison
 
 ```powershell
 cd D:\Banka-1-Backend\market-service-go
 go run ./cmd/paritycheck `
-    -java-base http://localhost:8085 `
+    -baseline-base http://localhost:8085 `
     -go-base http://localhost:18085 `
     -endpoints-file .\parity.endpoints.example.json `
     -token $token
@@ -132,7 +128,7 @@ Exit code 0 means every endpoint matched after JSON normalisation
 (`timestamp`, `lastRefresh`, `createdAt` are ignored, keys sorted,
 trailing-zero scale ignored).
 
-### 5. (Optional) Run destructive parity endpoints
+### 5. Optional destructive comparison endpoints
 
 `parity.endpoints.destructive.example.json` exercises mutating endpoints
 (`/admin/stocks/*/refresh-market-data`, `POST /rates/fetch`,
@@ -142,7 +138,7 @@ prefer running them sequentially:
 
 ```powershell
 go run ./cmd/paritycheck `
-    -java-base http://localhost:8085 `
+    -baseline-base http://localhost:8085 `
     -go-base http://localhost:18085 `
     -endpoints-file .\parity.endpoints.destructive.example.json `
     -token $token
@@ -154,7 +150,6 @@ go run ./cmd/paritycheck `
 docker compose --env-file .\setup\.env -f .\setup\docker-compose.yml --profile go-market down market-service-go
 ```
 
-The Java `market-service` keeps running.
 
 ## Build / test / image
 
@@ -165,11 +160,3 @@ go test ./...
 go build ./...
 docker build -t market-service-go-local .
 ```
-
-## Future switch (not yet)
-
-1. Run Java and Go side-by-side.
-2. Compare responses with `cmd/paritycheck`.
-3. Smoke test key REST endpoints directly against the Go port.
-4. Update gateway upstream only after parity is acceptable.
-5. Roll back by restoring the gateway upstream to the Java `market-service`.

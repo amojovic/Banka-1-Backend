@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -26,23 +27,23 @@ var supportedImportCurrencies = map[string]struct{}{
 }
 
 var importCurrencyAliases = map[string]string{
-	"us dollar":               "USD",
-	"u.s. dollar":             "USD",
-	"united states dollar":    "USD",
-	"american dollar":         "USD",
-	"dollar":                  "USD",
-	"euro":                    "EUR",
-	"euros":                   "EUR",
-	"british pound":           "GBP",
-	"british pound sterling":  "GBP",
-	"pound sterling":          "GBP",
-	"japanese yen":            "JPY",
-	"yen":                     "JPY",
-	"swiss franc":             "CHF",
-	"canadian dollar":         "CAD",
-	"australian dollar":       "AUD",
-	"serbian dinar":           "RSD",
-	"dinar":                   "RSD",
+	"us dollar":              "USD",
+	"u.s. dollar":            "USD",
+	"united states dollar":   "USD",
+	"american dollar":        "USD",
+	"dollar":                 "USD",
+	"euro":                   "EUR",
+	"euros":                  "EUR",
+	"british pound":          "GBP",
+	"british pound sterling": "GBP",
+	"pound sterling":         "GBP",
+	"japanese yen":           "JPY",
+	"yen":                    "JPY",
+	"swiss franc":            "CHF",
+	"canadian dollar":        "CAD",
+	"australian dollar":      "AUD",
+	"serbian dinar":          "RSD",
+	"dinar":                  "RSD",
 }
 
 type stockExchangeCSVRow struct {
@@ -118,7 +119,9 @@ func openExchangeCSV(csvPath string) (*os.File, string, error) {
 		trimmed := strings.TrimPrefix(csvPath, "classpath:")
 		trimmed = strings.TrimPrefix(trimmed, "/")
 		candidates = append(candidates,
-			"..\\market-service\\src\\main\\resources\\"+trimmed,
+			trimmed,
+			filepath.Join("resources", trimmed),
+			filepath.Join("market-service-go", "resources", trimmed),
 			"..\\stock-service\\src\\main\\resources\\"+trimmed,
 		)
 	}

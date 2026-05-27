@@ -17,7 +17,8 @@ func RunMigrations(ctx context.Context, db *pgxpool.Pool, dir string) error {
 		)`); err != nil {
 		return err
 	}
-	if err := baselineExistingSchema(ctx, db, dir); err != nil {
+
+	if err := baselineExistingJavaSchema(ctx, db, dir); err != nil {
 		return err
 	}
 
@@ -32,6 +33,7 @@ func RunMigrations(ctx context.Context, db *pgxpool.Pool, dir string) error {
 		}
 	}
 	sort.Strings(files)
+
 	for _, file := range files {
 		var applied bool
 		if err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM go_schema_migrations WHERE filename = $1)`, file).Scan(&applied); err != nil {
@@ -40,6 +42,7 @@ func RunMigrations(ctx context.Context, db *pgxpool.Pool, dir string) error {
 		if applied {
 			continue
 		}
+
 		sqlBytes, err := os.ReadFile(filepath.Join(dir, file))
 		if err != nil {
 			return err
@@ -60,10 +63,11 @@ func RunMigrations(ctx context.Context, db *pgxpool.Pool, dir string) error {
 			return err
 		}
 	}
+
 	return nil
 }
 
-func baselineExistingSchema(ctx context.Context, db *pgxpool.Pool, dir string) error {
+func baselineExistingJavaSchema(ctx context.Context, db *pgxpool.Pool, dir string) error {
 	var tracked int
 	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM go_schema_migrations`).Scan(&tracked); err != nil {
 		return err
@@ -72,23 +76,15 @@ func baselineExistingSchema(ctx context.Context, db *pgxpool.Pool, dir string) e
 		return nil
 	}
 
-	requiredTables := []string{
-		"employees",
-		"refresh_tokens",
-		"confirmation_token",
-		"zaposlen_permissions",
-		"clients",
-		"client_permissions",
-		"client_confirmation_token",
+	var hasExchangeRate, hasListing bool
+	if err := db.QueryRow(ctx, `SELECT to_regclass('public.exchange_rate') IS NOT NULL`).Scan(&hasExchangeRate); err != nil {
+		return err
 	}
-	for _, table := range requiredTables {
-		var exists bool
-		if err := db.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, "public."+table).Scan(&exists); err != nil {
-			return err
-		}
-		if !exists {
-			return nil
-		}
+	if err := db.QueryRow(ctx, `SELECT to_regclass('public.listing') IS NOT NULL`).Scan(&hasListing); err != nil {
+		return err
+	}
+	if !hasExchangeRate || !hasListing {
+		return nil
 	}
 
 	entries, err := os.ReadDir(dir)

@@ -10,8 +10,11 @@ WORKDIR /workspace/market-service-go
 RUN go mod download
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/market-service-go ./cmd/server
 
-FROM gcr.io/distroless/base-debian12
+FROM alpine:3.21
+RUN apk add --no-cache ca-certificates curl && addgroup -S app && adduser -S app -G app
 WORKDIR /app
 COPY --from=build /out/market-service-go /app/market-service-go
+COPY market-service-go/migrations /app/migrations
+USER app
 EXPOSE 8085 9085
 ENTRYPOINT ["/app/market-service-go"]

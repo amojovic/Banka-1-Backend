@@ -22,7 +22,7 @@ type endpointSpec struct {
 }
 
 func main() {
-	javaBase := flag.String("java-base", "http://localhost:8085", "Java market-service base URL")
+	baselineBase := flag.String("baseline-base", "http://localhost:8085", "Baseline market-service base URL")
 	goBase := flag.String("go-base", "http://localhost:18085", "Go market-service base URL")
 	token := flag.String("token", "", "Optional bearer token for authenticated endpoints")
 	file := flag.String("endpoints-file", "", "Optional JSON file with endpoint definitions")
@@ -38,9 +38,9 @@ func main() {
 	differences := 0
 	successes := 0
 	for _, spec := range specs {
-		javaResp, err := callEndpoint(client, strings.TrimRight(*javaBase, "/"), spec, *token)
+		baselineResp, err := callEndpoint(client, strings.TrimRight(*baselineBase, "/"), spec, *token)
 		if err != nil {
-			fmt.Printf("[ERROR] %s java call failed: %v\n", spec.Name, err)
+			fmt.Printf("[ERROR] %s baseline call failed: %v\n", spec.Name, err)
 			differences++
 			continue
 		}
@@ -50,19 +50,19 @@ func main() {
 			differences++
 			continue
 		}
-		javaNorm := normalizeJSON(javaResp.body)
+		baselineNorm := normalizeJSON(baselineResp.body)
 		goNorm := normalizeJSON(goResp.body)
-		if javaResp.status != goResp.status || javaNorm != goNorm {
+		if baselineResp.status != goResp.status || baselineNorm != goNorm {
 			fmt.Printf("[DIFF] %s\n", spec.Name)
-			fmt.Printf("  java status=%d body=%s\n", javaResp.status, javaNorm)
-			fmt.Printf("  go   status=%d body=%s\n", goResp.status, goNorm)
+			fmt.Printf("  baseline status=%d body=%s\n", baselineResp.status, baselineNorm)
+			fmt.Printf("  go       status=%d body=%s\n", goResp.status, goNorm)
 			differences++
 			continue
 		}
 		successes++
 		fmt.Printf("[OK] %s\n", spec.Name)
 	}
-	fmt.Printf("\nSummary: %d ok, %d diffs over %d endpoints (java=%s go=%s)\n", successes, differences, len(specs), *javaBase, *goBase)
+	fmt.Printf("\nSummary: %d ok, %d diffs over %d endpoints (baseline=%s go=%s)\n", successes, differences, len(specs), *baselineBase, *goBase)
 	if differences > 0 {
 		os.Exit(1)
 	}

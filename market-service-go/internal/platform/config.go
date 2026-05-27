@@ -49,13 +49,13 @@ type StockConfig struct {
 }
 
 type FXConfig struct {
-	TwelveDataBaseURL      string
-	TwelveDataAPIKey       string
-	MarginPercentage       string
-	CommissionPercentage   string
-	FetchOnStartup         bool
-	FetchCron              string
-	SupportedCurrencies    []string
+	TwelveDataBaseURL    string
+	TwelveDataAPIKey     string
+	MarginPercentage     string
+	CommissionPercentage string
+	FetchOnStartup       bool
+	FetchCron            string
+	SupportedCurrencies  []string
 }
 
 func LoadConfig() Config {
@@ -104,7 +104,7 @@ func LoadConfig() Config {
 }
 
 func (c Config) DatabaseURL() string {
-	return "postgres://" + c.DBUser + ":" + c.DBPassword + "@" + c.DBHost + ":" + c.DBPort + "/" + c.DBName
+	return "postgres://" + c.DBUser + ":" + c.DBPassword + "@" + c.DBHost + ":" + c.DBPort + "/" + c.DBName + "?sslmode=disable"
 }
 
 func getEnv(key, fallback string) string {
