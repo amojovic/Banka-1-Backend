@@ -123,8 +123,9 @@ SELECT a.id, a.broj_racuna, a.vlasnik, COALESCE(c.oznaka, ''), a.raspolozivo_sta
        a.status, COALESCE(a.account_ownership_type, a.account_concrete, a.account_type, ''),
        COALESCE(a.email, ''), COALESCE(a.username, '')
   FROM account_table a
-  LEFT JOIN currency_table c ON c.id = a.currency_id
+ LEFT JOIN currency_table c ON c.id = a.currency_id
  WHERE a.vlasnik = $1
+   AND a.deleted = false
  ORDER BY a.id
 `, ownerID)
 	if err != nil {
@@ -195,7 +196,8 @@ UPDATE account_table
        raspolozivo_stanje = raspolozivo_stanje - $1,
        dnevna_potrosnja = dnevna_potrosnja + $1,
        mesecna_potrosnja = mesecna_potrosnja + $1,
-       version = COALESCE(version, 0) + 1
+       version = COALESCE(version, 0) + 1,
+       updated_at = now()
  WHERE id = $2
 `, amount, account.ID)
 	return err
@@ -216,18 +218,19 @@ func (s *AccountService) CreditTx(ctx context.Context, tx *sql.Tx, accountNumber
 UPDATE account_table
    SET stanje = stanje + $1,
        raspolozivo_stanje = raspolozivo_stanje + $1,
-       version = COALESCE(version, 0) + 1
+       version = COALESCE(version, 0) + 1,
+       updated_at = now()
  WHERE id = $2
 `, amount, account.ID)
 	return err
 }
 
 func (s *AccountService) getByID(ctx context.Context, runner sqlRunner, id int64) (accountBalanceRow, error) {
-	return scanAccount(runner.QueryRowContext(ctx, accountSelectSQL+" WHERE a.id = $1", id))
+	return scanAccount(runner.QueryRowContext(ctx, accountSelectSQL+" WHERE a.id = $1 AND a.deleted = false", id))
 }
 
 func (s *AccountService) getByNumber(ctx context.Context, runner sqlRunner, accountNumber string, forUpdate bool) (accountBalanceRow, error) {
-	query := accountSelectSQL + " WHERE a.broj_racuna = $1"
+	query := accountSelectSQL + " WHERE a.broj_racuna = $1 AND a.deleted = false"
 	if forUpdate {
 		query += " FOR UPDATE"
 	}
@@ -235,7 +238,7 @@ func (s *AccountService) getByNumber(ctx context.Context, runner sqlRunner, acco
 }
 
 func (s *AccountService) getByOwnerAndCurrency(ctx context.Context, runner sqlRunner, ownerID int64, currency string, forUpdate bool) (accountBalanceRow, error) {
-	query := accountSelectSQL + " WHERE a.vlasnik = $1 AND c.oznaka = $2 ORDER BY a.id LIMIT 1"
+	query := accountSelectSQL + " WHERE a.vlasnik = $1 AND c.oznaka = $2 AND a.deleted = false ORDER BY a.id LIMIT 1"
 	if forUpdate {
 		query += " FOR UPDATE"
 	}

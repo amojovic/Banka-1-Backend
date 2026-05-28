@@ -13,8 +13,9 @@ import (
 )
 
 type MarketClient struct {
-	cfg    config.Config
-	client *http.Client
+	cfg        config.Config
+	client     *http.Client
+	tokenCache *ServiceTokenCache
 }
 
 type ConversionResponse struct {
@@ -30,7 +31,7 @@ func NewMarketClient(cfg config.Config, client *http.Client) *MarketClient {
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
-	return &MarketClient{cfg: cfg, client: client}
+	return &MarketClient{cfg: cfg, client: client, tokenCache: NewServiceTokenCache(cfg)}
 }
 
 func (m *MarketClient) Convert(ctx context.Context, amount decimal.Decimal, from, to string) (ConversionResponse, error) {
@@ -57,7 +58,7 @@ func (m *MarketClient) get(ctx context.Context, path string, amount decimal.Deci
 	if err != nil {
 		return ConversionResponse{}, err
 	}
-	if token, err := serviceJWT(m.cfg); err == nil {
+	if token, err := m.tokenCache.Token(); err == nil {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 

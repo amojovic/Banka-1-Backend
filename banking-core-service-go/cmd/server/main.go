@@ -18,6 +18,9 @@ import (
 
 func main() {
 	cfg := config.Load()
+	if err := service.ValidateStartupConfig(cfg); err != nil {
+		log.Fatalf("validate startup config: %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -35,6 +38,10 @@ func main() {
 	}
 
 	services := service.NewContainer(cfg, conn)
+	appCtx, appCancel := context.WithCancel(context.Background())
+	defer appCancel()
+	services.StartBackground(appCtx)
+
 	handler := httpapi.NewHandler(cfg, services)
 
 	server := &http.Server{
@@ -61,6 +68,7 @@ func main() {
 		}
 	}
 
+	appCancel()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {

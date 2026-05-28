@@ -114,16 +114,17 @@ type accountView struct {
 }
 
 func (s *AccountService) loadAccountViewByID(ctx context.Context, id int64) (accountView, error) {
-	return scanAccountView(s.db.QueryRowContext(ctx, accountViewSQL+" WHERE a.id = $1", id))
+	return scanAccountView(s.db.QueryRowContext(ctx, accountViewSQL+" WHERE a.id = $1 AND a.deleted = false", id))
 }
 
 func (s *AccountService) loadAccountViewByNumber(ctx context.Context, accountNumber string) (accountView, error) {
-	return scanAccountView(s.db.QueryRowContext(ctx, accountViewSQL+" WHERE a.broj_racuna = $1", accountNumber))
+	return scanAccountView(s.db.QueryRowContext(ctx, accountViewSQL+" WHERE a.broj_racuna = $1 AND a.deleted = false", accountNumber))
 }
 
 func (s *AccountService) accountsByOwnerCurrencyView(ctx context.Context, ownerID int64, currency string) (accountView, error) {
 	return scanAccountView(s.db.QueryRowContext(ctx, accountViewSQL+`
  WHERE a.vlasnik = $1 AND cur.oznaka = $2
+   AND a.deleted = false
  ORDER BY a.id
  LIMIT 1
 `, ownerID, strings.ToUpper(currency)))
@@ -294,6 +295,7 @@ SELECT EXISTS (
      WHERE vlasnik = $1
        AND LOWER(naziv_racuna) = LOWER($2)
        AND id <> $3
+       AND deleted = false
 )
 `, view.OwnerID, name, view.ID).Scan(&exists); err != nil {
 		return "", err
@@ -301,7 +303,7 @@ SELECT EXISTS (
 	if exists {
 		return "", BadRequest("Vlasnik poseduje racun sa ovim imenom")
 	}
-	_, err = s.db.ExecContext(ctx, "UPDATE account_table SET naziv_racuna = $1 WHERE id = $2", name, view.ID)
+	_, err = s.db.ExecContext(ctx, "UPDATE account_table SET naziv_racuna = $1, updated_at = now() WHERE id = $2 AND deleted = false", name, view.ID)
 	if err != nil {
 		return "", err
 	}
@@ -331,8 +333,10 @@ func (s *AccountService) editAccountLimit(ctx context.Context, principal Princip
 	_, err = s.db.ExecContext(ctx, `
 UPDATE account_table
    SET dnevni_limit = $1,
-       mesecni_limit = $2
+       mesecni_limit = $2,
+       updated_at = now()
  WHERE id = $3
+   AND deleted = false
 `, req.DailyLimit, req.MonthlyLimit, view.ID)
 	if err != nil {
 		return "", err
@@ -348,7 +352,7 @@ func (s *AccountService) accountForEdit(ctx context.Context, key string, id int6
 }
 
 func (s *AccountService) cardSummariesForAccount(ctx context.Context, accountNumber string) []any {
-	rows, err := s.db.QueryContext(ctx, cardSelectSQL+" WHERE account_number = $1 ORDER BY id", accountNumber)
+	rows, err := s.db.QueryContext(ctx, cardSelectSQL+" WHERE account_number = $1 AND deleted = false ORDER BY id", accountNumber)
 	if err != nil {
 		return []any{}
 	}

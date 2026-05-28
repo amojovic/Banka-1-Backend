@@ -258,7 +258,7 @@ ON CONFLICT DO NOTHING
 }
 
 func (s *CardService) GetCardsForClient(ctx context.Context, clientID int64) ([]CardSummaryResponse, error) {
-	rows, err := s.db.QueryContext(ctx, cardSelectSQL+" WHERE client_id = $1 ORDER BY id", clientID)
+	rows, err := s.db.QueryContext(ctx, cardSelectSQL+" WHERE client_id = $1 AND deleted = false ORDER BY id", clientID)
 	if err != nil {
 		return nil, err
 	}
@@ -275,7 +275,7 @@ func (s *CardService) GetCardsForClient(ctx context.Context, clientID int64) ([]
 }
 
 func (s *CardService) GetCardsByAccount(ctx context.Context, accountNumber string) ([]CardSummaryResponse, error) {
-	rows, err := s.db.QueryContext(ctx, cardSelectSQL+" WHERE account_number = $1 ORDER BY id", accountNumber)
+	rows, err := s.db.QueryContext(ctx, cardSelectSQL+" WHERE account_number = $1 AND deleted = false ORDER BY id", accountNumber)
 	if err != nil {
 		return nil, err
 	}
@@ -292,7 +292,7 @@ func (s *CardService) GetCardsByAccount(ctx context.Context, accountNumber strin
 }
 
 func (s *CardService) GetInternalCardsByAccount(ctx context.Context, accountNumber string) ([]CardInternalSummaryResponse, error) {
-	rows, err := s.db.QueryContext(ctx, cardSelectSQL+" WHERE account_number = $1 ORDER BY id", accountNumber)
+	rows, err := s.db.QueryContext(ctx, cardSelectSQL+" WHERE account_number = $1 AND deleted = false ORDER BY id", accountNumber)
 	if err != nil {
 		return nil, err
 	}
@@ -343,7 +343,7 @@ func (s *CardService) UpdateCardLimit(ctx context.Context, id int64, limit decim
 	if _, err := s.findCard(ctx, id); err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, "UPDATE cards SET card_limit = $1, version = COALESCE(version, 0) + 1 WHERE id = $2", limit, id)
+	_, err := s.db.ExecContext(ctx, "UPDATE cards SET card_limit = $1, version = COALESCE(version, 0) + 1, updated_at = now() WHERE id = $2 AND deleted = false", limit, id)
 	return err
 }
 
@@ -363,7 +363,7 @@ func (s *CardService) GetAllCards(ctx context.Context, page, size int, status, s
 	}
 	search = strings.TrimSpace(search)
 	args := []any{}
-	where := []string{"1 = 1"}
+	where := []string{"deleted = false"}
 	if status != "" {
 		args = append(args, status)
 		where = append(where, fmt.Sprintf("status = $%d", len(args)))
@@ -517,6 +517,7 @@ SELECT COUNT(*)
    AND client_id = $2
    AND authorized_person_id IS NULL
    AND status <> 'DEACTIVATED'
+   AND deleted = false
 `, accountNumber, clientID).Scan(&count)
 	if err != nil {
 		return err
@@ -537,6 +538,7 @@ SELECT COUNT(*)
  WHERE account_number = $1
    AND authorized_person_id = $2
    AND status <> 'DEACTIVATED'
+   AND deleted = false
 `, accountNumber, authorizedPersonID.Int64).Scan(&count)
 	} else {
 		err = s.db.QueryRowContext(ctx, `
@@ -546,6 +548,7 @@ SELECT COUNT(*)
    AND client_id = $2
    AND authorized_person_id IS NULL
    AND status <> 'DEACTIVATED'
+   AND deleted = false
 `, accountNumber, clientID).Scan(&count)
 	}
 	if err != nil {
@@ -602,7 +605,7 @@ RETURNING id
 }
 
 func (s *CardService) findCard(ctx context.Context, id int64) (cardRow, error) {
-	row, err := scanCard(s.db.QueryRowContext(ctx, cardSelectSQL+" WHERE id = $1", id))
+	row, err := scanCard(s.db.QueryRowContext(ctx, cardSelectSQL+" WHERE id = $1 AND deleted = false", id))
 	if err != nil {
 		return cardRow{}, err
 	}
@@ -620,7 +623,7 @@ func (s *CardService) transitionCard(ctx context.Context, id int64, target strin
 	if !allowed {
 		return cardBusinessError(422, "ERR_CARD_005", "Invalid status transition", "Transition from %s to %s is not allowed.", current, target)
 	}
-	_, err = s.db.ExecContext(ctx, "UPDATE cards SET status = $1, version = COALESCE(version, 0) + 1 WHERE id = $2", target, id)
+	_, err = s.db.ExecContext(ctx, "UPDATE cards SET status = $1, version = COALESCE(version, 0) + 1, updated_at = now() WHERE id = $2 AND deleted = false", target, id)
 	if err == nil {
 		switch target {
 		case "BLOCKED":

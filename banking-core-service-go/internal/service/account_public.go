@@ -396,10 +396,11 @@ func (s *AccountService) SearchAccounts(ctx context.Context, ime, prezime, accou
 	var total int
 	if err := s.db.QueryRowContext(ctx, `
 SELECT COUNT(*)
-  FROM account_table a
+ FROM account_table a
  WHERE LOWER(a.broj_racuna) LIKE $1
    AND LOWER(a.ime_vlasnika_racuna) LIKE $2
    AND LOWER(a.prezime_vlasnika_racuna) LIKE $3
+   AND a.deleted = false
 `, args[:3]...).Scan(&total); err != nil {
 		return Page[AccountSearchResponse]{}, err
 	}
@@ -411,10 +412,11 @@ SELECT a.broj_racuna, a.ime_vlasnika_racuna, a.prezime_vlasnika_racuna,
        COALESCE(a.mesecni_limit, 0), COALESCE(a.dnevna_potrosnja, 0),
        COALESCE(a.mesecna_potrosnja, 0), a.datum_isteka
   FROM account_table a
-  LEFT JOIN currency_table c ON c.id = a.currency_id
+ LEFT JOIN currency_table c ON c.id = a.currency_id
  WHERE LOWER(a.broj_racuna) LIKE $1
    AND LOWER(a.ime_vlasnika_racuna) LIKE $2
    AND LOWER(a.prezime_vlasnika_racuna) LIKE $3
+   AND a.deleted = false
  ORDER BY a.prezime_vlasnika_racuna ASC, a.ime_vlasnika_racuna ASC, a.id ASC
  LIMIT $4 OFFSET $5
 `, args...)
@@ -436,13 +438,14 @@ SELECT a.broj_racuna, a.ime_vlasnika_racuna, a.prezime_vlasnika_racuna,
 func (s *AccountService) GetClientAccountsPage(ctx context.Context, ownerID int64, page, size int, details bool) (any, error) {
 	offset := page * size
 	var total int
-	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM account_table WHERE vlasnik = $1 AND status = 'ACTIVE'", ownerID).Scan(&total); err != nil {
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM account_table WHERE vlasnik = $1 AND status = 'ACTIVE' AND deleted = false", ownerID).Scan(&total); err != nil {
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, `
 SELECT a.id
   FROM account_table a
  WHERE a.vlasnik = $1 AND a.status = 'ACTIVE'
+   AND a.deleted = false
  ORDER BY a.id
  LIMIT $2 OFFSET $3
 `, ownerID, size, offset)
@@ -545,7 +548,7 @@ func (s *AccountService) EditStatus(ctx context.Context, accountNumber string, r
 	if row.OwnerID < 0 {
 		return "", BadRequest("Sistemski racun banke se ne moze deaktivirati")
 	}
-	_, err = s.db.ExecContext(ctx, "UPDATE account_table SET status = $1 WHERE broj_racuna = $2", status, accountNumber)
+	_, err = s.db.ExecContext(ctx, "UPDATE account_table SET status = $1, updated_at = now() WHERE broj_racuna = $2 AND deleted = false", status, accountNumber)
 	if err != nil {
 		return "", err
 	}

@@ -99,12 +99,19 @@ CREATE TABLE IF NOT EXISTS account_table (
     odrzavanje_racuna NUMERIC(19,2),
     account_ownership_type VARCHAR(20),
     daily_limit_remaining NUMERIC(19,2),
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted BOOLEAN NOT NULL DEFAULT false,
     deleted_due_to_client_id BIGINT
 );
 
+ALTER TABLE account_table ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE account_table ADD COLUMN IF NOT EXISTS deleted BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE account_table ADD COLUMN IF NOT EXISTS deleted_due_to_client_id BIGINT;
+
 CREATE INDEX IF NOT EXISTS idx_account_vlasnik ON account_table(vlasnik);
 CREATE INDEX IF NOT EXISTS idx_account_broj ON account_table(broj_racuna);
+CREATE INDEX IF NOT EXISTS idx_account_table_deleted_due_to_client_id
+    ON account_table(deleted_due_to_client_id);
 
 CREATE TABLE IF NOT EXISTS authorized_persons (
     id BIGSERIAL PRIMARY KEY,
@@ -140,13 +147,23 @@ CREATE TABLE IF NOT EXISTS cards (
     authorized_person_id BIGINT REFERENCES authorized_persons(id),
     cvv VARCHAR(255) NOT NULL,
     card_limit NUMERIC(19,2) NOT NULL,
-    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE'
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+    deleted BOOLEAN NOT NULL DEFAULT false,
+    deleted_due_to_client_id BIGINT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE cards ADD COLUMN IF NOT EXISTS deleted BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE cards ADD COLUMN IF NOT EXISTS deleted_due_to_client_id BIGINT;
+ALTER TABLE cards ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE cards ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
 CREATE INDEX IF NOT EXISTS idx_cards_account_number ON cards(account_number);
 CREATE INDEX IF NOT EXISTS idx_cards_client_id ON cards(client_id);
 CREATE INDEX IF NOT EXISTS idx_cards_authorized_person_id ON cards(authorized_person_id);
 CREATE INDEX IF NOT EXISTS idx_cards_status ON cards(status);
+CREATE INDEX IF NOT EXISTS idx_cards_deleted_due_to_client_id ON cards(deleted_due_to_client_id);
 
 CREATE TABLE IF NOT EXISTS verification_sessions (
     id BIGSERIAL PRIMARY KEY,
@@ -277,12 +294,18 @@ CREATE TABLE IF NOT EXISTS gdpr_event_log (
     PRIMARY KEY (event_id, listener)
 );
 
+CREATE INDEX IF NOT EXISTS idx_gdpr_event_log_processed_at
+    ON gdpr_event_log(processed_at);
+
 CREATE TABLE IF NOT EXISTS transfer_retry_log (
     transfer_id BIGINT NOT NULL,
     retry_attempt INTEGER NOT NULL,
     processed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (transfer_id, retry_attempt)
 );
+
+CREATE INDEX IF NOT EXISTS idx_transfer_retry_log_processed_at
+    ON transfer_retry_log(processed_at);
 
 CREATE TABLE IF NOT EXISTS external_transfers (
     id BIGSERIAL PRIMARY KEY,
@@ -298,6 +321,11 @@ CREATE TABLE IF NOT EXISTS external_transfers (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_external_transfers_status_retry
+    ON external_transfers(status, retry_count);
+CREATE INDEX IF NOT EXISTS idx_external_transfers_created_at
+    ON external_transfers(created_at);
 
 CREATE TABLE IF NOT EXISTS payment_table (
     id BIGSERIAL PRIMARY KEY,

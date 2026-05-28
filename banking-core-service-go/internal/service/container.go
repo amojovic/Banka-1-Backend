@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 
@@ -12,17 +13,19 @@ import (
 type Container struct {
 	Config config.Config
 
-	Accounts       *AccountService
-	MarginAccounts *MarginAccountService
-	MarginTx       *MarginTransactionService
-	Internal       *InternalService
-	Interbank      *InterbankService
-	CardService    *CardService
-	Verification   *VerificationService
-	Transactions   *TransactionService
-	Transfers      *TransferService
-	Rabbit         *RabbitPublisher
-	Cards          CardServices
+	Accounts          *AccountService
+	MarginAccounts    *MarginAccountService
+	MarginTx          *MarginTransactionService
+	Internal          *InternalService
+	Interbank         *InterbankService
+	CardService       *CardService
+	Verification      *VerificationService
+	Transactions      *TransactionService
+	Transfers         *TransferService
+	ExternalTransfers *ExternalTransferService
+	Gdpr              *GdprService
+	Rabbit            *RabbitPublisher
+	Cards             CardServices
 }
 
 type CardServices struct {
@@ -42,24 +45,40 @@ func NewContainer(cfg config.Config, db *sql.DB) *Container {
 	cardSvc := NewCardService(db, cfg, accountSvc, rabbit)
 	verificationSvc := NewVerificationService(db, cfg, rabbit)
 	transactionSvc := NewTransactionService(db, cfg, accountSvc, market, verificationSvc, rabbit)
+	externalTransfers := NewExternalTransferService(db, cfg, rabbit)
+	gdprSvc := NewGdprService(db, cfg)
 	accountSvc.SetAutomaticCardCreator(cardSvc)
 	return &Container{
-		Config:         cfg,
-		Accounts:       accountSvc,
-		MarginAccounts: marginAccounts,
-		MarginTx:       NewMarginTransactionService(db, cfg, accountSvc, marginAccounts),
-		Internal:       internal,
-		Interbank:      NewInterbankService(db, accountSvc),
-		CardService:    cardSvc,
-		Verification:   verificationSvc,
-		Transactions:   transactionSvc,
-		Transfers:      NewTransferService(db, cfg, accountSvc, transactionSvc, verificationSvc, rabbit),
-		Rabbit:         rabbit,
+		Config:            cfg,
+		Accounts:          accountSvc,
+		MarginAccounts:    marginAccounts,
+		MarginTx:          NewMarginTransactionService(db, cfg, accountSvc, marginAccounts),
+		Internal:          internal,
+		Interbank:         NewInterbankService(db, accountSvc),
+		CardService:       cardSvc,
+		Verification:      verificationSvc,
+		Transactions:      transactionSvc,
+		Transfers:         NewTransferService(db, cfg, accountSvc, transactionSvc, verificationSvc, rabbit),
+		ExternalTransfers: externalTransfers,
+		Gdpr:              gdprSvc,
+		Rabbit:            rabbit,
 		Cards: CardServices{
 			LuhnValidator:           card.LuhnValidator{},
 			BrandDetector:           card.BrandDetector{},
 			MasterCardFeeCalculator: cardCalc,
 			FXFeeApplier:            card.FXFeeApplier{MasterCard: cardCalc},
 		},
+	}
+}
+
+func (c *Container) StartBackground(ctx context.Context) {
+	if c == nil {
+		return
+	}
+	if c.ExternalTransfers != nil {
+		c.ExternalTransfers.Start(ctx)
+	}
+	if c.Gdpr != nil {
+		c.Gdpr.Start(ctx)
 	}
 }

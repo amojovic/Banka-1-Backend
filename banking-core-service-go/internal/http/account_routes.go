@@ -225,14 +225,39 @@ func (h *Handler) clientAccountDetailsByNumber(w http.ResponseWriter, r *http.Re
 }
 
 func (h *Handler) clientAccountCards(w http.ResponseWriter, r *http.Request, rawID string) {
-	if _, ok := principalFromRequest(w, r, true); !ok {
+	principal, ok := principalFromRequest(w, r, true)
+	if !ok {
 		return
 	}
-	if _, ok := parseIntPath(w, rawID); !ok {
+	id, ok := parseIntPath(w, rawID)
+	if !ok {
 		return
 	}
 	page, size := pageParams(r)
-	respond(w, service.NewPage([]any{}, page, size, 0), http.StatusOK, nil)
+	if size > 100 {
+		size = 100
+	}
+	account, err := h.services.Accounts.GetAccountDetailsByID(r.Context(), id, &principal.ID)
+	if err != nil {
+		respond(w, nil, http.StatusOK, err)
+		return
+	}
+	cards, err := h.services.CardService.GetInternalCardsByAccount(r.Context(), account.BrojRacuna)
+	if err != nil {
+		respond(w, nil, http.StatusOK, err)
+		return
+	}
+	total := len(cards)
+	start := page * size
+	if start >= total {
+		respond(w, service.NewPage([]service.CardInternalSummaryResponse{}, page, size, total), http.StatusOK, nil)
+		return
+	}
+	end := start + size
+	if end > total {
+		end = total
+	}
+	respond(w, service.NewPage(cards[start:end], page, size, total), http.StatusOK, nil)
 }
 
 func (h *Handler) internalTransaction(w http.ResponseWriter, r *http.Request, sameOwnerRequired bool) {

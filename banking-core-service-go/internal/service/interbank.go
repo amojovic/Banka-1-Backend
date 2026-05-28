@@ -73,7 +73,8 @@ func (s *InterbankService) ReserveMonas(ctx context.Context, req ReserveMonasReq
 	if _, err := tx.ExecContext(ctx, `
 UPDATE account_table
    SET raspolozivo_stanje = raspolozivo_stanje - $1,
-       version = COALESCE(version, 0) + 1
+       version = COALESCE(version, 0) + 1,
+       updated_at = now()
  WHERE id = $2
 `, req.Amount, account.ID); err != nil {
 		return "", err
@@ -121,7 +122,8 @@ func (s *InterbankService) CommitReservation(ctx context.Context, reservationID 
 	if _, err := tx.ExecContext(ctx, `
 UPDATE account_table
    SET stanje = stanje - $1,
-       version = COALESCE(version, 0) + 1
+       version = COALESCE(version, 0) + 1,
+       updated_at = now()
  WHERE id = $2
 `, res.Amount, account.ID); err != nil {
 		return err
@@ -160,7 +162,8 @@ func (s *InterbankService) ReleaseReservation(ctx context.Context, reservationID
 	if _, err := tx.ExecContext(ctx, `
 UPDATE account_table
    SET raspolozivo_stanje = raspolozivo_stanje + $1,
-       version = COALESCE(version, 0) + 1
+       version = COALESCE(version, 0) + 1,
+       updated_at = now()
  WHERE id = $2
 `, res.Amount, account.ID); err != nil {
 		return err

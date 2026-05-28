@@ -30,9 +30,6 @@ func (p *RabbitPublisher) PublishJSON(ctx context.Context, exchange, routingKey 
 	if err != nil {
 		return err
 	}
-	if err := p.ensureChannel(exchange); err != nil {
-		return err
-	}
 	publishCtx := ctx
 	if publishCtx == nil {
 		publishCtx = context.Background()
@@ -41,6 +38,11 @@ func (p *RabbitPublisher) PublishJSON(ctx context.Context, exchange, routingKey 
 		var cancel context.CancelFunc
 		publishCtx, cancel = context.WithTimeout(publishCtx, 5*time.Second)
 		defer cancel()
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := p.ensureChannelLocked(exchange); err != nil {
+		return err
 	}
 	return p.channel.PublishWithContext(
 		publishCtx,
@@ -87,6 +89,10 @@ func (p *RabbitPublisher) Close() error {
 func (p *RabbitPublisher) ensureChannel(exchange string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	return p.ensureChannelLocked(exchange)
+}
+
+func (p *RabbitPublisher) ensureChannelLocked(exchange string) error {
 	if p.conn != nil && !p.conn.IsClosed() && p.channel != nil {
 		return nil
 	}
