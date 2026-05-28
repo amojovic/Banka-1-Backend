@@ -174,7 +174,7 @@ func (s *MarginAccountService) recalcActive(account *marginAccount) {
 func (s *MarginAccountService) findByUserID(ctx context.Context, runner sqlRunner, userID int64, forUpdate bool) (marginAccount, error) {
 	query := marginAccountSelectSQL + " WHERE u.user_id = $1 AND m.deleted = false"
 	if forUpdate {
-		query += " FOR UPDATE"
+		query += " FOR UPDATE OF m"
 	}
 	return scanMarginAccount(runner.QueryRowContext(ctx, query, userID))
 }
@@ -182,7 +182,7 @@ func (s *MarginAccountService) findByUserID(ctx context.Context, runner sqlRunne
 func (s *MarginAccountService) findByCompanyID(ctx context.Context, runner sqlRunner, companyID int64, forUpdate bool) (marginAccount, error) {
 	query := marginAccountSelectSQL + " WHERE cma.company_id = $1 AND m.deleted = false"
 	if forUpdate {
-		query += " FOR UPDATE"
+		query += " FOR UPDATE OF m"
 	}
 	return scanMarginAccount(runner.QueryRowContext(ctx, query, companyID))
 }

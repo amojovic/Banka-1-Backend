@@ -74,7 +74,12 @@ func (s *ScheduledJobs) runStuckPaymentCleanup(ctx context.Context) {
 }
 
 func (s *ScheduledJobs) resetDailySpending(ctx context.Context) {
-	res, err := s.db.ExecContext(ctx, "UPDATE account_table SET dnevna_potrosnja = 0 WHERE deleted = false")
+	res, err := s.db.ExecContext(ctx, `
+UPDATE account_table
+   SET dnevna_potrosnja = 0,
+       daily_limit_remaining = dnevni_limit
+ WHERE deleted = false
+`)
 	if err != nil {
 		log.Printf("daily spending reset failed: %v", err)
 		return

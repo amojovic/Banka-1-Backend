@@ -250,7 +250,7 @@ func (s *AccountService) getByID(ctx context.Context, runner sqlRunner, id int64
 func (s *AccountService) getByNumber(ctx context.Context, runner sqlRunner, accountNumber string, forUpdate bool) (accountBalanceRow, error) {
 	query := accountSelectSQL + " WHERE a.broj_racuna = $1 AND a.deleted = false"
 	if forUpdate {
-		query += " FOR UPDATE"
+		query += " FOR UPDATE OF a"
 	}
 	return scanAccount(runner.QueryRowContext(ctx, query, accountNumber))
 }
@@ -258,7 +258,7 @@ func (s *AccountService) getByNumber(ctx context.Context, runner sqlRunner, acco
 func (s *AccountService) getByOwnerAndCurrency(ctx context.Context, runner sqlRunner, ownerID int64, currency string, forUpdate bool) (accountBalanceRow, error) {
 	query := accountSelectSQL + " WHERE a.vlasnik = $1 AND c.oznaka = $2 AND a.deleted = false ORDER BY a.id LIMIT 1"
 	if forUpdate {
-		query += " FOR UPDATE"
+		query += " FOR UPDATE OF a"
 	}
 	return scanAccount(runner.QueryRowContext(ctx, query, ownerID, currency))
 }
