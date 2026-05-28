@@ -441,6 +441,142 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # === Swagger / OpenAPI per service =====================================
+    # Each consolidated service serves springdoc at /swagger-ui/* and
+    # /v3/api-docs internally. We expose it under a per-service prefix and
+    # strip that prefix toward the upstream (trailing slash on proxy_pass).
+    # springdoc.swagger-ui.{config-url,url} in each service point at the same
+    # prefix so the UI fetches the spec back through the gateway.
+    # Entry point: http://localhost/<prefix>/swagger-ui/index.html
+
+    # user-service -> /users
+    location /users/swagger-ui/ {
+        proxy_pass http://user_service/swagger-ui/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location /users/v3/api-docs {
+        proxy_pass http://user_service/v3/api-docs;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # banking-core-service -> /banking
+    location /banking/swagger-ui/ {
+        proxy_pass http://banking_core_service/swagger-ui/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location /banking/v3/api-docs {
+        proxy_pass http://banking_core_service/v3/api-docs;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # market-service -> /market
+    location /market/swagger-ui/ {
+        proxy_pass http://market_service/swagger-ui/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location /market/v3/api-docs {
+        proxy_pass http://market_service/v3/api-docs;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # trading-service -> /trading
+    location /trading/swagger-ui/ {
+        proxy_pass http://trading_service/swagger-ui/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location /trading/v3/api-docs {
+        proxy_pass http://trading_service/v3/api-docs;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # credit-service -> /credit
+    location /credit/swagger-ui/ {
+        proxy_pass http://credit_service/swagger-ui/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location /credit/v3/api-docs {
+        proxy_pass http://credit_service/v3/api-docs;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # interbank-service -> /interbank
+    location /interbank/swagger-ui/ {
+        proxy_pass http://interbank_service/swagger-ui/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location /interbank/v3/api-docs {
+        proxy_pass http://interbank_service/v3/api-docs;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # notification-service -> /notifications
+    location /notifications/swagger-ui/ {
+        proxy_pass http://notification_service/swagger-ui/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location /notifications/v3/api-docs {
+        proxy_pass http://notification_service/v3/api-docs;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # saga-orchestrator-service -> /saga
+    location /saga/swagger-ui/ {
+        proxy_pass http://saga_orchestrator_service/swagger-ui/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location /saga/v3/api-docs {
+        proxy_pass http://saga_orchestrator_service/v3/api-docs;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     # Health check
     location /gateway-health {
         access_log off;

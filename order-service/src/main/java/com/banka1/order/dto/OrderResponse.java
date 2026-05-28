@@ -1,12 +1,13 @@
 package com.banka1.order.dto;
 
+import com.banka1.order.entity.enums.ListingType;
 import com.banka1.order.entity.enums.OrderDirection;
 import com.banka1.order.entity.enums.OrderStatus;
 import com.banka1.order.entity.enums.OrderType;
 import lombok.Data;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 /**
  * Response DTO for order creation and details.
@@ -56,8 +57,8 @@ public class OrderResponse {
     /** True when all portions of the order have been executed. */
     private Boolean isDone;
 
-    /** Timestamp of the last status change. */
-    private LocalDateTime lastModification;
+    /** Timestamp of the last status change, in UTC (serialized as ISO-8601 with a trailing {@code Z}). */
+    private Instant lastModification;
 
     /** Number of units still awaiting execution. */
     private Integer remainingPortions;
@@ -82,4 +83,22 @@ public class OrderResponse {
 
     /** Calculated trading fee for this order. */
     private BigDecimal fee;
+
+    /** Ticker symbol of the traded security (enriched from stock-service). */
+    private String ticker;
+
+    /** Full name of the traded security (enriched from stock-service). */
+    private String securityName;
+
+    /** Category of the traded security (STOCK, FUTURES, FOREX, OPTION); enriched from stock-service. */
+    private ListingType listingType;
+
+    /** Weighted-average execution price per unit across all filled portions; null if not executed. */
+    private BigDecimal executionPrice;
+
+    /** Timestamp when the order was created, in UTC (serialized as ISO-8601 with a trailing {@code Z}). */
+    private Instant createdAt;
+
+    /** Timestamp when the order was fully executed (reached DONE), in UTC; null otherwise. */
+    private Instant executedAt;
 }

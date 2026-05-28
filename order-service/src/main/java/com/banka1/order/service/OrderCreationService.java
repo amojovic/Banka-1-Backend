@@ -5,10 +5,12 @@ import com.banka1.order.dto.CreateBuyOrderRequest;
 import com.banka1.order.dto.CreateSellOrderRequest;
 import com.banka1.order.dto.OrderOverviewResponse;
 import com.banka1.order.dto.OrderResponse;
+import com.banka1.order.entity.enums.ListingType;
 import com.banka1.order.entity.enums.OrderOverviewStatusFilter;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -49,6 +51,22 @@ public interface OrderCreationService {
      * @return orders created by the client
      */
     List<OrderResponse> getMyOrders(AuthenticatedUser user);
+
+    /**
+     * Returns a filtered, paginated page of orders owned by the authenticated client.
+     * Backs the mobile My Orders screen; the existing {@link #getMyOrders(AuthenticatedUser)}
+     * stays unchanged for the web frontend.
+     *
+     * @param user the authenticated client
+     * @param statusFilter optional status filter (ALL or null for any status)
+     * @param listingType optional security-type filter (null for any)
+     * @param dateFrom optional inclusive lower bound on the order creation date (null for unbounded)
+     * @param dateTo optional inclusive upper bound on the order creation date (null for unbounded)
+     * @param pageable paging request
+     * @return enriched order responses owned by the client, newest first
+     */
+    Page<OrderResponse> getMyOrdersPaged(AuthenticatedUser user, OrderOverviewStatusFilter statusFilter,
+                                         ListingType listingType, LocalDate dateFrom, LocalDate dateTo, Pageable pageable);
 
     /**
      * Confirms a draft order and finalizes validation, approval state, and fee transfer.

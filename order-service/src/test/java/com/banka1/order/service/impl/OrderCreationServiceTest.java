@@ -86,6 +86,10 @@ class OrderCreationServiceTest {
     private OrderExecutionService orderExecutionService;
     @Mock
     private OrderNotificationProducer orderNotificationProducer;
+    @Mock
+    private com.banka1.order.repository.TransactionRepository transactionRepository;
+    @Mock
+    private com.banka1.order.rabbitmq.OrderEventNotifier orderEventNotifier;
 
     @InjectMocks
     private OrderCreationServiceImpl service;
@@ -1175,18 +1179,11 @@ class OrderCreationServiceTest {
         activeListing.setId(43L);
         activeListing.setSettlementDate(LocalDate.now().plusDays(1));
 
-        EmployeeDto employee = new EmployeeDto();
-        employee.setId(2L);
-        employee.setIme("Ana");
-        employee.setPrezime("Agent");
-        employee.setEmail("ana.agent@example.com");
-
         when(orderRepository.findByStatus(OrderStatus.PENDING)).thenReturn(List.of(expiredPending, activePending));
         when(orderRepository.findByIdForUpdate(201L)).thenReturn(Optional.of(expiredPending));
         when(orderRepository.findByIdForUpdate(202L)).thenReturn(Optional.of(activePending));
         when(stockClient.getListing(42L)).thenReturn(expiredListing);
         when(stockClient.getListing(43L)).thenReturn(activeListing);
-        when(employeeClient.getEmployee(2L)).thenReturn(employee);
 
         service.autoDeclineExpiredPendingOrders();
 
@@ -1197,7 +1194,12 @@ class OrderCreationServiceTest {
         assertThat(activePending.getStatus()).isEqualTo(OrderStatus.PENDING);
         verify(orderRepository).save(expiredPending);
         verify(orderRepository, never()).save(activePending);
-        verify(orderNotificationProducer).sendOrderDeclined(any(OrderNotificationPayload.class));
+        // Expired pending orders are now reported as a distinct auto-cancelled event (not a decline).
+        verify(orderEventNotifier).notifyOrderEvent(
+                org.mockito.ArgumentMatchers.eq(expiredPending),
+                org.mockito.ArgumentMatchers.eq(com.banka1.order.rabbitmq.OrderEventNotifier.OrderEventType.AUTO_CANCELLED),
+                any(), any());
+        verify(orderNotificationProducer, never()).sendOrderDeclined(any(OrderNotificationPayload.class));
     }
 
     private Order orderForUser(Long orderId, Long userId) {

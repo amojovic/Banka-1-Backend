@@ -142,4 +142,50 @@ public class FcmPushService {
             log.warn("FCM price alert push failed: {}", e.getMessage());
         }
     }
+
+    /**
+     * Sends a high-priority data-only FCM message describing an order lifecycle event.
+     *
+     * <p>The payload carries {@code type=ORDER_<EVENT>} (e.g. {@code ORDER_DONE}) plus a
+     * human-readable {@code title}/{@code body} and the key order fields ({@code orderId},
+     * {@code ticker}, {@code status}) so the mobile app can persist an inbox row and render a
+     * system notification consistently regardless of app lifecycle state.
+     *
+     * <p>Failures never propagate: any exception thrown by the FCM SDK is logged at warn level
+     * and swallowed so that email delivery (the authoritative channel) is not disturbed.
+     *
+     * @param fcmToken device token to deliver to
+     * @param notificationType order event type, e.g. {@code ORDER_CREATED} / {@code ORDER_DONE}
+     * @param title user-visible notification title (rendered email subject)
+     * @param body user-visible notification body (rendered email body)
+     * @param variables order template variables (orderId, ticker, status, ...)
+     */
+    public void sendOrderPush(String fcmToken, String notificationType,
+                              String title, String body, Map<String, String> variables) {
+        if (!firebaseAvailable) {
+            log.debug("Firebase not available, skipping order FCM push");
+            return;
+        }
+
+        Map<String, String> data = variables == null ? Map.of() : variables;
+        Message message = Message.builder()
+                .setToken(fcmToken)
+                .putData("type", notificationType)
+                .putData("title", title != null ? title : "")
+                .putData("body", body != null ? body : "")
+                .putData("orderId", data.getOrDefault("orderId", ""))
+                .putData("ticker", data.getOrDefault("ticker", ""))
+                .putData("status", data.getOrDefault("status", ""))
+                .setAndroidConfig(AndroidConfig.builder()
+                        .setPriority(Priority.HIGH)
+                        .build())
+                .build();
+
+        try {
+            String messageId = FirebaseMessaging.getInstance().send(message);
+            log.info("FCM order push sent: messageId={}, type={}", messageId, notificationType);
+        } catch (Exception e) {
+            log.warn("FCM order push failed (email delivery is authoritative): {}", e.getMessage());
+        }
+    }
 }
