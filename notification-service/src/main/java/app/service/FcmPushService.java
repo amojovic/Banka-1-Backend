@@ -8,6 +8,8 @@ import com.google.firebase.messaging.AndroidConfig.Priority;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.Map;
+
 /**
  * Sends verification OTP pushes to the mobile client via Firebase Cloud Messaging.
  *
@@ -96,6 +98,48 @@ public class FcmPushService {
             log.info("FCM push sent: messageId={}, operationType={}", messageId, operationType);
         } catch (Exception e) {
             log.warn("FCM push failed (email delivery is authoritative): {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Sends a high-priority data-only FCM message for a price alert trigger.
+     *
+     * <p>Mirrors {@link #sendVerificationPush} in structure. Failures are swallowed
+     * so that email delivery (the authoritative channel) is not disturbed.
+     *
+     * @param fcmToken device token for the alert owner
+     * @param type notification type constant, e.g. {@code PRICE_ALERT_TRIGGERED}
+     * @param title notification title rendered by the mobile app
+     * @param body notification body rendered by the mobile app
+     * @param vars template variables; keys read: {@code ticker}, {@code threshold},
+     *             {@code price} (mapped to {@code triggeredPrice}), {@code condition}
+     */
+    public void sendPriceAlertPush(String fcmToken, String type, String title, String body,
+                                    Map<String, String> vars) {
+        if (!firebaseAvailable) {
+            log.debug("Firebase not available, skipping FCM price alert push");
+            return;
+        }
+
+        Message message = Message.builder()
+                .setToken(fcmToken)
+                .putData("type", type != null ? type : "PRICE_ALERT_TRIGGERED")
+                .putData("title", title != null ? title : "")
+                .putData("body", body != null ? body : "")
+                .putData("ticker", vars.getOrDefault("ticker", ""))
+                .putData("threshold", vars.getOrDefault("threshold", ""))
+                .putData("triggeredPrice", vars.getOrDefault("price", ""))
+                .putData("condition", vars.getOrDefault("condition", ""))
+                .setAndroidConfig(AndroidConfig.builder()
+                        .setPriority(Priority.HIGH)
+                        .build())
+                .build();
+
+        try {
+            String messageId = FirebaseMessaging.getInstance().send(message);
+            log.info("FCM price alert push sent: messageId={}, ticker={}", messageId, vars.get("ticker"));
+        } catch (Exception e) {
+            log.warn("FCM price alert push failed: {}", e.getMessage());
         }
     }
 }

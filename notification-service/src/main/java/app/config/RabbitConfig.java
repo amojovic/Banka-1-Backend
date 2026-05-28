@@ -182,6 +182,23 @@ public class RabbitConfig {
     }
 
     /**
+     * Binds the notification queue to the exchange for price-alert events.
+     *
+     * @param notificationServiceQueue queue bean
+     * @param employeeEventsExchange exchange bean
+     * @return exchange-to-queue binding for price routing keys
+     */
+    @Bean
+    public Binding priceNotificationBinding(
+            Queue notificationServiceQueue,
+            TopicExchange employeeEventsExchange
+    ) {
+        return BindingBuilder.bind(notificationServiceQueue)
+                .to(employeeEventsExchange)
+                .with("price.#");
+    }
+
+    /**
      * Converts RabbitMQ JSON payloads ==> to/from ==> Java objects.
      *
      * @return Jackson-based message converter

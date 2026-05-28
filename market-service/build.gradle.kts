@@ -36,6 +36,7 @@ dependencies {
     implementation(project(":stock-service"))
     implementation(project(":exchange-service"))
 
+    implementation("org.springframework.boot:spring-boot-starter-amqp")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     // PR_19 C19.X: Redis L2 cache za StockPriceFeedService (cross-replica sharing

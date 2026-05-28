@@ -199,6 +199,13 @@ public class NotificationDeliveryService {
             String sessId = req.getSessionId();
             runAfterCommit(() -> attemptFcmPush(clientId, rawCode, opType, sessId));
         }
+
+        // FCM push for price alerts (fire-and-forget, email is authoritative)
+        if ("PRICE_ALERT_TRIGGERED".equals(notificationType) && req.getClientId() != null) {
+            Long clientId = req.getClientId();
+            Map<String, String> vars = req.getTemplateVariables();
+            runAfterCommit(() -> attemptPriceAlertFcmPush(clientId, vars));
+        }
     }
 
     /**
@@ -475,6 +482,27 @@ public class NotificationDeliveryService {
             fcmPushService.sendVerificationPush(token.get(), code, operationType, sessionId);
         } catch (Exception e) {
             log.warn("FCM push failed for clientId={}: {}", clientId, e.getMessage());
+        }
+    }
+
+    /**
+     * Attempts to send an FCM push notification for a price alert trigger.
+     * Fire-and-forget: failure does not affect email delivery.
+     */
+    private void attemptPriceAlertFcmPush(Long clientId, Map<String, String> vars) {
+        try {
+            Optional<String> token = fcmTokenService.findToken(clientId);
+            if (token.isEmpty()) {
+                log.debug("No FCM token for clientId={}, skipping price alert push", clientId);
+                return;
+            }
+            String ticker = vars.getOrDefault("ticker", "");
+            String price = vars.getOrDefault("price", "");
+            String title = "Cenovni alarm aktiviran";
+            String body = "Cena za " + ticker + " je dostigla " + price;
+            fcmPushService.sendPriceAlertPush(token.get(), "PRICE_ALERT_TRIGGERED", title, body, vars);
+        } catch (Exception e) {
+            log.warn("Price alert FCM push failed for clientId={}: {}", clientId, e.getMessage());
         }
     }
 

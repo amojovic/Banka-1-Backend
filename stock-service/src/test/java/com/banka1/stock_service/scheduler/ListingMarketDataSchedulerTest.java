@@ -10,6 +10,7 @@ import com.banka1.stock_service.dto.StockExchangeMarketPhase;
 import com.banka1.stock_service.dto.StockExchangeStatusResponse;
 import com.banka1.stock_service.repository.ListingRepository;
 import com.banka1.stock_service.service.ListingMarketDataRefreshService;
+import com.banka1.stock_service.service.PriceAlertEvaluationService;
 import com.banka1.stock_service.service.StockExchangeService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -46,6 +47,9 @@ class ListingMarketDataSchedulerTest {
 
     @Mock
     private ListingMarketDataRefreshService listingMarketDataRefreshService;
+
+    @Mock
+    private PriceAlertEvaluationService priceAlertEvaluationService;
 
     @Test
     void refreshOpenListingsRefreshesOnlyOpenSupportedListings() {
@@ -137,6 +141,7 @@ class ListingMarketDataSchedulerTest {
                 stockExchangeService,
                 listingMarketDataRefreshService,
                 new ListingRefreshProperties(true, 900_000L),
+                priceAlertEvaluationService,
                 Clock.fixed(Instant.parse("2026-04-08T10:00:00Z"), ZoneOffset.UTC)
         );
     }
@@ -147,6 +152,7 @@ class ListingMarketDataSchedulerTest {
                 stockExchangeService,
                 listingMarketDataRefreshService,
                 new ListingRefreshProperties(true, 900_000L),
+                priceAlertEvaluationService,
                 Clock.fixed(Instant.parse(instant), ZoneOffset.UTC)
         );
     }
