@@ -23,6 +23,8 @@ import com.banka1.order.entity.enums.PurchaseFor;
 import com.banka1.order.repository.ActuaryInfoRepository;
 import com.banka1.order.repository.OrderRepository;
 import com.banka1.order.repository.PortfolioRepository;
+import com.banka1.order.rabbitmq.OrderEventNotifier;
+import com.banka1.order.rabbitmq.OrderEventNotifier.OrderEventType;
 import com.banka1.order.repository.TransactionRepository;
 import com.banka1.order.service.OrderExecutionService;
 import org.springframework.beans.factory.ObjectProvider;
@@ -90,6 +92,19 @@ public class OrderExecutionServiceImpl implements OrderExecutionService {
     private static final String USD = "USD";
     private static final long MISSING_QUOTE_RETRY_DELAY_MILLIS = 1000L;
 
+    /**
+     * Nominal window (in seconds) over which an order whose remaining size equals the listing's
+     * traded volume would spread its fills. Larger volume relative to the order shortens the gap;
+     * the result is clamped by the MIN/MAX gap constants below so it can neither bunch nor stall.
+     */
+    private static final double EXECUTION_SPREAD_WINDOW_SECONDS = 24d * 60d * 60d;
+    /** Floor between two consecutive fills so partial-fill/done pushes never arrive in one burst. */
+    private static final long MIN_EXECUTION_GAP_MILLIS = 15_000L;
+    /** Ceiling for a single inter-fill gap so the simulated order still completes in an observable window. */
+    private static final long MAX_EXECUTION_GAP_MILLIS = 300_000L;
+    /** Extra delay applied to after-hours orders, which only execute once the next session opens. */
+    private static final long AFTER_HOURS_DELAY_MILLIS = 30L * 60L * 1000L;
+
     private final OrderRepository orderRepository;
     private final PortfolioRepository portfolioRepository;
     private final TransactionRepository transactionRepository;
@@ -101,6 +116,7 @@ public class OrderExecutionServiceImpl implements OrderExecutionService {
     private final ObjectProvider<OrderExecutionService> selfProvider;
     private final TaskScheduler orderExecutionTaskScheduler;
     private final TradingServiceClient tradingServiceClient;
+    private final OrderEventNotifier orderEventNotifier;
 
     private static final long INITIAL_EXECUTION_DELAY_MILLIS = 60_000L;
 
@@ -196,8 +212,14 @@ public class OrderExecutionServiceImpl implements OrderExecutionService {
         if (managedOrder.getRemainingPortions() == 0) {
             managedOrder.setIsDone(true);
             managedOrder.setStatus(OrderStatus.DONE);
+            managedOrder.setExecutedAt(LocalDateTime.now());
         }
         orderRepository.save(managedOrder);
+
+        OrderEventType event = managedOrder.getRemainingPortions() == 0
+                ? OrderEventType.DONE
+                : OrderEventType.PARTIAL_FILL;
+        orderEventNotifier.notifyOrderEvent(managedOrder, event, listing.getTicker(), executionPricePerUnit);
     }
 
     private boolean activateIfEligible(Order order, StockListingDto listing) {
@@ -462,12 +484,22 @@ public class OrderExecutionServiceImpl implements OrderExecutionService {
             return MISSING_QUOTE_RETRY_DELAY_MILLIS;
         }
         long volume = listing.getVolume() == null || listing.getVolume() <= 0 ? 1L : listing.getVolume();
-        double maxSeconds = (24d * 60d) / (volume / (double) Math.max(1, order.getRemainingPortions()));
-        double delaySeconds = ThreadLocalRandom.current().nextDouble() * maxSeconds;
+        // Liquidity-driven spacing: a small order against deep volume fills quickly, a large order
+        // against thin volume fills slowly. The previous formula used (24*60) as the window, which
+        // for any liquid listing collapsed the gap to a few milliseconds — so every remaining
+        // portion (and its partial-fill/done notification) fired in a single instantaneous burst.
+        // We now spread over a full-day window and clamp the gap to [MIN, MAX] so consecutive fills
+        // are never closer than MIN_EXECUTION_GAP (no notification bunching) nor farther apart than
+        // MAX_EXECUTION_GAP (the order still completes within an observable window).
+        double liquidityRatio = volume / (double) Math.max(1, order.getRemainingPortions());
+        double spreadSeconds = EXECUTION_SPREAD_WINDOW_SECONDS / liquidityRatio;
+        double randomizedSeconds = ThreadLocalRandom.current().nextDouble() * spreadSeconds;
+        long delayMillis = Math.max(MIN_EXECUTION_GAP_MILLIS,
+                Math.min(MAX_EXECUTION_GAP_MILLIS, (long) (randomizedSeconds * 1000)));
         if (Boolean.TRUE.equals(order.getAfterHours())) {
-            delaySeconds += 30d * 60d;
+            delayMillis += AFTER_HOURS_DELAY_MILLIS;
         }
-        return (long) (delaySeconds * 1000);
+        return delayMillis;
     }
 
     private BigDecimal calculateCommission(OrderType orderType, BigDecimal baseAmount, String currency) {

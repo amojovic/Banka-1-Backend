@@ -54,6 +54,9 @@ class ExpireOverdueContractsSchedulerTest {
         List<OptionContract> saved = captor.getAllValues();
         assertThat(saved).hasSize(2);
         assertThat(saved).allMatch(c -> c.getStatus() == OptionContractStatus.EXPIRED);
+
+        // Svaki isteknuti ugovor oslobadja rezervisane akcije prodavca.
+        verify(portfolioService, times(2)).releaseForContract(eq(200L), eq("AAPL"), eq(10));
     }
 
     @Test

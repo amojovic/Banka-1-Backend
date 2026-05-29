@@ -44,7 +44,7 @@ class AuthControllerWebMvcTest {
     void loginValidCredentialsReturnsToken() throws Exception {
         when(authService.login(any())).thenReturn(new LoginResponseDto("jwt.token.value", null, null, null, null));
 
-        mockMvc.perform(post("/auth/login")
+        mockMvc.perform(post("/clients/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(validRequest())))
                 .andExpect(status().isOk())
@@ -56,7 +56,7 @@ class AuthControllerWebMvcTest {
         when(authService.login(any()))
                 .thenThrow(new BusinessException(ErrorCode.INVALID_CREDENTIALS, ""));
 
-        mockMvc.perform(post("/auth/login")
+        mockMvc.perform(post("/clients/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(validRequest())))
                 .andExpect(status().isUnauthorized())
@@ -68,7 +68,7 @@ class AuthControllerWebMvcTest {
         LoginRequestDto dto = new LoginRequestDto();
         dto.setPassword("lozinka123");
 
-        mockMvc.perform(post("/auth/login")
+        mockMvc.perform(post("/clients/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(dto)))
                 .andExpect(status().isBadRequest())
@@ -80,7 +80,7 @@ class AuthControllerWebMvcTest {
         LoginRequestDto dto = new LoginRequestDto();
         dto.setEmail("marko@banka.com");
 
-        mockMvc.perform(post("/auth/login")
+        mockMvc.perform(post("/clients/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(dto)))
                 .andExpect(status().isBadRequest())
@@ -93,7 +93,7 @@ class AuthControllerWebMvcTest {
         dto.setEmail("nije-email");
         dto.setPassword("lozinka123");
 
-        mockMvc.perform(post("/auth/login")
+        mockMvc.perform(post("/clients/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(dto)))
                 .andExpect(status().isBadRequest())
@@ -106,7 +106,7 @@ class AuthControllerWebMvcTest {
     void checkActivateValidTokenReturnsId() throws Exception {
         when(authService.check("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")).thenReturn(7L);
 
-        mockMvc.perform(get("/auth/check-activate")
+        mockMvc.perform(get("/clients/auth/check-activate")
                         .param("token", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(7));
@@ -116,7 +116,7 @@ class AuthControllerWebMvcTest {
     void checkActivateInvalidTokenReturns401() throws Exception {
         when(authService.check(any())).thenThrow(new BusinessException(ErrorCode.INVALID_TOKEN, ""));
 
-        mockMvc.perform(get("/auth/check-activate")
+        mockMvc.perform(get("/clients/auth/check-activate")
                         .param("token", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.errorCode").value("ERR_AUTH_001"));
@@ -128,7 +128,7 @@ class AuthControllerWebMvcTest {
     void activateValidRequestReturnsOk() throws Exception {
         when(authService.editPassword(any(), eq(true))).thenReturn("Uspesno aktiviranje klijenta");
 
-        mockMvc.perform(post("/auth/activate")
+        mockMvc.perform(post("/clients/auth/activate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(validActivateDto())))
                 .andExpect(status().isOk());
@@ -139,7 +139,7 @@ class AuthControllerWebMvcTest {
         ActivateDto dto = validActivateDto();
         dto.setId(null);
 
-        mockMvc.perform(post("/auth/activate")
+        mockMvc.perform(post("/clients/auth/activate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(dto)))
                 .andExpect(status().isBadRequest())
@@ -151,7 +151,7 @@ class AuthControllerWebMvcTest {
         ActivateDto dto = validActivateDto();
         dto.setConfirmationToken("tooshort");
 
-        mockMvc.perform(post("/auth/activate")
+        mockMvc.perform(post("/clients/auth/activate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(dto)))
                 .andExpect(status().isBadRequest())
@@ -163,7 +163,7 @@ class AuthControllerWebMvcTest {
         ActivateDto dto = validActivateDto();
         dto.setPassword("weakpass");
 
-        mockMvc.perform(post("/auth/activate")
+        mockMvc.perform(post("/clients/auth/activate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(dto)))
                 .andExpect(status().isBadRequest())
@@ -175,7 +175,7 @@ class AuthControllerWebMvcTest {
         when(authService.editPassword(any(), eq(true)))
                 .thenThrow(new BusinessException(ErrorCode.INVALID_TOKEN, ""));
 
-        mockMvc.perform(post("/auth/activate")
+        mockMvc.perform(post("/clients/auth/activate")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(validActivateDto())))
                 .andExpect(status().isUnauthorized())
@@ -188,7 +188,7 @@ class AuthControllerWebMvcTest {
     void resetPasswordValidRequestReturnsOk() throws Exception {
         when(authService.editPassword(any(), eq(false))).thenReturn("Uspesna promena lozinke");
 
-        mockMvc.perform(post("/auth/reset-password")
+        mockMvc.perform(post("/clients/auth/reset-password")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(validActivateDto())))
                 .andExpect(status().isOk());
@@ -199,7 +199,7 @@ class AuthControllerWebMvcTest {
         when(authService.editPassword(any(), eq(false)))
                 .thenThrow(new BusinessException(ErrorCode.INVALID_TOKEN, ""));
 
-        mockMvc.perform(post("/auth/reset-password")
+        mockMvc.perform(post("/clients/auth/reset-password")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(validActivateDto())))
                 .andExpect(status().isUnauthorized());
@@ -210,7 +210,7 @@ class AuthControllerWebMvcTest {
         when(authService.editPassword(any(), eq(false)))
                 .thenThrow(new BusinessException(ErrorCode.USER_INACTIVE, ""));
 
-        mockMvc.perform(post("/auth/reset-password")
+        mockMvc.perform(post("/clients/auth/reset-password")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(validActivateDto())))
                 .andExpect(status().isForbidden())
@@ -223,7 +223,7 @@ class AuthControllerWebMvcTest {
     void forgotPasswordValidRequestReturnsOk() throws Exception {
         when(authService.forgotPassword(any())).thenReturn("Poslat mejl");
 
-        mockMvc.perform(post("/auth/forgot-password")
+        mockMvc.perform(post("/clients/auth/forgot-password")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new ForgotPasswordDto("marko@banka.com"))))
                 .andExpect(status().isOk());
@@ -231,7 +231,7 @@ class AuthControllerWebMvcTest {
 
     @Test
     void forgotPasswordInvalidEmailReturns400() throws Exception {
-        mockMvc.perform(post("/auth/forgot-password")
+        mockMvc.perform(post("/clients/auth/forgot-password")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new ForgotPasswordDto("nije-email"))))
                 .andExpect(status().isBadRequest())
@@ -243,7 +243,7 @@ class AuthControllerWebMvcTest {
         when(authService.forgotPassword(any()))
                 .thenThrow(new BusinessException(ErrorCode.USER_NOT_FOUND, ""));
 
-        mockMvc.perform(post("/auth/forgot-password")
+        mockMvc.perform(post("/clients/auth/forgot-password")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new ForgotPasswordDto("marko@banka.com"))))
                 .andExpect(status().isNotFound())
@@ -255,7 +255,7 @@ class AuthControllerWebMvcTest {
         when(authService.forgotPassword(any()))
                 .thenThrow(new BusinessException(ErrorCode.USER_INACTIVE, ""));
 
-        mockMvc.perform(post("/auth/forgot-password")
+        mockMvc.perform(post("/clients/auth/forgot-password")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new ForgotPasswordDto("marko@banka.com"))))
                 .andExpect(status().isForbidden());
@@ -267,7 +267,7 @@ class AuthControllerWebMvcTest {
     void resendActivationValidRequestReturnsOk() throws Exception {
         when(authService.resendActivation("marko@banka.com")).thenReturn("Poslat mejl");
 
-        mockMvc.perform(post("/auth/resend-activation")
+        mockMvc.perform(post("/clients/auth/resend-activation")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new ForgotPasswordDto("marko@banka.com"))))
                 .andExpect(status().isOk());
@@ -278,7 +278,7 @@ class AuthControllerWebMvcTest {
         when(authService.resendActivation(any()))
                 .thenThrow(new BusinessException(ErrorCode.USER_NOT_FOUND, ""));
 
-        mockMvc.perform(post("/auth/resend-activation")
+        mockMvc.perform(post("/clients/auth/resend-activation")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new ForgotPasswordDto("marko@banka.com"))))
                 .andExpect(status().isNotFound());
@@ -286,7 +286,7 @@ class AuthControllerWebMvcTest {
 
     @Test
     void resendActivationInvalidEmailReturns400() throws Exception {
-        mockMvc.perform(post("/auth/resend-activation")
+        mockMvc.perform(post("/clients/auth/resend-activation")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new ForgotPasswordDto("nije-email"))))
                 .andExpect(status().isBadRequest())

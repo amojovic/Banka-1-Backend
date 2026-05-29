@@ -21,7 +21,7 @@ import java.util.Set;
  * {
  *   "sub": "12345",
  *   "roles": ["CLIENT_TRADING"],
- *   "permissions": ["trading:execute", "margin:use"]
+ *   "permissions": ["SECURITIES_TRADE", "MARGIN_TRADE"]
  * }
  * </pre>
  */

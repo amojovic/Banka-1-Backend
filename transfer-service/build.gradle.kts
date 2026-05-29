@@ -58,6 +58,10 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-data-jpa-test")
     testImplementation("org.springframework.boot:spring-boot-webmvc-test")
     testImplementation("org.springframework.security:spring-security-test")
+    // Spring Boot 4 split test autoconfigure module-e u zasebne starter-e — moramo
+    // eksplicitno povuci WebMvc i JPA test slice-ove (@WebMvcTest, @DataJpaTest).
+    testImplementation("org.springframework.boot:spring-boot-webmvc-test")
+    testImplementation("org.springframework.boot:spring-boot-data-jpa-test")
     testRuntimeOnly("com.h2database:h2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

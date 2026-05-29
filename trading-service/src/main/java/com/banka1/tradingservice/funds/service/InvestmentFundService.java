@@ -89,7 +89,11 @@ public class InvestmentFundService {
                 throw new IllegalStateException("Account fonda nije kreiran.", ex);
             }
         } else {
-            throw new IllegalStateException("AccountServiceClient nije dostupan. Fond nije kreiran.");
+            // account-service bean nije dostupan (local/test profil) — preskoci REST
+            // poziv, kao i ensureFundAccountExists / resolveFundAccountId. Racun fonda
+            // se kreira lazy preko ensureFundAccountExists kad bean postane dostupan.
+            log.warn("AccountServiceClient nije dostupan — account fonda {} (id={}) nije kreiran u account-service-u",
+                    accountNumber, saved.getId());
         }
 
         log.info("Created InvestmentFund {} ('{}') by manager {}", saved.getId(), saved.getNaziv(), managerId);

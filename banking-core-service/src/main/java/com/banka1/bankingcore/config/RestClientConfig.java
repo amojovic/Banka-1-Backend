@@ -5,7 +5,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.web.client.RestClient;
 
@@ -15,13 +14,10 @@ import org.springframework.web.client.RestClient;
  * <p>Banking-core zove account-service za debit/credit operacije, a market-service
  * za interne FX kalkulacije kod cross-currency settlement-a.
  *
- * <p>Profil "!local" je iskljucen radi paritet-a sa order-service-om: u local profilu
- * neke od dependency property-ja nisu setovane (services.account.url) pa bi bean
- * fail-ovao u kontekstu lokalnog testa.
+ * <p>Aktivan u svim profilima da bi lokalni run imao pristup account/market servisima.
  */
 @Configuration
 @RequiredArgsConstructor
-@Profile("!local")
 public class RestClientConfig {
 
     private final JWTService jwtService;

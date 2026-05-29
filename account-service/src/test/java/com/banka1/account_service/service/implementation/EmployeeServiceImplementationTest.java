@@ -120,7 +120,7 @@ class EmployeeServiceImplementationTest {
             assertThat(saved.getVlasnik()).isEqualTo(10L);
             assertThat(saved.getZaposlen()).isEqualTo(900L);
             assertThat(saved.getImeVlasnikaRacuna()).isEqualTo("Ana");
-            assertThat(saved.getBrojRacuna()).hasSize(19).matches("\\d{19}");
+            assertThat(saved.getBrojRacuna()).hasSize(18).matches("\\d{18}");
             assertThat(AccountNumberGenerator.validateAccountNumber(saved.getBrojRacuna())).isTrue();
         }
     }
@@ -195,7 +195,7 @@ class EmployeeServiceImplementationTest {
             assertThat(saved).isInstanceOf(CheckingAccount.class);
             assertThat(saved.getVlasnik()).isEqualTo(42L);
             assertThat(saved.getZaposlen()).isEqualTo(901L);
-            assertThat(saved.getBrojRacuna()).hasSize(19).matches("\\d{19}");
+            assertThat(saved.getBrojRacuna()).hasSize(18).matches("\\d{18}");
             assertThat(AccountNumberGenerator.validateAccountNumber(saved.getBrojRacuna())).isTrue();
             assertThat(saved.getCompany()).isNull();
         }

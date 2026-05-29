@@ -19,6 +19,11 @@ public class OrderNotificationPayload {
     private Long orderId;
     private OrderStatus status;
     private Long userId;
+    /**
+     * Client id used by notification-service for FCM token lookup. For client-placed orders this
+     * equals {@link #userId}; agent/actuary orders set it too but simply have no registered device.
+     */
+    private Long clientId;
     private Long supervisorId;
     private Long listingId;
     private OrderType orderType;

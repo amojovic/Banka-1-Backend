@@ -82,6 +82,14 @@ public class Order {
     @Column(nullable = false)
     private LocalDateTime lastModification;
 
+    /** Timestamp when the order was first created. Set once on initial persist. */
+    @Column(name = "created_at", nullable = false)
+    private LocalDateTime createdAt;
+
+    /** Timestamp when the order reached DONE (all portions executed). Null until fully executed. */
+    @Column(name = "executed_at")
+    private LocalDateTime executedAt;
+
     /** Number of units still to be executed. Decreases as partial fills occur. */
     @Column(nullable = false)
     private Integer remainingPortions;
@@ -125,10 +133,13 @@ public class Order {
     @Column(name = "fund_id")
     private Long fundId;
 
-    /** Updates the lastModification timestamp on every persist and update. */
+    /** Updates the lastModification timestamp on every persist and update, and stamps createdAt once. */
     @PrePersist
     @PreUpdate
     public void updateLastModification() {
         this.lastModification = LocalDateTime.now();
+        if (this.createdAt == null) {
+            this.createdAt = this.lastModification;
+        }
     }
 }

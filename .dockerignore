@@ -22,7 +22,7 @@ setup
 **/*.iml
 
 # Environment files (secrets must not enter build context)
-.env
+setup/.env
 .env.*
 !**/.env.example
 

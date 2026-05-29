@@ -199,6 +199,18 @@ public class NotificationDeliveryService {
             String sessId = req.getSessionId();
             runAfterCommit(() -> attemptFcmPush(clientId, rawCode, opType, sessId));
         }
+
+        // FCM push for order lifecycle events (fire-and-forget, email is authoritative)
+        if (notificationType.startsWith("ORDER_") && req.getClientId() != null) {
+            Long clientId = req.getClientId();
+            String type = notificationType;
+            String title = resolvedEmail.subject();
+            String body = resolvedEmail.body();
+            Map<String, String> vars = req.getTemplateVariables() == null
+                    ? Map.of()
+                    : Map.copyOf(req.getTemplateVariables());
+            runAfterCommit(() -> attemptOrderFcmPush(clientId, type, title, body, vars));
+        }
     }
 
     /**
@@ -475,6 +487,25 @@ public class NotificationDeliveryService {
             fcmPushService.sendVerificationPush(token.get(), code, operationType, sessionId);
         } catch (Exception e) {
             log.warn("FCM push failed for clientId={}: {}", clientId, e.getMessage());
+        }
+    }
+
+    /**
+     * Attempts to send an FCM push notification for an order lifecycle event.
+     * Fire-and-forget: if no token is registered or sending fails, email delivery
+     * remains the authoritative channel.
+     */
+    private void attemptOrderFcmPush(Long clientId, String notificationType,
+                                     String title, String body, Map<String, String> variables) {
+        try {
+            Optional<String> token = fcmTokenService.findToken(clientId);
+            if (token.isEmpty()) {
+                log.debug("No FCM token for clientId={}, skipping order push", clientId);
+                return;
+            }
+            fcmPushService.sendOrderPush(token.get(), notificationType, title, body, variables);
+        } catch (Exception e) {
+            log.warn("FCM order push failed for clientId={}: {}", clientId, e.getMessage());
         }
     }
 

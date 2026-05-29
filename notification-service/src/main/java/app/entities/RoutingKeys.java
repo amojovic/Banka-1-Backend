@@ -74,6 +74,22 @@ public final class RoutingKeys {
      */
     public static final String ORDER_DECLINED = "order.declined";
     /**
+     * Routing key za kreiran order.
+     */
+    public static final String ORDER_CREATED = "order.created";
+    /**
+     * Routing key za u potpunosti izvrsen order.
+     */
+    public static final String ORDER_DONE = "order.done";
+    /**
+     * Routing key za delimicno izvrsen order.
+     */
+    public static final String ORDER_PARTIAL_FILL = "order.partial_fill";
+    /**
+     * Routing key za automatski otkazan (istekao) order.
+     */
+    public static final String ORDER_AUTO_CANCELLED = "order.auto_cancelled";
+    /**
      * Routing key za uspesno naplaceni porez.
      */
     public static final String TAX_COLLECTED = "tax.collected";

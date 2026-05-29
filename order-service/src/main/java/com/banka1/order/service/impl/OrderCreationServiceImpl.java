@@ -4,7 +4,6 @@ import com.banka1.order.client.AccountClient;
 import com.banka1.order.client.EmployeeClient;
 import com.banka1.order.client.ExchangeClient;
 import com.banka1.order.client.StockClient;
-import com.banka1.order.client.TradingServiceClient;
 import com.banka1.order.dto.AccountDetailsDto;
 import com.banka1.order.dto.AuthenticatedUser;
 import com.banka1.order.dto.BankAccountDto;
@@ -21,6 +20,7 @@ import com.banka1.order.dto.client.PaymentDto;
 import com.banka1.order.entity.ActuaryInfo;
 import com.banka1.order.entity.Order;
 import com.banka1.order.entity.Portfolio;
+import com.banka1.order.entity.Transaction;
 import com.banka1.order.entity.enums.ListingType;
 import com.banka1.order.entity.enums.OrderDirection;
 import com.banka1.order.entity.enums.OrderOverviewStatusFilter;
@@ -34,10 +34,13 @@ import com.banka1.order.exception.ResourceNotFoundException;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import com.banka1.order.rabbitmq.OrderEventNotifier;
+import com.banka1.order.rabbitmq.OrderEventNotifier.OrderEventType;
 import com.banka1.order.rabbitmq.OrderNotificationProducer;
 import com.banka1.order.repository.ActuaryInfoRepository;
 import com.banka1.order.repository.OrderRepository;
 import com.banka1.order.repository.PortfolioRepository;
+import com.banka1.order.repository.TransactionRepository;
 import com.banka1.order.service.OrderCreationService;
 import com.banka1.order.service.OrderExecutionService;
 import lombok.RequiredArgsConstructor;
@@ -51,7 +54,11 @@ import org.springframework.data.domain.Pageable;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -92,6 +99,7 @@ public class OrderCreationServiceImpl implements OrderCreationService {
 
 
     private final OrderRepository orderRepository;
+    private final TransactionRepository transactionRepository;
     private final ActuaryInfoRepository actuaryInfoRepository;
     private final PortfolioRepository portfolioRepository;
     private final StockClient stockClient;
@@ -99,8 +107,8 @@ public class OrderCreationServiceImpl implements OrderCreationService {
     private final EmployeeClient employeeClient;
     private final ExchangeClient exchangeClient;
     private final OrderExecutionService orderExecutionService;
-    private final TradingServiceClient tradingServiceClient;
     private final OrderNotificationProducer orderNotificationProducer;
+    private final OrderEventNotifier orderEventNotifier;
 
     @Override
     @Transactional
@@ -134,10 +142,11 @@ public class OrderCreationServiceImpl implements OrderCreationService {
         BigDecimal approximatePrice = calculateApproximatePrice(orderType, OrderDirection.BUY, listing, request.getQuantity(),
                 request.getLimitValue(), request.getStopValue());
         BigDecimal fee = calculateFee(orderType, approximatePrice, listing.getCurrency());
-        if ((isFundOrder || isBankOrder) && !Boolean.TRUE.equals(request.getMargin())) {
-            checkFunds(accountId, approximatePrice.add(fee), listing.getCurrency());
-        } else if (user.isClient() && !Boolean.TRUE.equals(request.getMargin())) {
-            checkFunds(accountId, approximatePrice.add(fee), listing.getCurrency());
+        // Issue #255: investment-fund orders are exempt from the brokerage commission —
+        // only the security price may leave the fund's account.
+        BigDecimal chargeableFee = isFundOrder ? BigDecimal.ZERO : fee;
+        if ((isFundOrder || isBankOrder || user.isClient()) && !Boolean.TRUE.equals(request.getMargin())) {
+            checkFunds(accountId, approximatePrice.add(chargeableFee), listing.getCurrency());
         }
 
         Order order = buildBaseOrder(user.userId(), request.getListingId(), orderType, request.getQuantity(), listing,
@@ -151,7 +160,7 @@ public class OrderCreationServiceImpl implements OrderCreationService {
         order.setApprovedBy(null);
 
         order = orderRepository.save(order);
-        return mapToResponse(order, approximatePrice, fee, exchangeWindow.closed());
+        return mapToResponse(order, approximatePrice, chargeableFee, exchangeWindow.closed());
     }
 
     private PurchaseFor parsePurchaseFor(String value) {
@@ -257,6 +266,67 @@ public class OrderCreationServiceImpl implements OrderCreationService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public Page<OrderResponse> getMyOrdersPaged(AuthenticatedUser user, OrderOverviewStatusFilter statusFilter,
+                                                ListingType listingType, LocalDate dateFrom, LocalDate dateTo, Pageable pageable) {
+        if (!user.isClient()) {
+            throw new ForbiddenOperationException("Only clients can view their orders");
+        }
+
+        List<Order> orders = orderRepository.findByUserId(user.userId());
+
+        Map<Long, StockListingDto> listingCache = new HashMap<>();
+        for (Order order : orders) {
+            if (order.getListingId() != null && !listingCache.containsKey(order.getListingId())) {
+                listingCache.put(order.getListingId(), stockClient.getListing(order.getListingId()));
+            }
+        }
+
+        List<OrderResponse> filtered = orders.stream()
+                .filter(order -> matchesStatusFilter(order, statusFilter))
+                .filter(order -> matchesListingTypeFilter(order, listingType, listingCache))
+                .filter(order -> matchesDateRange(order, dateFrom, dateTo))
+                .sorted(Comparator.comparing(Order::getCreatedAt,
+                        Comparator.nullsLast(Comparator.reverseOrder())))
+                .map(order -> enrichStoredOrderResponse(order, listingCache.get(order.getListingId())))
+                .toList();
+
+        if (pageable.isUnpaged()) {
+            return new PageImpl<>(filtered, pageable, filtered.size());
+        }
+        int start = (int) pageable.getOffset();
+        int end = Math.min(start + pageable.getPageSize(), filtered.size());
+        List<OrderResponse> slice = start >= filtered.size() ? List.of() : filtered.subList(start, end);
+        return new PageImpl<>(slice, pageable, filtered.size());
+    }
+
+    private boolean matchesStatusFilter(Order order, OrderOverviewStatusFilter statusFilter) {
+        if (statusFilter == null || statusFilter == OrderOverviewStatusFilter.ALL) {
+            return true;
+        }
+        return order.getStatus() == OrderStatus.valueOf(statusFilter.name());
+    }
+
+    private boolean matchesListingTypeFilter(Order order, ListingType listingType, Map<Long, StockListingDto> listingCache) {
+        if (listingType == null) {
+            return true;
+        }
+        StockListingDto listing = listingCache.get(order.getListingId());
+        return listing != null && listing.getListingType() == listingType;
+    }
+
+    private boolean matchesDateRange(Order order, LocalDate dateFrom, LocalDate dateTo) {
+        LocalDate created = order.getCreatedAt() == null ? null : order.getCreatedAt().toLocalDate();
+        if (created == null) {
+            return dateFrom == null && dateTo == null;
+        }
+        if (dateFrom != null && created.isBefore(dateFrom)) {
+            return false;
+        }
+        return dateTo == null || !created.isAfter(dateTo);
+    }
+
+    @Override
     @Transactional
     public OrderResponse confirmOrder(AuthenticatedUser user, Long orderId) {
         Order order = getOwnedOrder(user.userId(), orderId);
@@ -270,6 +340,9 @@ public class OrderCreationServiceImpl implements OrderCreationService {
         BigDecimal approximatePrice = calculateApproximatePrice(order.getOrderType(), order.getDirection(), listing,
                 order.getQuantity(), order.getLimitValue(), order.getStopValue());
         BigDecimal fee = calculateFee(orderPricingFamily(order.getOrderType()), approximatePrice, listing.getCurrency());
+        // Issue #255: investment-fund orders are exempt from the brokerage commission.
+        boolean isFundOrder = order.getPurchaseFor() == PurchaseFor.INVESTMENT_FUND;
+        BigDecimal chargeableFee = isFundOrder ? BigDecimal.ZERO : fee;
 
         if (hasPastSettlementDate(listing)) {
             order.setStatus(OrderStatus.DECLINED);
@@ -277,7 +350,7 @@ public class OrderCreationServiceImpl implements OrderCreationService {
             order.setRemainingPortions(0);
             order.setIsDone(true);
             order = orderRepository.save(order);
-            return mapToResponse(order, approximatePrice, fee, order.getExchangeClosed());
+            return mapToResponse(order, approximatePrice, chargeableFee, order.getExchangeClosed());
         }
 
         Long fundingAccountId;
@@ -294,23 +367,22 @@ public class OrderCreationServiceImpl implements OrderCreationService {
         if (Boolean.TRUE.equals(order.getMargin())) {
             checkMarginRequirements(user, fundingAccountId, listing, order.getQuantity());
         } else if (order.getDirection() == OrderDirection.BUY) {
-            checkFunds(fundingAccountId, approximatePrice.add(fee), listing.getCurrency());
+            checkFunds(fundingAccountId, approximatePrice.add(chargeableFee), listing.getCurrency());
         }
         ApprovalReservationDecision decision = user.isClient()
                 ? new ApprovalReservationDecision(OrderStatus.APPROVED, BigDecimal.ZERO)
                 : determineOrderStatusAndReserveExposure(user.userId(), approximatePrice, listing.getCurrency());
         reserveSellQuantityIfNeeded(order);
         if (decision.status() == OrderStatus.APPROVED) {
-            // Fee se na confirm naplata samo za BUY (klijent placa banci provizijuza nabavku).
+            // Fee se na confirm naplacuje samo za BUY (klijent placa banci proviziju za nabavku).
             // Za SELL fee se prebija iz proceeds-a u execute fazi (banking-core kreditira
             // klijenta umanjeni iznos i debituje banku za commission). Ranije je
             // transferFee bezuslovno skidao fee sa klijentskog racuna pre proceeds-a, sto
             // je padalo 422 "Nema dovoljno novca" kad je RSD/USD account prazan.
-            if (order.getDirection() == OrderDirection.BUY) {
-                BigDecimal feeDebitAmount = transferFee(user, fundingAccountId, fee, listing.getCurrency());
-                if (order.getPurchaseFor() == PurchaseFor.INVESTMENT_FUND) {
-                    notifyFundLiquidityDebit(order, feeDebitAmount, "Order fee");
-                }
+            // Issue #255: investment-fund orders are commission-exempt — the fund's account
+            // must be debited the security price only, so the fee leg is skipped entirely.
+            if (order.getDirection() == OrderDirection.BUY && !isFundOrder) {
+                transferFee(user, fundingAccountId, fee, listing.getCurrency());
             }
             // Pull fresh quote data so the async executor (60s later) sees a non-zero
             // ask/volume even on weekends, when ListingMarketDataScheduler skips refresh
@@ -323,6 +395,8 @@ public class OrderCreationServiceImpl implements OrderCreationService {
         order.setApprovedBy(decision.status() == OrderStatus.APPROVED ? NO_APPROVAL_REQUIRED : null);
         order.setReservedLimitExposure(decision.reservedExposure());
         order = orderRepository.save(order);
+
+        orderEventNotifier.notifyOrderEvent(order, OrderEventType.CREATED, listing.getTicker(), order.getPricePerUnit());
 
         if (decision.status() == OrderStatus.APPROVED) {
             final Long approvedOrderId = order.getId();
@@ -337,7 +411,7 @@ public class OrderCreationServiceImpl implements OrderCreationService {
                 orderExecutionService.executeOrderAsync(approvedOrderId);
             }
         }
-        return mapToResponse(order, approximatePrice, fee, order.getExchangeClosed());
+        return mapToResponse(order, approximatePrice, chargeableFee, order.getExchangeClosed());
     }
 
     @Override
@@ -376,10 +450,12 @@ public class OrderCreationServiceImpl implements OrderCreationService {
         BigDecimal approximatePrice = calculateApproximatePrice(order.getOrderType(), order.getDirection(), listing,
                 order.getQuantity(), order.getLimitValue(), order.getStopValue());
         BigDecimal fee = calculateFee(orderPricingFamily(order.getOrderType()), approximatePrice, listing.getCurrency());
+        // Issue #255: investment-fund orders are exempt from the brokerage commission.
+        boolean isFundOrder = order.getPurchaseFor() == PurchaseFor.INVESTMENT_FUND;
+        BigDecimal chargeableFee = isFundOrder ? BigDecimal.ZERO : fee;
         Long fundingAccountId = determineFundingAccountId(order.getUserId(), order.getAccountId(), listing.getCurrency());
-        BigDecimal feeDebitAmount = transferFee(order.getUserId(), fundingAccountId, fee, listing.getCurrency());
-        if (order.getPurchaseFor() == PurchaseFor.INVESTMENT_FUND) {
-            notifyFundLiquidityDebit(order, feeDebitAmount, "Order fee");
+        if (!isFundOrder) {
+            transferFee(order.getUserId(), fundingAccountId, fee, listing.getCurrency());
         }
 
         if (order.getDirection() == OrderDirection.BUY && !Boolean.TRUE.equals(order.getMargin())) {
@@ -405,7 +481,7 @@ public class OrderCreationServiceImpl implements OrderCreationService {
             orderExecutionService.executeOrderAsync(approvedOrderId);
         }
 
-        return mapToResponse(order, approximatePrice, fee, order.getExchangeClosed());
+        return mapToResponse(order, approximatePrice, chargeableFee, order.getExchangeClosed());
     }
 
     @Override
@@ -437,7 +513,9 @@ public class OrderCreationServiceImpl implements OrderCreationService {
                 continue;
             }
 
-            declinePendingOrder(lockedOrder, SYSTEM_APPROVAL, true);
+            Order cancelled = declinePendingOrder(lockedOrder, SYSTEM_APPROVAL, false);
+            orderEventNotifier.notifyOrderEvent(cancelled, OrderEventType.AUTO_CANCELLED,
+                    listing.getTicker(), cancelled.getPricePerUnit());
         }
     }
 
@@ -850,6 +928,46 @@ public class OrderCreationServiceImpl implements OrderCreationService {
         return mapToResponse(order, approximatePrice, fee, order.getExchangeClosed());
     }
 
+    /**
+     * Builds an enriched response for the mobile My Orders screen: base order fields plus
+     * ticker / security name / listing type from the (cached) listing and the realized
+     * execution price computed from recorded transactions.
+     */
+    private OrderResponse enrichStoredOrderResponse(Order order, StockListingDto listing) {
+        BigDecimal approximatePrice = order.getPricePerUnit()
+                .multiply(BigDecimal.valueOf(order.getContractSize()))
+                .multiply(BigDecimal.valueOf(order.getQuantity()));
+        String currency = listing == null ? null : listing.getCurrency();
+        BigDecimal fee = calculateFee(orderPricingFamily(order.getOrderType()), approximatePrice, currency);
+        OrderResponse response = mapToResponse(order, approximatePrice, fee, order.getExchangeClosed());
+        if (listing != null) {
+            response.setTicker(listing.getTicker());
+            response.setSecurityName(listing.getName());
+            response.setListingType(listing.getListingType());
+        }
+        response.setExecutionPrice(calculateExecutionPrice(order.getId()));
+        return response;
+    }
+
+    /** Weighted-average execution price per unit across all recorded fills, or null if none. */
+    private BigDecimal calculateExecutionPrice(Long orderId) {
+        List<Transaction> transactions = transactionRepository.findByOrderId(orderId);
+        BigDecimal weightedSum = BigDecimal.ZERO;
+        long totalQuantity = 0;
+        for (Transaction transaction : transactions) {
+            if (transaction.getPricePerUnit() == null || transaction.getQuantity() == null) {
+                continue;
+            }
+            weightedSum = weightedSum.add(transaction.getPricePerUnit()
+                    .multiply(BigDecimal.valueOf(transaction.getQuantity())));
+            totalQuantity += transaction.getQuantity();
+        }
+        if (totalQuantity == 0) {
+            return null;
+        }
+        return weightedSum.divide(BigDecimal.valueOf(totalQuantity), 4, RoundingMode.HALF_UP);
+    }
+
     private OrderResponse mapToResponse(Order order, BigDecimal approximatePrice, BigDecimal fee, Boolean exchangeClosed) {
         OrderResponse response = new OrderResponse();
         response.setId(order.getId());
@@ -865,7 +983,7 @@ public class OrderCreationServiceImpl implements OrderCreationService {
         response.setStatus(order.getStatus());
         response.setApprovedBy(order.getApprovedBy());
         response.setIsDone(order.getIsDone());
-        response.setLastModification(order.getLastModification());
+        response.setLastModification(toUtcInstant(order.getLastModification()));
         response.setRemainingPortions(order.getRemainingPortions());
         response.setAfterHours(order.getAfterHours());
         response.setExchangeClosed(exchangeClosed);
@@ -874,7 +992,19 @@ public class OrderCreationServiceImpl implements OrderCreationService {
         response.setAccountId(order.getAccountId());
         response.setApproximatePrice(approximatePrice);
         response.setFee(fee);
+        response.setCreatedAt(toUtcInstant(order.getCreatedAt()));
+        response.setExecutedAt(toUtcInstant(order.getExecutedAt()));
         return response;
+    }
+
+    /**
+     * Converts a stored naive {@link LocalDateTime} (persisted in UTC by the service) into an
+     * {@link Instant} so the API serializes it as ISO-8601 with a trailing {@code Z}. Without this,
+     * clients received a zone-less timestamp and rendered it as if local, drifting from the UTC
+     * timestamps shown elsewhere (e.g. push notifications) by the host's offset.
+     */
+    private static Instant toUtcInstant(LocalDateTime timestamp) {
+        return timestamp == null ? null : timestamp.toInstant(ZoneOffset.UTC);
     }
 
     private void validateTradingAccess(AuthenticatedUser user, StockListingDto listing) {
@@ -1025,18 +1155,6 @@ public class OrderCreationServiceImpl implements OrderCreationService {
             return employeeClient.getEmployee(userId) != null;
         } catch (RuntimeException ignored) {
             return false;
-        }
-    }
-
-    private void notifyFundLiquidityDebit(Order order, BigDecimal amount, String reason) {
-        if (order.getFundId() == null || amount == null || amount.signum() <= 0) {
-            return;
-        }
-        try {
-            tradingServiceClient.debitFundLiquidity(order.getFundId(), amount, reason);
-        } catch (Exception ex) {
-            log.error("Failed to debit fund liquidity for order {} (fundId={} amount={}): {}",
-                    order.getId(), order.getFundId(), amount, ex.toString());
         }
     }
 

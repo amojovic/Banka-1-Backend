@@ -1,6 +1,8 @@
 package com.banka1.security.crypto;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.core.env.Environment;
+import org.springframework.mock.env.MockEnvironment;
 
 import java.util.Base64;
 
@@ -11,9 +13,12 @@ class JmbgEncryptorTest {
 
     private final String testKey = Base64.getEncoder().encodeToString(new byte[32]);  // 32 zero bytes
 
+    /** Bez aktivnog profila — JmbgEncryptor tretira to kao non-prod (dozvoljen dev default). */
+    private final Environment env = new MockEnvironment();
+
     @Test
     void encrypt_then_decrypt_vraca_original() {
-        JmbgEncryptor enc = new JmbgEncryptor(testKey);
+        JmbgEncryptor enc = new JmbgEncryptor(testKey, env);
         String plain = "1234567890123";
         String ciphertext = enc.encrypt(plain);
         String back = enc.decrypt(ciphertext);
@@ -22,7 +27,7 @@ class JmbgEncryptorTest {
 
     @Test
     void encrypt_dva_puta_isti_plaintext_proizvodi_razlicit_ciphertext_zbog_random_IV() {
-        JmbgEncryptor enc = new JmbgEncryptor(testKey);
+        JmbgEncryptor enc = new JmbgEncryptor(testKey, env);
         String c1 = enc.encrypt("1234567890123");
         String c2 = enc.encrypt("1234567890123");
         assertThat(c1).isNotEqualTo(c2);
@@ -30,7 +35,7 @@ class JmbgEncryptorTest {
 
     @Test
     void encrypt_null_vraca_null() {
-        JmbgEncryptor enc = new JmbgEncryptor(testKey);
+        JmbgEncryptor enc = new JmbgEncryptor(testKey, env);
         assertThat(enc.encrypt(null)).isNull();
         assertThat(enc.decrypt(null)).isNull();
     }
@@ -38,14 +43,14 @@ class JmbgEncryptorTest {
     @Test
     void konstruktor_throws_kada_kljuc_nije_32_bajta() {
         String shortKey = Base64.getEncoder().encodeToString(new byte[16]);
-        assertThatThrownBy(() -> new JmbgEncryptor(shortKey))
+        assertThatThrownBy(() -> new JmbgEncryptor(shortKey, env))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("32 bajta");
     }
 
     @Test
     void decrypt_corrupted_ciphertext_throws() {
-        JmbgEncryptor enc = new JmbgEncryptor(testKey);
+        JmbgEncryptor enc = new JmbgEncryptor(testKey, env);
         String ciphertext = enc.encrypt("12345");
         // Tamper: izmeni jedan bajt u Base64 ciphertext-u
         char[] chars = ciphertext.toCharArray();

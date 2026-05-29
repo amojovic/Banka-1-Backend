@@ -1,5 +1,6 @@
 package com.banka1.credit_service.service.implementation;
 
+import com.banka1.credit_service.config.LoanInterestRateProperties;
 import com.banka1.credit_service.domain.Installment;
 import com.banka1.credit_service.domain.Loan;
 import com.banka1.credit_service.domain.LoanRequest;
@@ -83,6 +84,9 @@ class LoanServiceImplementationTest {
     void setUp() {
         ReflectionTestUtils.setField(service, "appPropertiesId", "id");
         ReflectionTestUtils.setField(service, "roles", "roles");
+        // PR_29: LoanServiceImplementation sada zahteva injektovan LoanInterestRateProperties.
+        // Koristimo realan objekat sa default vrednostima (isto sto bi Spring vezao iz properties-a).
+        ReflectionTestUtils.setField(service, "interestRateProperties", new LoanInterestRateProperties());
         service.setReferenceRate(new BigDecimal("0.0010"));
     }
 

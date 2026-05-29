@@ -54,4 +54,7 @@
     <!-- OTC notifications/history + fund dividends/statistics. -->
     <include file="db/changelog/trading-otc/012-otc-history-dividends-fund-snapshots.sql"/>
 
+    <!-- Reconcile fund_value_snapshots schema for dev DBs that pre-date 012-. -->
+    <include file="db/changelog/trading-otc/013-fix-fund-value-snapshots-stale-schema.sql"/>
+
 </databaseChangeLog>

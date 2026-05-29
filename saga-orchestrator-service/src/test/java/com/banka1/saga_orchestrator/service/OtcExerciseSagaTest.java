@@ -88,9 +88,13 @@ class OtcExerciseSagaTest {
 
         saga.run(exerciseEvent());
 
-        // Compensations: step2 + step1 (kompenzacija u obrnutom redosledu)
+        // Compensations: step2 + step1 (kompenzacija u obrnutom redosledu).
         verify(trading).releaseStocks("stock-1", "otc-exercise-1");
-        verify(banking).releaseFunds("res-1", "otc-exercise-1");
+        // releaseFunds("res-1", ...) se poziva dvaput: jednom u step 3 normalnom toku
+        // (oslobadja rezervaciju pre pravog transfera), pa jos jednom kao step-1
+        // kompenzacija (idempotentni no-op posto je vec RELEASED) — vidi OtcExerciseSaga
+        // linije 121 i 195. Bitno je da je step-1 kompenzacija stvarno izvrsena.
+        verify(banking, times(2)).releaseFunds("res-1", "otc-exercise-1");
         verify(sagaRepo, atLeast(1)).save(argThat(s -> s.getState() == SagaState.FAILED));
     }
 
