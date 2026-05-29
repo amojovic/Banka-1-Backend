@@ -12,14 +12,20 @@ class SecurityAutoConfigurationTest {
 
     @Test
     void corsConfigurationAllowsFrontendOrigin() {
-        CorsConfigurationSource source = securityConfig.corsConfigurationSource();
+        // corsConfigurationSource cita SecurityProperties.Cors blok; ovde koristimo
+        // default-e (localhost:4200 + eksplicitne metode/headeri) jer test ne menja config.
+        SecurityProperties props = new SecurityProperties();
+        CorsConfigurationSource source = securityConfig.corsConfigurationSource(props);
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/test");
         var configuration = source.getCorsConfiguration(request);
 
         assertThat(configuration).isNotNull();
         assertThat(configuration.getAllowedOrigins()).containsExactly("http://localhost:4200");
-        assertThat(configuration.getAllowedMethods()).containsExactly("*");
-        assertThat(configuration.getAllowedHeaders()).containsExactly("*");
+        assertThat(configuration.getAllowedMethods())
+                .containsExactly("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS");
+        assertThat(configuration.getAllowedHeaders())
+                .containsExactly("Authorization", "Content-Type", "Accept",
+                        "X-Requested-With", "X-Verification-Code", "X-Correlation-Id");
         assertThat(configuration.getAllowCredentials()).isTrue();
     }
 }

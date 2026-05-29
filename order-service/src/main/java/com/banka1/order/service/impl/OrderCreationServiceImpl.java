@@ -4,7 +4,6 @@ import com.banka1.order.client.AccountClient;
 import com.banka1.order.client.EmployeeClient;
 import com.banka1.order.client.ExchangeClient;
 import com.banka1.order.client.StockClient;
-import com.banka1.order.client.TradingServiceClient;
 import com.banka1.order.dto.AccountDetailsDto;
 import com.banka1.order.dto.AuthenticatedUser;
 import com.banka1.order.dto.BankAccountDto;
@@ -108,7 +107,6 @@ public class OrderCreationServiceImpl implements OrderCreationService {
     private final EmployeeClient employeeClient;
     private final ExchangeClient exchangeClient;
     private final OrderExecutionService orderExecutionService;
-    private final TradingServiceClient tradingServiceClient;
     private final OrderNotificationProducer orderNotificationProducer;
     private final OrderEventNotifier orderEventNotifier;
 
@@ -144,10 +142,11 @@ public class OrderCreationServiceImpl implements OrderCreationService {
         BigDecimal approximatePrice = calculateApproximatePrice(orderType, OrderDirection.BUY, listing, request.getQuantity(),
                 request.getLimitValue(), request.getStopValue());
         BigDecimal fee = calculateFee(orderType, approximatePrice, listing.getCurrency());
-        if ((isFundOrder || isBankOrder) && !Boolean.TRUE.equals(request.getMargin())) {
-            checkFunds(accountId, approximatePrice.add(fee), listing.getCurrency());
-        } else if (user.isClient() && !Boolean.TRUE.equals(request.getMargin())) {
-            checkFunds(accountId, approximatePrice.add(fee), listing.getCurrency());
+        // Issue #255: investment-fund orders are exempt from the brokerage commission —
+        // only the security price may leave the fund's account.
+        BigDecimal chargeableFee = isFundOrder ? BigDecimal.ZERO : fee;
+        if ((isFundOrder || isBankOrder || user.isClient()) && !Boolean.TRUE.equals(request.getMargin())) {
+            checkFunds(accountId, approximatePrice.add(chargeableFee), listing.getCurrency());
         }
 
         Order order = buildBaseOrder(user.userId(), request.getListingId(), orderType, request.getQuantity(), listing,
@@ -161,7 +160,7 @@ public class OrderCreationServiceImpl implements OrderCreationService {
         order.setApprovedBy(null);
 
         order = orderRepository.save(order);
-        return mapToResponse(order, approximatePrice, fee, exchangeWindow.closed());
+        return mapToResponse(order, approximatePrice, chargeableFee, exchangeWindow.closed());
     }
 
     private PurchaseFor parsePurchaseFor(String value) {
@@ -341,6 +340,9 @@ public class OrderCreationServiceImpl implements OrderCreationService {
         BigDecimal approximatePrice = calculateApproximatePrice(order.getOrderType(), order.getDirection(), listing,
                 order.getQuantity(), order.getLimitValue(), order.getStopValue());
         BigDecimal fee = calculateFee(orderPricingFamily(order.getOrderType()), approximatePrice, listing.getCurrency());
+        // Issue #255: investment-fund orders are exempt from the brokerage commission.
+        boolean isFundOrder = order.getPurchaseFor() == PurchaseFor.INVESTMENT_FUND;
+        BigDecimal chargeableFee = isFundOrder ? BigDecimal.ZERO : fee;
 
         if (hasPastSettlementDate(listing)) {
             order.setStatus(OrderStatus.DECLINED);
@@ -348,7 +350,7 @@ public class OrderCreationServiceImpl implements OrderCreationService {
             order.setRemainingPortions(0);
             order.setIsDone(true);
             order = orderRepository.save(order);
-            return mapToResponse(order, approximatePrice, fee, order.getExchangeClosed());
+            return mapToResponse(order, approximatePrice, chargeableFee, order.getExchangeClosed());
         }
 
         Long fundingAccountId;
@@ -365,23 +367,22 @@ public class OrderCreationServiceImpl implements OrderCreationService {
         if (Boolean.TRUE.equals(order.getMargin())) {
             checkMarginRequirements(user, fundingAccountId, listing, order.getQuantity());
         } else if (order.getDirection() == OrderDirection.BUY) {
-            checkFunds(fundingAccountId, approximatePrice.add(fee), listing.getCurrency());
+            checkFunds(fundingAccountId, approximatePrice.add(chargeableFee), listing.getCurrency());
         }
         ApprovalReservationDecision decision = user.isClient()
                 ? new ApprovalReservationDecision(OrderStatus.APPROVED, BigDecimal.ZERO)
                 : determineOrderStatusAndReserveExposure(user.userId(), approximatePrice, listing.getCurrency());
         reserveSellQuantityIfNeeded(order);
         if (decision.status() == OrderStatus.APPROVED) {
-            // Fee se na confirm naplata samo za BUY (klijent placa banci provizijuza nabavku).
+            // Fee se na confirm naplacuje samo za BUY (klijent placa banci proviziju za nabavku).
             // Za SELL fee se prebija iz proceeds-a u execute fazi (banking-core kreditira
             // klijenta umanjeni iznos i debituje banku za commission). Ranije je
             // transferFee bezuslovno skidao fee sa klijentskog racuna pre proceeds-a, sto
             // je padalo 422 "Nema dovoljno novca" kad je RSD/USD account prazan.
-            if (order.getDirection() == OrderDirection.BUY) {
-                BigDecimal feeDebitAmount = transferFee(user, fundingAccountId, fee, listing.getCurrency());
-                if (order.getPurchaseFor() == PurchaseFor.INVESTMENT_FUND) {
-                    notifyFundLiquidityDebit(order, feeDebitAmount, "Order fee");
-                }
+            // Issue #255: investment-fund orders are commission-exempt — the fund's account
+            // must be debited the security price only, so the fee leg is skipped entirely.
+            if (order.getDirection() == OrderDirection.BUY && !isFundOrder) {
+                transferFee(user, fundingAccountId, fee, listing.getCurrency());
             }
             // Pull fresh quote data so the async executor (60s later) sees a non-zero
             // ask/volume even on weekends, when ListingMarketDataScheduler skips refresh
@@ -410,7 +411,7 @@ public class OrderCreationServiceImpl implements OrderCreationService {
                 orderExecutionService.executeOrderAsync(approvedOrderId);
             }
         }
-        return mapToResponse(order, approximatePrice, fee, order.getExchangeClosed());
+        return mapToResponse(order, approximatePrice, chargeableFee, order.getExchangeClosed());
     }
 
     @Override
@@ -449,10 +450,12 @@ public class OrderCreationServiceImpl implements OrderCreationService {
         BigDecimal approximatePrice = calculateApproximatePrice(order.getOrderType(), order.getDirection(), listing,
                 order.getQuantity(), order.getLimitValue(), order.getStopValue());
         BigDecimal fee = calculateFee(orderPricingFamily(order.getOrderType()), approximatePrice, listing.getCurrency());
+        // Issue #255: investment-fund orders are exempt from the brokerage commission.
+        boolean isFundOrder = order.getPurchaseFor() == PurchaseFor.INVESTMENT_FUND;
+        BigDecimal chargeableFee = isFundOrder ? BigDecimal.ZERO : fee;
         Long fundingAccountId = determineFundingAccountId(order.getUserId(), order.getAccountId(), listing.getCurrency());
-        BigDecimal feeDebitAmount = transferFee(order.getUserId(), fundingAccountId, fee, listing.getCurrency());
-        if (order.getPurchaseFor() == PurchaseFor.INVESTMENT_FUND) {
-            notifyFundLiquidityDebit(order, feeDebitAmount, "Order fee");
+        if (!isFundOrder) {
+            transferFee(order.getUserId(), fundingAccountId, fee, listing.getCurrency());
         }
 
         if (order.getDirection() == OrderDirection.BUY && !Boolean.TRUE.equals(order.getMargin())) {
@@ -478,7 +481,7 @@ public class OrderCreationServiceImpl implements OrderCreationService {
             orderExecutionService.executeOrderAsync(approvedOrderId);
         }
 
-        return mapToResponse(order, approximatePrice, fee, order.getExchangeClosed());
+        return mapToResponse(order, approximatePrice, chargeableFee, order.getExchangeClosed());
     }
 
     @Override
@@ -1152,18 +1155,6 @@ public class OrderCreationServiceImpl implements OrderCreationService {
             return employeeClient.getEmployee(userId) != null;
         } catch (RuntimeException ignored) {
             return false;
-        }
-    }
-
-    private void notifyFundLiquidityDebit(Order order, BigDecimal amount, String reason) {
-        if (order.getFundId() == null || amount == null || amount.signum() <= 0) {
-            return;
-        }
-        try {
-            tradingServiceClient.debitFundLiquidity(order.getFundId(), amount, reason);
-        } catch (Exception ex) {
-            log.error("Failed to debit fund liquidity for order {} (fundId={} amount={}): {}",
-                    order.getId(), order.getFundId(), amount, ex.toString());
         }
     }
 

@@ -46,15 +46,15 @@ class AuthenticatedUserTest {
 
     @Test
     void hasMarginPermission_returnsTrueWhenMarginPermissionExists() {
-        AuthenticatedUser user = new AuthenticatedUser(1L, Set.of(), Set.of("margin:use", "trading:execute"));
+        AuthenticatedUser user = new AuthenticatedUser(1L, Set.of(), Set.of("MARGIN_TRADE", "SECURITIES_TRADE"));
 
         assertThat(user.hasMarginPermission()).isTrue();
     }
 
     @Test
     void hasMarginPermission_returnsTrueForVariantNames() {
-        AuthenticatedUser user1 = new AuthenticatedUser(1L, Set.of(), Set.of("MARGIN_TRADING"));
-        AuthenticatedUser user2 = new AuthenticatedUser(2L, Set.of(), Set.of("use_margin"));
+        AuthenticatedUser user1 = new AuthenticatedUser(1L, Set.of(), Set.of("MARGIN_TRADE"));
+        AuthenticatedUser user2 = new AuthenticatedUser(2L, Set.of(), Set.of("SECURITIES_TRADE_MARGIN"));
         AuthenticatedUser user3 = new AuthenticatedUser(3L, Set.of(), Set.of("MARGIN"));
 
         assertThat(user1.hasMarginPermission()).isTrue();
@@ -64,7 +64,7 @@ class AuthenticatedUserTest {
 
     @Test
     void hasMarginPermission_returnsFalseWhenNoMarginPermission() {
-        AuthenticatedUser user = new AuthenticatedUser(1L, Set.of(), Set.of("trading:execute", "view:portfolio"));
+        AuthenticatedUser user = new AuthenticatedUser(1L, Set.of(), Set.of("SECURITIES_TRADE", "view:portfolio"));
 
         assertThat(user.hasMarginPermission()).isFalse();
     }
@@ -85,14 +85,14 @@ class AuthenticatedUserTest {
 
     @Test
     void hasTradingPermission_returnsTrueForTradingPermission() {
-        AuthenticatedUser user = new AuthenticatedUser(1L, Set.of(), Set.of("trading:execute"));
+        AuthenticatedUser user = new AuthenticatedUser(1L, Set.of(), Set.of("SECURITIES_TRADE"));
 
         assertThat(user.hasTradingPermission()).isTrue();
     }
 
     @Test
     void hasTradingPermission_returnsTrueForBothRoleAndPermission() {
-        AuthenticatedUser user = new AuthenticatedUser(1L, Set.of("CLIENT_TRADING"), Set.of("trading:advanced"));
+        AuthenticatedUser user = new AuthenticatedUser(1L, Set.of("CLIENT_TRADING"), Set.of("TRADING_ADVANCED"));
 
         assertThat(user.hasTradingPermission()).isTrue();
     }
@@ -179,7 +179,7 @@ class AuthenticatedUserTest {
         AuthenticatedUser user = new AuthenticatedUser(
                 1L,
                 Set.of("CLIENT_TRADING", "AGENT"),
-                Set.of("trading:execute", "margin:use")
+                Set.of("SECURITIES_TRADE", "MARGIN_TRADE")
         );
 
         assertThat(user.hasRole("CLIENT_TRADING")).isTrue();

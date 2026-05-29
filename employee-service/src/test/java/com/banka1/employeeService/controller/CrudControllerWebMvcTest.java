@@ -39,7 +39,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(CrudController.class)
 @AutoConfigureMockMvc(addFilters = false)
-@Import(GlobalExceptionHandler.class)
+@Import({GlobalExceptionHandler.class, TestSecurityConfig.class})
 @ActiveProfiles("test")
 class CrudControllerWebMvcTest {
 
@@ -54,7 +54,9 @@ class CrudControllerWebMvcTest {
     @Test
     void searchEmployeesReturnsPagedResponse() throws Exception {
         EmployeeResponseDto employee = new EmployeeResponseDto(
-                1L, "Ana", "Anic", "ana@banka.com", "ana", "Broker", "Prodaja", true, Role.AGENT
+                1L, "Ana", "Anic", "ana@banka.com", "ana",
+                LocalDate.of(1991, 1, 1), Pol.Z, "+381601234567", "Ulica 1",
+                "Broker", "Prodaja", true, Role.AGENT
         );
 
         when(crudService.searchEmployees(eq("Ana"), eq("Anic"), eq("ana@banka.com"), eq("Broker"), eq("Prodaja"), any()))
@@ -74,7 +76,9 @@ class CrudControllerWebMvcTest {
     @Test
     void searchEmployeesWithNoFiltersReturnsAllEmployees() throws Exception {
         EmployeeResponseDto employee = new EmployeeResponseDto(
-                2L, "Marko", "Markovic", "marko@banka.com", "marko", "Agent", "IT", true, Role.BASIC
+                2L, "Marko", "Markovic", "marko@banka.com", "marko",
+                LocalDate.of(1990, 2, 2), Pol.M, "+381601234568", "Ulica 2",
+                "Agent", "IT", true, Role.BASIC
         );
 
         when(crudService.searchEmployees(any(), any(), any(), any(), any(), any()))
@@ -89,7 +93,9 @@ class CrudControllerWebMvcTest {
     void createEmployeeReturnsCreatedForValidPayload() throws Exception {
         EmployeeCreateRequestDto request = validCreateRequest();
         EmployeeResponseDto response = new EmployeeResponseDto(
-                10L, "Nikola", "Nikolic", "nikola@banka.com", "nikola", "Agent", "Prodaja", false, Role.BASIC
+                10L, "Nikola", "Nikolic", "nikola@banka.com", "nikola",
+                LocalDate.of(1995, 5, 5), Pol.M, "+381601234569", "Ulica 3",
+                "Agent", "Prodaja", false, Role.BASIC
         );
 
         when(crudService.createEmployee(any(EmployeeCreateRequestDto.class))).thenReturn(response);
@@ -112,8 +118,8 @@ class CrudControllerWebMvcTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errorCode").value("ERR_VALIDATION"))
                 .andExpect(jsonPath("$.validationErrors.ime").exists())
-                .andExpect(jsonPath("$.validationErrors.email").exists())
-                .andExpect(jsonPath("$.validationErrors.username").exists());
+                .andExpect(jsonPath("$.validationErrors.prezime").exists())
+                .andExpect(jsonPath("$.validationErrors.email").exists());
     }
 
     @Test
@@ -123,7 +129,9 @@ class CrudControllerWebMvcTest {
         request.setPozicija("Senior Agent");
 
         EmployeeResponseDto response = new EmployeeResponseDto(
-                3L, "Ana", "Anic", "ana@banka.com", "ana", "Senior Agent", "IT", true, Role.AGENT
+                3L, "Ana", "Anic", "ana@banka.com", "ana",
+                LocalDate.of(1991, 1, 1), Pol.Z, "+381601234567", "Ulica 1",
+                "Senior Agent", "IT", true, Role.AGENT
         );
 
         when(crudService.updateEmployee(any(), eq(3L), any(EmployeeUpdateRequestDto.class))).thenReturn(response);
@@ -142,7 +150,9 @@ class CrudControllerWebMvcTest {
         request.setAktivan(false);
 
         EmployeeResponseDto response = new EmployeeResponseDto(
-                5L, "Ana", "Anic", "ana@banka.com", "ana", "Agent", "IT", false, Role.AGENT
+                5L, "Ana", "Anic", "ana@banka.com", "ana",
+                LocalDate.of(1991, 1, 1), Pol.Z, "+381601234567", "Ulica 1",
+                "Agent", "IT", false, Role.AGENT
         );
 
         when(crudService.updateEmployee(any(), eq(5L), any(EmployeeUpdateRequestDto.class))).thenReturn(response);
@@ -165,7 +175,9 @@ class CrudControllerWebMvcTest {
     @Test
     void globalSearchReturnsPagedResults() throws Exception {
         EmployeeResponseDto employee = new EmployeeResponseDto(
-                4L, "Ana", "Anic", "ana@banka.com", "ana", "Broker", "Prodaja", true, Role.AGENT
+                4L, "Ana", "Anic", "ana@banka.com", "ana",
+                LocalDate.of(1991, 1, 1), Pol.Z, "+381601234567", "Ulica 1",
+                "Broker", "Prodaja", true, Role.AGENT
         );
 
         when(crudService.globalSearchEmployees(eq("ana"), any()))
@@ -182,7 +194,9 @@ class CrudControllerWebMvcTest {
     void editEmployeeReturnsUpdatedEmployee() throws Exception {
         EmployeeEditRequestDto request = new EmployeeEditRequestDto("Novak", null, null, null, null, null);
         EmployeeResponseDto response = new EmployeeResponseDto(
-                6L, "Novak", "Anic", "ana@banka.com", "ana", "Broker", "Prodaja", true, Role.AGENT
+                6L, "Novak", "Anic", "ana@banka.com", "ana",
+                LocalDate.of(1991, 1, 1), Pol.Z, "+381601234567", "Ulica 1",
+                "Broker", "Prodaja", true, Role.AGENT
         );
 
         when(crudService.editEmployee(any(), any(EmployeeEditRequestDto.class))).thenReturn(response);

@@ -34,7 +34,16 @@ class SagaOrchestratorTest {
     @BeforeEach
     void setUp() {
         repository = mock(SagaInstanceRepository.class);
-        when(repository.save(any(SagaInstance.class))).thenAnswer(inv -> inv.getArgument(0));
+        // Realan JPA save dodeljuje id kroz SagaInstance#prePersist (@PrePersist);
+        // mock repozitorijum ne okida JPA lifecycle, pa simuliramo to ponasanje
+        // ovde da bi unit test verno odrazavao produkciju.
+        when(repository.save(any(SagaInstance.class))).thenAnswer(inv -> {
+            SagaInstance saved = inv.getArgument(0);
+            if (saved.getId() == null) {
+                saved.setId(UUID.randomUUID());
+            }
+            return saved;
+        });
 
         step1 = new RecordingStep(SagaType.OTC_EXERCISE, 0);
         step2 = new RecordingStep(SagaType.OTC_EXERCISE, 1);

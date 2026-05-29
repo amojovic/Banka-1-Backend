@@ -1,37 +1,38 @@
 package com.banka1.card_service.integration;
 
-import com.banka1.card_service.rabbitMQ.RabbitConfig;
+import com.banka1.card_service.rabbitMQ.CardCreationEventListener;
 import org.junit.jupiter.api.Test;
-import org.springframework.amqp.core.Binding;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.TestPropertySource;
+import org.springframework.amqp.rabbit.annotation.QueueBinding;
+import org.springframework.amqp.rabbit.annotation.RabbitListener;
+
+import java.lang.reflect.Method;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-@SpringBootTest(
-        classes = RabbitConfig.class,
-        webEnvironment = SpringBootTest.WebEnvironment.NONE
-)
-@TestPropertySource(properties = {
-        "spring.rabbitmq.host=localhost",
-        "spring.rabbitmq.port=5672",
-        "spring.rabbitmq.username=guest",
-        "spring.rabbitmq.password=guest",
-        "notification.rabbit.exchange=employee.events",
-        "card.rabbit.auto.exchange=employee.events",
-        "card.rabbit.auto.queue=card-service-auto-card-queue",
-        "card.rabbit.auto.routing-key=card.create"
-})
+/**
+ * Verifies the automatic card creation RabbitMQ binding.
+ *
+ * <p>The explicit {@code RabbitConfig} {@code @Bean Binding} was removed during the
+ * Spring Boot 4 migration; the binding is now declared inline via the
+ * {@link QueueBinding} annotation on the {@link RabbitListener} method. This test
+ * still asserts the same behavioural contract: the automatic card creation flow is
+ * bound with the {@code card.create} routing key.
+ */
 class RabbitBindingsConfigIntegrationTest {
 
-    @Autowired
-    @Qualifier("automaticCardCreationBinding")
-    private Binding automaticCardCreationBinding;
-
     @Test
-    void automaticCardCreationBindingUsesCardCreateRoutingKey() {
-        assertEquals("card.create", automaticCardCreationBinding.getRoutingKey());
+    void automaticCardCreationBindingUsesCardCreateRoutingKey() throws NoSuchMethodException {
+        Method listenerMethod = CardCreationEventListener.class.getMethod(
+                "handleCardCreateEvent",
+                com.banka1.card_service.rabbitMQ.CardCreationEventDto.class,
+                String.class);
+
+        RabbitListener rabbitListener = listenerMethod.getAnnotation(RabbitListener.class);
+        assertNotNull(rabbitListener, "handleCardCreateEvent must be a @RabbitListener");
+
+        QueueBinding[] bindings = rabbitListener.bindings();
+        assertEquals(1, bindings.length, "Expected exactly one @QueueBinding");
+        assertEquals("card.create.#", bindings[0].key()[0]);
     }
 }

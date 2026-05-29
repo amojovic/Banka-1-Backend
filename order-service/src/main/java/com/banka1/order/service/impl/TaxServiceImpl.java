@@ -151,6 +151,9 @@ public class TaxServiceImpl implements TaxService {
                 AccountDetailsDto governmentAccount = accountClient.getGovernmentBankAccountRsd();
                 BigDecimal taxInRsd = convertTaxToRsd(entry.currency(), entry.taxAmount());
 
+                // fromAmount is debited from the source account in its native currency
+                // (Celina 3, Napomena 1); toAmount is credited to the state RSD account
+                // after conversion (Napomena 2: the state only has an RSD account).
                 PaymentDto payment = new PaymentDto(
                         sourceAccount.getAccountNumber(),
                         governmentAccount.getAccountNumber(),

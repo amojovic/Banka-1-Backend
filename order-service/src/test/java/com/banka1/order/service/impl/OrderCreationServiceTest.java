@@ -57,6 +57,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -110,7 +111,7 @@ class OrderCreationServiceTest {
     @BeforeEach
     void setUp() {
         clientUser = new AuthenticatedUser(1L, Set.of("CLIENT_TRADING"), Set.of("TRADING"));
-        marginClient = new AuthenticatedUser(1L, Set.of("CLIENT_TRADING"), Set.of("TRADING", "MARGIN_TRADING"));
+        marginClient = new AuthenticatedUser(1L, Set.of("CLIENT_TRADING"), Set.of("TRADING", "MARGIN_TRADE"));
         actuaryUser = new AuthenticatedUser(2L, Set.of("AGENT"), Set.of("MARGIN_TRADING"));
         supervisorUser = new AuthenticatedUser(3L, Set.of("SUPERVISOR"), Set.of("MARGIN_TRADING"));
 
@@ -289,6 +290,39 @@ class OrderCreationServiceTest {
     }
 
     @Test
+    void confirmFundBuyOrder_doesNotChargeCommissionToFundAccount() {
+        // Issue #255: when buying securities for an investment fund, only the security
+        // price may leave the fund's account — the brokerage commission must not.
+        AccountDetailsDto fundAccount = new AccountDetailsDto();
+        fundAccount.setAccountNumber("FUND-ACC");
+        fundAccount.setBalance(new BigDecimal("100000.00"));
+        fundAccount.setCurrency("USD");
+        fundAccount.setOwnerId(7777L);
+        when(accountClient.getAccountDetails(5L)).thenReturn(fundAccount);
+
+        CreateBuyOrderRequest fundRequest = new CreateBuyOrderRequest();
+        fundRequest.setListingId(42L);
+        fundRequest.setQuantity(10);
+        fundRequest.setAccountId(5L);
+        fundRequest.setAllOrNone(false);
+        fundRequest.setMargin(false);
+        fundRequest.setPurchaseFor("INVESTMENT_FUND");
+        fundRequest.setFundId(55L);
+
+        service.createBuyOrder(supervisorUser, fundRequest);
+        OrderResponse response = service.confirmOrder(supervisorUser, 100L);
+
+        assertThat(response.getStatus()).isEqualTo(OrderStatus.APPROVED);
+        // The only money movement confirmOrder performs is the fee leg; for a fund order
+        // it must be skipped entirely, so no settlement payment may be issued.
+        verify(accountClient, never()).transaction(any(PaymentDto.class));
+        verify(accountClient, never()).transfer(any(AccountTransactionRequest.class));
+        // The confirmation response must not advertise a fee the fund is never charged.
+        assertThat(response.getFee()).isEqualByComparingTo("0");
+        verify(orderExecutionService).executeOrderAsync(100L);
+    }
+
+    @Test
     void approveOrder_updatesApprovedByChargesFeeAndStartsExecution() {
         ActuaryInfo agent = new ActuaryInfo();
         agent.setEmployeeId(2L);
@@ -353,12 +387,14 @@ class OrderCreationServiceTest {
         ExchangeRateDto conversion = new ExchangeRateDto();
         conversion.setConvertedAmount(new BigDecimal("6.50"));
         conversion.setCommission(BigDecimal.ZERO);
-        lenient().when(exchangeClient.calculateWithoutCommission("EUR", "USD", new BigDecimal("7.00"))).thenReturn(conversion);
+        // The fee leg converts the fee amount (in USD) into the funding account's
+        // currency (EUR) to know how much to debit — i.e. the conversion is USD -> EUR.
+        lenient().when(exchangeClient.calculateWithoutCommission("USD", "EUR", new BigDecimal("7.00"))).thenReturn(conversion);
 
         service.approveOrder(88L, 100L);
 
-        verify(exchangeClient).calculateWithoutCommission(org.mockito.ArgumentMatchers.eq("EUR"), org.mockito.ArgumentMatchers.eq("USD"), any(BigDecimal.class));
-        verify(exchangeClient, never()).calculate(org.mockito.ArgumentMatchers.eq("EUR"), org.mockito.ArgumentMatchers.eq("USD"), any(BigDecimal.class));
+        verify(exchangeClient, atLeastOnce()).calculateWithoutCommission(org.mockito.ArgumentMatchers.eq("USD"), org.mockito.ArgumentMatchers.eq("EUR"), any(BigDecimal.class));
+        verify(exchangeClient, never()).calculate(org.mockito.ArgumentMatchers.eq("USD"), org.mockito.ArgumentMatchers.eq("EUR"), any(BigDecimal.class));
         verify(accountClient).transaction(any(PaymentDto.class));
         verify(accountClient, never()).transfer(any(AccountTransactionRequest.class));
     }
@@ -837,7 +873,9 @@ class OrderCreationServiceTest {
         OrderResponse response = service.createBuyOrder(supervisorUser, buyRequest);
 
         assertThat(response.getStatus()).isEqualTo(OrderStatus.PENDING_CONFIRMATION);
-        assertThat(storedOrder.get().getAccountId()).isNull();
+        // A supervisor need not select a client account; the order falls back to the
+        // bank's currency account resolved by determineFundingAccountId.
+        assertThat(storedOrder.get().getAccountId()).isEqualTo(999L);
     }
 
     @Test

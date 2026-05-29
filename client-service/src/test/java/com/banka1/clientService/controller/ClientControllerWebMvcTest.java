@@ -35,7 +35,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(ClientController.class)
 @AutoConfigureMockMvc(addFilters = false)
-@Import(GlobalExceptionHandler.class)
+@Import({GlobalExceptionHandler.class, TestSecurityConfig.class})
 @ActiveProfiles("test")
 class ClientControllerWebMvcTest {
 
@@ -54,7 +54,7 @@ class ClientControllerWebMvcTest {
         when(clientService.searchClients(eq("Petar"), eq("Petrovic"), eq("petar@banka.com"), any()))
                 .thenReturn(new PageImpl<>(List.of(client), PageRequest.of(0, 10), 1));
 
-        mockMvc.perform(get("/customers")
+        mockMvc.perform(get("/clients/customers")
                         .param("ime", "Petar")
                         .param("prezime", "Petrovic")
                         .param("email", "petar@banka.com"))
@@ -68,7 +68,7 @@ class ClientControllerWebMvcTest {
         when(clientService.searchClients(any(), any(), any(), any()))
                 .thenReturn(new PageImpl<>(List.of(sampleResponse()), PageRequest.of(0, 10), 1));
 
-        mockMvc.perform(get("/customers"))
+        mockMvc.perform(get("/clients/customers"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1));
     }
@@ -78,7 +78,7 @@ class ClientControllerWebMvcTest {
         ClientCreateRequestDto request = validCreateRequest();
         when(clientService.createClient(any(ClientCreateRequestDto.class))).thenReturn(sampleResponse());
 
-        mockMvc.perform(post("/customers")
+        mockMvc.perform(post("/clients/customers")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
@@ -87,7 +87,7 @@ class ClientControllerWebMvcTest {
 
     @Test
     void createClientReturnsBadRequestForMissingRequiredFields() throws Exception {
-        mockMvc.perform(post("/customers")
+        mockMvc.perform(post("/clients/customers")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isBadRequest())
@@ -101,7 +101,7 @@ class ClientControllerWebMvcTest {
         ClientCreateRequestDto request = validCreateRequest();
         request.setJmbg("123");
 
-        mockMvc.perform(post("/customers")
+        mockMvc.perform(post("/clients/customers")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
@@ -116,7 +116,7 @@ class ClientControllerWebMvcTest {
 
         when(clientService.updateClient(eq(1L), any(ClientUpdateRequestDto.class))).thenReturn(sampleResponse());
 
-        mockMvc.perform(put("/customers/1")
+        mockMvc.perform(put("/clients/customers/1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
@@ -128,7 +128,7 @@ class ClientControllerWebMvcTest {
         ClientUpdateRequestDto request = new ClientUpdateRequestDto();
         request.setEmail("nije-email");
 
-        mockMvc.perform(put("/customers/1")
+        mockMvc.perform(put("/clients/customers/1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
@@ -144,7 +144,7 @@ class ClientControllerWebMvcTest {
         when(clientService.updateClient(eq(99L), any(ClientUpdateRequestDto.class)))
                 .thenThrow(new BusinessException(ErrorCode.CLIENT_NOT_FOUND, "ID: 99"));
 
-        mockMvc.perform(put("/customers/99")
+        mockMvc.perform(put("/clients/customers/99")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNotFound())
@@ -155,7 +155,7 @@ class ClientControllerWebMvcTest {
     void deleteClientReturnsNoContent() throws Exception {
         doNothing().when(clientService).deleteClient(1L);
 
-        mockMvc.perform(delete("/customers/1"))
+        mockMvc.perform(delete("/clients/customers/1"))
                 .andExpect(status().isNoContent());
     }
 
@@ -164,7 +164,7 @@ class ClientControllerWebMvcTest {
         doThrow(new BusinessException(ErrorCode.CLIENT_NOT_FOUND, "ID: 99"))
                 .when(clientService).deleteClient(99L);
 
-        mockMvc.perform(delete("/customers/99"))
+        mockMvc.perform(delete("/clients/customers/99"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.errorCode").exists());
     }
@@ -174,7 +174,7 @@ class ClientControllerWebMvcTest {
         when(clientService.globalSearchClients(eq("petar"), any()))
                 .thenReturn(new PageImpl<>(List.of(sampleResponse()), PageRequest.of(0, 10), 1));
 
-        mockMvc.perform(get("/customers/search")
+        mockMvc.perform(get("/clients/customers/search")
                         .param("query", "petar"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].email").value("petar@banka.com"))
@@ -185,7 +185,7 @@ class ClientControllerWebMvcTest {
     void getClientIdByJmbgReturnsId() throws Exception {
         when(clientService.getInfoByJmbg("1234567890123")).thenReturn(new ClientInfoResponseDto(42L, "Pickka", "Pickic", null, null, null, null, null, null, null, false));
 
-        mockMvc.perform(get("/customers/jmbg/1234567890123"))
+        mockMvc.perform(get("/clients/customers/jmbg/1234567890123"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(42));
     }
@@ -196,7 +196,7 @@ class ClientControllerWebMvcTest {
                 "1234567890123", "+381601234567", "Ulica 1", Pol.Z, 946684800000L, ClientRole.CLIENT_BASIC, true);
         when(clientService.getInfoById(5L)).thenReturn(info);
 
-        mockMvc.perform(get("/customers/5"))
+        mockMvc.perform(get("/clients/customers/5"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(5))
                 .andExpect(jsonPath("$.name").value("Ana"))
@@ -208,7 +208,7 @@ class ClientControllerWebMvcTest {
         doThrow(new BusinessException(ErrorCode.CLIENT_NOT_FOUND, "ID: 99"))
                 .when(clientService).getInfoById(99L);
 
-        mockMvc.perform(get("/customers/99"))
+        mockMvc.perform(get("/clients/customers/99"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.errorCode").value("ERR_CLIENT_001"));
     }
@@ -218,7 +218,7 @@ class ClientControllerWebMvcTest {
         ClientCreateRequestDto request = validCreateRequest();
         request.setBrojTelefona("not-a-phone");
 
-        mockMvc.perform(post("/customers")
+        mockMvc.perform(post("/clients/customers")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
@@ -230,7 +230,7 @@ class ClientControllerWebMvcTest {
         doThrow(new BusinessException(ErrorCode.JMBG_NOT_FOUND, "JMBG: [PROTECTED]"))
                 .when(clientService).getInfoByJmbg("9999999999999");
 
-        mockMvc.perform(get("/customers/jmbg/9999999999999"))
+        mockMvc.perform(get("/clients/customers/jmbg/9999999999999"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.errorCode").exists());
     }

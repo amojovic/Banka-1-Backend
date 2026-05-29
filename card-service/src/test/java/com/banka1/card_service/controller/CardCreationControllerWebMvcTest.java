@@ -34,7 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(CardCreationController.class)
 @AutoConfigureMockMvc
-@Import({GlobalExceptionHandler.class, CardControllerSupport.class})
+@Import({GlobalExceptionHandler.class, CardControllerSupport.class, TestSecurityConfig.class})
 @ActiveProfiles("test")
 class CardCreationControllerWebMvcTest {
 
@@ -64,7 +64,7 @@ class CardCreationControllerWebMvcTest {
         );
         when(cardRequestService.createAutomaticCard(any(AutoCardCreationRequestDto.class))).thenReturn(response);
 
-        mockMvc.perform(post("/auto")
+        mockMvc.perform(post("/api/cards/auto")
                         .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_SERVICE"))
                                 .jwt(jwt -> jwt.claim("id", 999L)))
                 .contentType(MediaType.APPLICATION_JSON)
@@ -106,7 +106,7 @@ class CardCreationControllerWebMvcTest {
                 org.mockito.ArgumentMatchers.any()
         )).thenReturn(response);
 
-        mockMvc.perform(post("/request")
+        mockMvc.perform(post("/api/cards/request")
                         .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_CLIENT_BASIC"))
                                 .jwt(jwt -> jwt.claim("id", 1L)))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -135,7 +135,7 @@ class CardCreationControllerWebMvcTest {
         when(accountService.getAccountContext("265000000000123456"))
                 .thenReturn(new AccountNotificationContextDto(AccountOwnershipType.PERSONAL, 2L));
 
-        mockMvc.perform(post("/request")
+        mockMvc.perform(post("/api/cards/request")
                         .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_CLIENT_BASIC"))
                                 .jwt(jwt -> jwt.claim("id", 1L)))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -176,7 +176,7 @@ class CardCreationControllerWebMvcTest {
                 org.mockito.ArgumentMatchers.any()
         )).thenReturn(response);
 
-        mockMvc.perform(post("/request")
+        mockMvc.perform(post("/api/cards/request")
                         .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))
                                 .jwt(jwt -> jwt.claim("id", 999L)))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -222,7 +222,7 @@ class CardCreationControllerWebMvcTest {
                 org.mockito.ArgumentMatchers.any()
         )).thenReturn(response);
 
-        mockMvc.perform(post("/request/business")
+        mockMvc.perform(post("/api/cards/request/business")
                         .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_CLIENT_BASIC"))
                                 .jwt(jwt -> jwt.claim("id", 1L)))
                         .contentType(MediaType.APPLICATION_JSON)

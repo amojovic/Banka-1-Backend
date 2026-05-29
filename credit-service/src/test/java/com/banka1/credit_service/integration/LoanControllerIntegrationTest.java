@@ -154,8 +154,8 @@ class LoanControllerIntegrationTest {
                         .with(SecurityMockMvcRequestPostProcessors.csrf())
                         .contentType(APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.errorCode").value("ERR_INTERNAL_SERVER"));
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("ERR_FORBIDDEN"));
     }
 
     @Test
@@ -193,8 +193,8 @@ class LoanControllerIntegrationTest {
                                 .jwt(jwt -> jwt.claim("id", 77L).claim("roles", "CLIENT_BASIC"))
                                 .authorities(new SimpleGrantedAuthority("ROLE_CLIENT_BASIC")))
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
-                .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.errorCode").value("ERR_INTERNAL_SERVER"));
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("ERR_FORBIDDEN"));
     }
 
     @Test
