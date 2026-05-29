@@ -38,6 +38,10 @@ dependencies {
 
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+    // PR_19 C19.X: Redis L2 cache za StockPriceFeedService (cross-replica sharing
+    // umesto per-JVM ConcurrentHashMap). Auto-config se aktivira kada je
+    // spring.data.redis.host setovan — testovi bez Redisa fallback-uju na in-memory.
+    implementation("org.springframework.boot:spring-boot-starter-data-redis")
     implementation("org.springframework.boot:spring-boot-starter-liquibase")
     implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")

@@ -6,6 +6,9 @@ import com.banka1.marketservice.stock.repository.StockPriceSnapshotHistoryStore;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -17,28 +20,32 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
- * In-memory price feed sa 15s cache-om (PR_12 C12.1; PR_13 C13.2 dorada sa AlphaVantage realizacijom).
+ * Stock price feed cache (PR_12 C12.1; PR_13 C13.2 AlphaVantage; PR_19 C19.X Redis L2).
  *
  * <p>Pri prvom pozivu za neki ticker, dohvata sa AlphaVantage Quote API-ja
- * (kroz {@link AlphaVantageClient}). Posle toga 15 s vraca isti rezultat iz cache-a.
+ * (kroz {@link AlphaVantageClient}). Posle toga vraca rezultat iz cache-a do TTL-a.
  * Ako nema API key-a ili AlphaVantage ne odgovori, vraca dev-mock snapshot tako da
  * frontend OTC vizualizacija nikad ne padne na blank stranici.
  *
- * <p>U produkcionoj implementaciji ovo treba da bude WebSocket feed sa AlphaVantage
- * websocket-a ili sa berze direktno (sa redis cache-om za cross-replica sharing).
- * 15s in-memory cache je pragmatic kompromis — dovoljno brz da frontend ne probija
+ * <p>Cache hijerarhija:
+ * <ol>
+ *   <li>Redis L2 (kada je {@code spring.data.redis.host} setovan) — cross-replica sharing,
+ *       redz Redis container shared 7-servisnog setup-a (PR_19 C19.X).</li>
+ *   <li>In-process ConcurrentHashMap fallback — koristi se u unit testovima i kada
+ *       Redis konekcija nije dostupna (graceful degradacija).</li>
+ * </ol>
+ * 15s default TTL je pragmatic kompromis — dovoljno brz da frontend ne probija
  * AlphaVantage free-tier limit (5 zahteva/min, 500/dan).
  */
 @Slf4j
 @Service
 public class StockPriceFeedService {
 
-    private static final Duration CACHE_TTL = Duration.ofSeconds(15);
+    private static final String REDIS_KEY_PREFIX = "stock:price:";
 
-    private final Map<String, CachedSnapshot> cache = new ConcurrentHashMap<>();
+    private final Map<String, CachedSnapshot> localCache = new ConcurrentHashMap<>();
     private final StockPriceSnapshotHistoryStore historyStore;
 
-    /** Optional AlphaVantage klijent (PR_13 C13.2) — null ako klasa nije na classpath-u ili API key nije konfigurisan. */
     @Autowired(required = false)
     private AlphaVantageClient alphaVantageClient;
 
@@ -60,15 +67,23 @@ public class StockPriceFeedService {
         this.historyStore = historyStore;
     }
 
+    @Autowired(required = false)
+    private RedisTemplate<String, StockPriceSnapshotDto> stockPriceRedisTemplate;
+
+    @Value("${stock.price-feed.cache-ttl-seconds:15}")
+    private long cacheTtlSeconds = 15;
+
     public StockPriceSnapshotDto getCurrentPrice(String ticker) {
         String upper = ticker.toUpperCase();
-        CachedSnapshot cached = cache.get(upper);
-        if (cached != null && Instant.now().isBefore(cached.expiresAt)) {
-            return cached.snapshot;
+
+        StockPriceSnapshotDto cached = readFromCache(upper);
+        if (cached != null) {
+            return cached;
         }
+
         StockPriceSnapshotDto fresh = fetchFromUpstream(upper);
         if (fresh != null) {
-            cache.put(upper, new CachedSnapshot(fresh, Instant.now().plus(CACHE_TTL)));
+            writeToCache(upper, fresh);
             recordSnapshot(fresh);
         }
         return fresh;
@@ -79,6 +94,37 @@ public class StockPriceFeedService {
                 .map(this::getCurrentPrice)
                 .filter(java.util.Objects::nonNull)
                 .collect(Collectors.toList());
+    }
+
+    private StockPriceSnapshotDto readFromCache(String ticker) {
+        if (stockPriceRedisTemplate != null) {
+            try {
+                StockPriceSnapshotDto redisHit = stockPriceRedisTemplate.opsForValue().get(REDIS_KEY_PREFIX + ticker);
+                if (redisHit != null) {
+                    return redisHit;
+                }
+            } catch (DataAccessException ex) {
+                log.warn("Redis unavailable za {} cache read — fallback na in-process: {}", ticker, ex.getMessage());
+            }
+        }
+        CachedSnapshot localHit = localCache.get(ticker);
+        if (localHit != null && Instant.now().isBefore(localHit.expiresAt)) {
+            return localHit.snapshot;
+        }
+        return null;
+    }
+
+    private void writeToCache(String ticker, StockPriceSnapshotDto snapshot) {
+        Duration ttl = Duration.ofSeconds(cacheTtlSeconds);
+        if (stockPriceRedisTemplate != null) {
+            try {
+                stockPriceRedisTemplate.opsForValue().set(REDIS_KEY_PREFIX + ticker, snapshot, ttl);
+                return;
+            } catch (DataAccessException ex) {
+                log.warn("Redis unavailable za {} cache write — fallback na in-process: {}", ticker, ex.getMessage());
+            }
+        }
+        localCache.put(ticker, new CachedSnapshot(snapshot, Instant.now().plus(ttl)));
     }
 
     /**
