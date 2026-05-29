@@ -2,9 +2,10 @@ package com.banka1.marketservice.stock.service;
 
 import com.banka1.marketservice.stock.client.AlphaVantageClient;
 import com.banka1.marketservice.stock.dto.StockPriceSnapshotDto;
-import lombok.RequiredArgsConstructor;
+import com.banka1.marketservice.stock.repository.StockPriceSnapshotHistoryStore;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -38,15 +39,33 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class StockPriceFeedService {
 
     private static final String REDIS_KEY_PREFIX = "stock:price:";
 
     private final Map<String, CachedSnapshot> localCache = new ConcurrentHashMap<>();
+    private final StockPriceSnapshotHistoryStore historyStore;
 
     @Autowired(required = false)
     private AlphaVantageClient alphaVantageClient;
+
+    public StockPriceFeedService() {
+        this.historyStore = null;
+    }
+
+    /**
+     * Creates the feed service with optional time-series history storage.
+     *
+     * @param historyStoreProvider optional InfluxDB-backed history store
+     */
+    @Autowired
+    public StockPriceFeedService(ObjectProvider<StockPriceSnapshotHistoryStore> historyStoreProvider) {
+        this(historyStoreProvider.getIfAvailable());
+    }
+
+    StockPriceFeedService(StockPriceSnapshotHistoryStore historyStore) {
+        this.historyStore = historyStore;
+    }
 
     @Autowired(required = false)
     private RedisTemplate<String, StockPriceSnapshotDto> stockPriceRedisTemplate;
@@ -65,6 +84,7 @@ public class StockPriceFeedService {
         StockPriceSnapshotDto fresh = fetchFromUpstream(upper);
         if (fresh != null) {
             writeToCache(upper, fresh);
+            recordSnapshot(fresh);
         }
         return fresh;
     }
@@ -146,6 +166,17 @@ public class StockPriceFeedService {
                 .currency("USD")
                 .timestamp(Instant.now())
                 .build();
+    }
+
+    private void recordSnapshot(StockPriceSnapshotDto snapshot) {
+        if (historyStore == null) {
+            return;
+        }
+        try {
+            historyStore.saveSnapshot(snapshot);
+        } catch (RuntimeException exception) {
+            log.warn("Failed to record stock price snapshot in InfluxDB: {}", exception.getMessage());
+        }
     }
 
     private record CachedSnapshot(StockPriceSnapshotDto snapshot, Instant expiresAt) {}

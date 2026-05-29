@@ -55,4 +55,22 @@ public class EmployeeResponseDto {
 
     /** RBAC uloga zaposlenog. */
     private Role role;
+
+    /**
+     * Backward-compatible constructor used by older tests and callers that do not
+     * expose personal details added later to the response DTO.
+     */
+    public EmployeeResponseDto(
+            Long id,
+            String ime,
+            String prezime,
+            String email,
+            String username,
+            String pozicija,
+            String departman,
+            boolean aktivan,
+            Role role
+    ) {
+        this(id, ime, prezime, email, username, null, null, null, null, pozicija, departman, aktivan, role);
+    }
 }
