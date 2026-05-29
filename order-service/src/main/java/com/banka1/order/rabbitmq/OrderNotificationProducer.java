@@ -38,6 +38,42 @@ public class OrderNotificationProducer {
     }
 
     /**
+     * Publishes a notification that an order has been created/placed and is awaiting execution.
+     *
+     * @param payload the notification payload (serialized to JSON by Jackson)
+     */
+    public void sendOrderCreated(Object payload) {
+        rabbitTemplate.convertAndSend(exchange, "order.created", payload);
+    }
+
+    /**
+     * Publishes a notification that an order has been fully executed (status DONE).
+     *
+     * @param payload the notification payload (serialized to JSON by Jackson)
+     */
+    public void sendOrderDone(Object payload) {
+        rabbitTemplate.convertAndSend(exchange, "order.done", payload);
+    }
+
+    /**
+     * Publishes a notification that a portion of an order has been filled (partial fill).
+     *
+     * @param payload the notification payload (serialized to JSON by Jackson)
+     */
+    public void sendOrderPartialFill(Object payload) {
+        rabbitTemplate.convertAndSend(exchange, "order.partial_fill", payload);
+    }
+
+    /**
+     * Publishes a notification that a pending order was automatically cancelled on expiry.
+     *
+     * @param payload the notification payload (serialized to JSON by Jackson)
+     */
+    public void sendOrderAutoCancelled(Object payload) {
+        rabbitTemplate.convertAndSend(exchange, "order.auto_cancelled", payload);
+    }
+
+    /**
      * Publishes a notification that tax has been collected from a portfolio transaction.
      *
      * @param payload the notification payload (serialized to JSON by Jackson)
