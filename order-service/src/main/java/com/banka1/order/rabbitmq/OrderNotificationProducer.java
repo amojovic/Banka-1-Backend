@@ -81,4 +81,15 @@ public class OrderNotificationProducer {
     public void sendTaxCollected(Object payload) {
         rabbitTemplate.convertAndSend(exchange, "tax.collected", payload);
     }
+
+    /**
+     * Publishes a notification that a recurring (standing) order run was skipped —
+     * typically because the owner had insufficient funds. Routing key {@code order.recurring_skipped}
+     * is caught by the existing {@code order.#} binding in notification-service.
+     *
+     * @param payload the notification payload (serialized to JSON by Jackson)
+     */
+    public void sendRecurringOrderSkipped(Object payload) {
+        rabbitTemplate.convertAndSend(exchange, "order.recurring_skipped", payload);
+    }
 }
