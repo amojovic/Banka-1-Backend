@@ -1,5 +1,7 @@
 package com.banka1.employeeService.service.implementation;
 
+import com.banka1.employeeService.audit.AuditEventDto;
+import com.banka1.employeeService.audit.AuditPublisher;
 import com.banka1.employeeService.domain.ConfirmationToken;
 import com.banka1.employeeService.domain.Zaposlen;
 import com.banka1.employeeService.domain.enums.Permission;
@@ -34,6 +36,7 @@ import java.time.Period;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * Implementacija {@link CrudService} koja upravlja CRUD operacijama nad entitetom zaposlenog.
@@ -64,6 +67,11 @@ public class CrudServiceImplementation implements CrudService {
      * Klijent za slanje email notifikacija putem RabbitMQ-a.
      */
     private final RabbitClient rabbitClient;
+
+    /**
+     * Publisher za centralizovani audit log.
+     */
+    private final AuditPublisher auditPublisher;
 
     /**
      * Mapper za konverziju izmedju DTO i JPA entiteta zaposlenog.
@@ -210,8 +218,10 @@ public class CrudServiceImplementation implements CrudService {
 
         List<String> list=jwt.getClaim(permission);
         Set<Permission> permissions=new HashSet<>(list.stream().map(Permission::valueOf).toList());
+        Set<Permission> permissionsBefore = new HashSet<>(zaposlen.getPermissionSet() == null ? Set.of() : zaposlen.getPermissionSet());
         employeeMapper.updateEntityFromDto(zaposlen, dto, role1,permissions);
         Zaposlen updated = zaposlenRepository.save(zaposlen);
+        publishPermissionAuditEventIfChanged(jwt, callerId, updated, permissionsBefore);
 
         Boolean aktivan = dto.getAktivan();
         if (aktivan != null && !aktivan) {
@@ -320,5 +330,58 @@ public class CrudServiceImplementation implements CrudService {
      */
     private String escapeLike(String s) {
         return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
+
+    private void publishPermissionAuditEventIfChanged(Jwt jwt, Long actorId, Zaposlen edited,
+                                                      Set<Permission> permissionsBefore) {
+        Set<Permission> permissionsAfter = edited.getPermissionSet() == null
+                ? Set.of()
+                : new HashSet<>(edited.getPermissionSet());
+        if (permissionsBefore.equals(permissionsAfter)) {
+            return;
+        }
+        String details = "Permisije promenjene: " + sortedPermissions(permissionsBefore)
+                + " -> " + sortedPermissions(permissionsAfter);
+        AuditEventDto event = new AuditEventDto(
+                actorId,
+                resolveActorName(jwt, actorId),
+                "EMPLOYEE_PERMISSIONS_CHANGED",
+                "EMPLOYEE",
+                String.valueOf(edited.getId()),
+                details,
+                System.currentTimeMillis());
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                auditPublisher.publish(event);
+            }
+        });
+    }
+
+    private String sortedPermissions(Set<Permission> permissions) {
+        return new TreeSet<>(permissions).toString();
+    }
+
+    private String resolveActorName(Jwt jwt, Long actorId) {
+        if (actorId != null) {
+            Zaposlen actor = zaposlenRepository.findById(actorId).orElse(null);
+            if (actor != null) {
+                String firstName = actor.getIme() == null ? "" : actor.getIme().trim();
+                String lastName = actor.getPrezime() == null ? "" : actor.getPrezime().trim();
+                String fullName = (firstName + " " + lastName).trim();
+                if (!fullName.isEmpty()) {
+                    return fullName;
+                }
+            }
+        }
+        Object username = jwt.getClaim("username");
+        if (username != null) {
+            return String.valueOf(username);
+        }
+        String subject = jwt.getSubject();
+        if (subject != null) {
+            return subject;
+        }
+        return actorId == null ? "SYSTEM" : String.valueOf(actorId);
     }
 }
