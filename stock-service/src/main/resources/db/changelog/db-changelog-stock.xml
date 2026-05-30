@@ -18,5 +18,6 @@
     <include file="db/changelog/stock/011-add-stock-option-market-data.sql"/>
     <include file="db/changelog/stock/012-dev-seed-listing-prices.sql"/>
     <include file="db/changelog/stock/013-price-alerts.sql"/>
+    <include file="db/changelog/stock/014-watchlists.sql"/>
 
 </databaseChangeLog>
