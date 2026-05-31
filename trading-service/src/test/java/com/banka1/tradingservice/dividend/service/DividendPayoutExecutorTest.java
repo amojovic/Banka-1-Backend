@@ -121,7 +121,7 @@ class DividendPayoutExecutorTest {
         when(payoutRepository.existsByUserIdAndListingIdAndPaymentDateAndForBank(7L, 1L, AS_OF, false))
                 .thenReturn(false);
         when(accountClient.accountInCurrency(7L, "RSD")).thenReturn(new OwnerAccount(701L, "RSD-7"));
-        when(accountClient.stateRsdAccountNumber()).thenReturn("RSD-STATE");
+        when(accountClient.stateRsdAccount()).thenReturn(new OwnerAccount(900L, "RSD-STATE", -2L));
 
         boolean paid = executor.payoutForHolder(
                 stock("RSD", new BigDecimal("50"), new BigDecimal("0.04")), holder, AS_OF);
@@ -137,7 +137,7 @@ class DividendPayoutExecutorTest {
         assertEquals(701L, payout.getAccountId());
 
         verify(accountClient).creditAccount(eq("RSD-7"), eq(new BigDecimal("42.5000")), eq(7L));
-        verify(accountClient).creditAccount(eq("RSD-STATE"), eq(new BigDecimal("7.5000")), eq(7L));
+        verify(accountClient).creditAccount(eq("RSD-STATE"), eq(new BigDecimal("7.5000")), eq(-2L));
         verifyNoInteractions(marketPriceClient);
         verify(accountClient, never()).defaultRsdAccountNumber(anyLong());
     }
@@ -155,7 +155,7 @@ class DividendPayoutExecutorTest {
         when(payoutRepository.existsByUserIdAndListingIdAndPaymentDateAndForBank(7L, 1L, AS_OF, false))
                 .thenReturn(false);
         when(accountClient.accountInCurrency(7L, "USD")).thenReturn(new OwnerAccount(801L, "USD-7"));
-        when(accountClient.stateRsdAccountNumber()).thenReturn("RSD-STATE");
+        when(accountClient.stateRsdAccount()).thenReturn(new OwnerAccount(900L, "RSD-STATE", -2L));
         when(marketPriceClient.convertNoCommission(new BigDecimal("20.0000"), "USD", "RSD"))
                 .thenReturn(Optional.of(new BigDecimal("2340.0000")));
         when(marketPriceClient.convertNoCommission(new BigDecimal("351.0000"), "RSD", "USD"))
@@ -175,7 +175,7 @@ class DividendPayoutExecutorTest {
         assertEquals(801L, payout.getAccountId());
 
         verify(accountClient).creditAccount(eq("USD-7"), eq(new BigDecimal("17.0000")), eq(7L));
-        verify(accountClient).creditAccount(eq("RSD-STATE"), eq(new BigDecimal("351.0000")), eq(7L));
+        verify(accountClient).creditAccount(eq("RSD-STATE"), eq(new BigDecimal("351.0000")), eq(-2L));
         verify(accountClient, never()).accountInCurrency(7L, "RSD");
         verify(accountClient, never()).defaultRsdAccountNumber(anyLong());
     }
@@ -192,7 +192,7 @@ class DividendPayoutExecutorTest {
                 .thenReturn(false);
         when(accountClient.accountInCurrency(7L, "USD")).thenReturn(null);
         when(accountClient.accountInCurrency(7L, "RSD")).thenReturn(new OwnerAccount(701L, "RSD-7"));
-        when(accountClient.stateRsdAccountNumber()).thenReturn("RSD-STATE");
+        when(accountClient.stateRsdAccount()).thenReturn(new OwnerAccount(900L, "RSD-STATE", -2L));
         when(marketPriceClient.convertNoCommission(new BigDecimal("20.0000"), "USD", "RSD"))
                 .thenReturn(Optional.of(new BigDecimal("2340.0000")));
         when(marketPriceClient.convertNoCommission(new BigDecimal("351.0000"), "RSD", "USD"))
@@ -210,7 +210,7 @@ class DividendPayoutExecutorTest {
         assertEquals(701L, payout.getAccountId());
 
         verify(accountClient).creditAccount(eq("RSD-7"), eq(new BigDecimal("1989.0000")), eq(7L));
-        verify(accountClient).creditAccount(eq("RSD-STATE"), eq(new BigDecimal("351.0000")), eq(7L));
+        verify(accountClient).creditAccount(eq("RSD-STATE"), eq(new BigDecimal("351.0000")), eq(-2L));
     }
 
     // -------------------- WP-14b: legacy endpoint fallback --------------------
@@ -223,7 +223,7 @@ class DividendPayoutExecutorTest {
                 .thenReturn(false);
         when(accountClient.accountInCurrency(7L, "RSD")).thenReturn(null);
         when(accountClient.defaultRsdAccountNumber(7L)).thenReturn("RSD-7");
-        when(accountClient.stateRsdAccountNumber()).thenReturn("RSD-STATE");
+        when(accountClient.stateRsdAccount()).thenReturn(new OwnerAccount(900L, "RSD-STATE", -2L));
 
         boolean paid = executor.payoutForHolder(
                 stock("RSD", new BigDecimal("50"), new BigDecimal("0.04")), holder, AS_OF);
@@ -243,7 +243,7 @@ class DividendPayoutExecutorTest {
                 .thenReturn(false);
         when(accountClient.accountInCurrency(7L, "RSD")).thenReturn(null);
         when(accountClient.defaultRsdAccountNumber(7L)).thenReturn(null);
-        when(accountClient.stateRsdAccountNumber()).thenReturn("RSD-STATE");
+        when(accountClient.stateRsdAccount()).thenReturn(new OwnerAccount(900L, "RSD-STATE", -2L));
 
         boolean paid = executor.payoutForHolder(
                 stock("RSD", new BigDecimal("50"), new BigDecimal("0.04")), holder, AS_OF);
@@ -253,7 +253,7 @@ class DividendPayoutExecutorTest {
         verify(payoutRepository).save(captor.capture());
         assertNull(captor.getValue().getAccountId());
         verify(accountClient, never()).creditAccount(eq("RSD-7"), any(), anyLong());
-        verify(accountClient).creditAccount(eq("RSD-STATE"), eq(new BigDecimal("7.5000")), eq(7L));
+        verify(accountClient).creditAccount(eq("RSD-STATE"), eq(new BigDecimal("7.5000")), eq(-2L));
     }
 
     // -------------------- bank-held holder: no tax --------------------
@@ -266,7 +266,7 @@ class DividendPayoutExecutorTest {
         when(orderRepository.bankHeldBuyQuantity(99L, 1L)).thenReturn(100L);
         when(payoutRepository.existsByUserIdAndListingIdAndPaymentDateAndForBank(99L, 1L, AS_OF, true))
                 .thenReturn(false);
-        when(accountClient.bankRsdAccount()).thenReturn(new OwnerAccount(1001L, "RSD-BANK"));
+        when(accountClient.bankRsdAccount()).thenReturn(new OwnerAccount(1001L, "RSD-BANK", -1L));
 
         boolean paid = executor.payoutForHolder(
                 stock("RSD", new BigDecimal("50"), new BigDecimal("0.04")), holder, AS_OF);
@@ -281,8 +281,8 @@ class DividendPayoutExecutorTest {
         assertEquals(1001L, payout.getAccountId());
         assertEquals(100, payout.getQuantity(), "kolicina = bank-held kolicina");
 
-        verify(accountClient).creditAccount(eq("RSD-BANK"), eq(new BigDecimal("50.0000")), eq(99L));
-        verify(accountClient, never()).stateRsdAccountNumber();
+        verify(accountClient).creditAccount(eq("RSD-BANK"), eq(new BigDecimal("50.0000")), eq(-1L));
+        verify(accountClient, never()).stateRsdAccount();
         verify(accountClient, never()).accountInCurrency(anyLong(), any());
     }
 
@@ -318,8 +318,8 @@ class DividendPayoutExecutorTest {
         when(payoutRepository.existsByUserIdAndListingIdAndPaymentDateAndForBank(7L, 1L, AS_OF, true))
                 .thenReturn(false);
         when(accountClient.accountInCurrency(7L, "RSD")).thenReturn(new OwnerAccount(701L, "RSD-7"));
-        when(accountClient.stateRsdAccountNumber()).thenReturn("RSD-STATE");
-        when(accountClient.bankRsdAccount()).thenReturn(new OwnerAccount(1001L, "RSD-BANK"));
+        when(accountClient.stateRsdAccount()).thenReturn(new OwnerAccount(900L, "RSD-STATE", -2L));
+        when(accountClient.bankRsdAccount()).thenReturn(new OwnerAccount(1001L, "RSD-BANK", -1L));
 
         boolean paid = executor.payoutForHolder(
                 stock("RSD", new BigDecimal("50"), new BigDecimal("0.04")), holder, AS_OF);
@@ -342,8 +342,8 @@ class DividendPayoutExecutorTest {
         assertEquals(0, new BigDecimal("30.0000").compareTo(bank.getGrossAmount()));
         assertEquals(0, BigDecimal.ZERO.compareTo(bank.getTaxAmountRsd()), "bank-held bez poreza");
 
-        verify(accountClient).creditAccount(eq("RSD-STATE"), eq(new BigDecimal("3.0000")), eq(7L));
-        verify(accountClient).creditAccount(eq("RSD-BANK"), eq(new BigDecimal("30.0000")), eq(7L));
+        verify(accountClient).creditAccount(eq("RSD-STATE"), eq(new BigDecimal("3.0000")), eq(-2L));
+        verify(accountClient).creditAccount(eq("RSD-BANK"), eq(new BigDecimal("30.0000")), eq(-1L));
     }
 
     @Test
@@ -353,7 +353,7 @@ class DividendPayoutExecutorTest {
         when(orderRepository.bankHeldBuyQuantity(7L, 1L)).thenReturn(200L);
         when(payoutRepository.existsByUserIdAndListingIdAndPaymentDateAndForBank(7L, 1L, AS_OF, true))
                 .thenReturn(false);
-        when(accountClient.bankRsdAccount()).thenReturn(new OwnerAccount(1001L, "RSD-BANK"));
+        when(accountClient.bankRsdAccount()).thenReturn(new OwnerAccount(1001L, "RSD-BANK", -1L));
 
         boolean paid = executor.payoutForHolder(
                 stock("RSD", new BigDecimal("50"), new BigDecimal("0.04")), holder, AS_OF);
@@ -365,7 +365,7 @@ class DividendPayoutExecutorTest {
         assertTrue(payout.isForBank());
         assertEquals(100, payout.getQuantity(), "kolicina je stisnuta na max portfolija");
         // Nema licne isplate — personalQty = 100 - 100 = 0
-        verify(accountClient, never()).stateRsdAccountNumber();
+        verify(accountClient, never()).stateRsdAccount();
     }
 
     // -------------------- idempotency per for_bank --------------------
@@ -379,7 +379,7 @@ class DividendPayoutExecutorTest {
                 .thenReturn(true); // vec isplaceno
         when(payoutRepository.existsByUserIdAndListingIdAndPaymentDateAndForBank(7L, 1L, AS_OF, true))
                 .thenReturn(false);
-        when(accountClient.bankRsdAccount()).thenReturn(new OwnerAccount(1001L, "RSD-BANK"));
+        when(accountClient.bankRsdAccount()).thenReturn(new OwnerAccount(1001L, "RSD-BANK", -1L));
 
         boolean paid = executor.payoutForHolder(
                 stock("RSD", new BigDecimal("50"), new BigDecimal("0.04")), holder, AS_OF);

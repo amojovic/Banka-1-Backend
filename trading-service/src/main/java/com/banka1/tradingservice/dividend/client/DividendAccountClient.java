@@ -108,26 +108,34 @@ public class DividendAccountClient {
     }
 
     /**
-     * Razresava broj drzavnog RSD racuna na koji se uplacuje porez.
+     * Razresava drzavni RSD racun (porez na kapitalnu dobit). Drzava je modelovana
+     * kao firma sa vlasnikom {@code -2}; {@link OwnerAccount#ownerId()} nosi taj id
+     * koji se prosledjuje kao {@code clientId} pri kreditiranju — account-service
+     * proverava vlasnistvo ({@code vlasnik == clientId}), pa bez tacnog vlasnika
+     * vraca {@code 400}.
      *
-     * @return broj drzavnog RSD racuna, ili {@code null} ako lookup padne
+     * @return drzavni RSD racun, ili {@code null} ako lookup padne
      */
-    public String stateRsdAccountNumber() {
-        return accountNumberFromDetails("/internal/accounts/state/RSD", "drzavni");
+    public OwnerAccount stateRsdAccount() {
+        return toOwnerAccount(accountDetails("/internal/accounts/state/RSD", "drzavni"));
     }
 
     /**
-     * Razresava bankin RSD racun (id + broj) na koji se uplacuje dividenda
-     * pozicija koje banka drzi (Profit Banke). WP-14b: {@code id} se belezi u
-     * {@code DividendPayout.accountId}.
+     * Razresava bankin RSD racun (Profit Banke) na koji se uplacuje dividenda
+     * pozicija koje banka drzi. {@link OwnerAccount#ownerId()} nosi vlasnika racuna
+     * koji se prosledjuje kao {@code clientId} pri kreditiranju (vidi
+     * {@link #stateRsdAccount()}). {@code id} se belezi u {@code DividendPayout.accountId}.
      *
      * @return bankin RSD racun, ili {@code null} ako lookup padne
      */
     public OwnerAccount bankRsdAccount() {
-        AccountDetails details = accountDetails("/internal/accounts/bank/RSD", "bankin");
+        return toOwnerAccount(accountDetails("/internal/accounts/bank/RSD", "bankin"));
+    }
+
+    private OwnerAccount toOwnerAccount(AccountDetails details) {
         return details == null || details.accountNumber() == null
                 ? null
-                : new OwnerAccount(details.id(), details.accountNumber());
+                : new OwnerAccount(details.id(), details.accountNumber(), details.ownerId());
     }
 
     /**
@@ -151,11 +159,6 @@ public class DividendAccountClient {
                 .timeout(Duration.ofSeconds(10))
                 .block();
         log.info("Dividend: kreditirano accountNumber={} ownerId={} amount={}", accountNumber, ownerId, amount);
-    }
-
-    private String accountNumberFromDetails(String uri, String label) {
-        AccountDetails details = accountDetails(uri, label);
-        return details == null ? null : details.accountNumber();
     }
 
     private AccountDetails accountDetails(String uri, String label) {
@@ -205,7 +208,15 @@ public class DividendAccountClient {
      *
      * @param id            interni ID racuna ({@code null} ako endpoint ne vrati id)
      * @param accountNumber broj racuna primaoca
+     * @param ownerId       vlasnik racuna; prosledjuje se kao {@code clientId} pri
+     *                      kreditiranju radi provere vlasnistva u account-service-u
+     *                      ({@code null} za drzaocev racun — tamo je vlasnik sam drzalac)
      */
-    public record OwnerAccount(Long id, String accountNumber) {
+    public record OwnerAccount(Long id, String accountNumber, Long ownerId) {
+
+        /** Konstruktor za drzaocev racun gde je vlasnik sam drzalac (ownerId se ne koristi). */
+        public OwnerAccount(Long id, String accountNumber) {
+            this(id, accountNumber, null);
+        }
     }
 }

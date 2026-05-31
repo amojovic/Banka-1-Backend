@@ -153,7 +153,7 @@ public class DividendPayoutExecutor {
                 .build());
 
         if (bankAccount != null) {
-            accountClient.creditAccount(bankAccount.accountNumber(), grossRsd, holder.getUserId());
+            accountClient.creditAccount(bankAccount.accountNumber(), grossRsd, bankAccount.ownerId());
         } else {
             log.warn("Dividend: bankin RSD racun nije razresen — bank-held userId={} listingId={} "
                     + "evidentirana bez kreditiranja.", holder.getUserId(), stock.listingId());
@@ -181,7 +181,7 @@ public class DividendPayoutExecutor {
         BigDecimal netListing = scale(gross.subtract(taxInListingCurrency));
 
         PayoutTarget target = resolvePersonalTarget(userId, currency);
-        String stateAccount = accountClient.stateRsdAccountNumber();
+        DividendAccountClient.OwnerAccount stateAccount = accountClient.stateRsdAccount();
 
         payoutRepository.save(DividendPayout.builder()
                 .userId(userId)
@@ -205,7 +205,7 @@ public class DividendPayoutExecutor {
                     + "evidentirana bez kreditiranja.", userId, currency, stock.listingId());
         }
         if (taxRsd.signum() > 0 && stateAccount != null) {
-            accountClient.creditAccount(stateAccount, taxRsd, userId);
+            accountClient.creditAccount(stateAccount.accountNumber(), taxRsd, stateAccount.ownerId());
         } else if (taxRsd.signum() > 0) {
             log.warn("Dividend: drzavni RSD racun nije razresen — porez {} RSD (userId={} listingId={}) "
                     + "evidentiran bez kreditiranja.", taxRsd, userId, stock.listingId());
