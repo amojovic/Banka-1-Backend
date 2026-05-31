@@ -176,6 +176,22 @@ public class ExchangeRateServiceImpl implements ExchangeRateService {
 
     @Override
     @Transactional(readOnly = true)
+    public List<ExchangeRateDto> getRateHistory(String currencyCode, LocalDate from, LocalDate to) {
+        SupportedCurrency currency;
+        try {
+            currency = SupportedCurrency.from(currencyCode);
+        } catch (BusinessException e) {
+            return List.of();
+        }
+        return exchangeRateRepository
+                .findByCurrencyCodeAndDateBetweenOrderByDateAsc(currency.name(), from, to)
+                .stream()
+                .map(this::toDto)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public ConversionResponseDto convert(ConversionRequestDto request) {
         return convertInternal(request, true);
     }
