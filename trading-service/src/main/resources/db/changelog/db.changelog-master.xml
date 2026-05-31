@@ -57,4 +57,7 @@
     <!-- Centralizovani audit log (Issue 9). -->
     <include file="db/changelog/trading-otc/013-audit-log.sql"/>
 
+    <!-- Kvartalna isplata dividende (Issue 11, WP-14 Celina 3.7). -->
+    <include file="db/changelog/trading-otc/014-dividend-payouts.sql"/>
+
 </databaseChangeLog>
