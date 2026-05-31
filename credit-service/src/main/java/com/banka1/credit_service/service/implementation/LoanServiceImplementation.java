@@ -308,7 +308,7 @@ public class LoanServiceImplementation implements LoanService {
 
     @Override
     public Page<LoanResponseDto> find(Jwt jwt, int page, int size) {
-        return loanRepository.findByClientIdOrderByAmountDesc(((Number) jwt.getClaim(appPropertiesId)).longValue(), PageRequest.of(page,size)).map(s->new LoanResponseDto(s.getId(),s.getLoanType(),s.getAmount(),s.getStatus()));
+        return loanRepository.findByClientIdOrderByAmountDesc(((Number) jwt.getClaim(appPropertiesId)).longValue(), PageRequest.of(page,size)).map(LoanResponseDto::new);
     }
 
     @Override
