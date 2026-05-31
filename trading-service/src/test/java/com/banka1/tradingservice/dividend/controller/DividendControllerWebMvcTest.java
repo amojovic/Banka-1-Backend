@@ -2,6 +2,7 @@ package com.banka1.tradingservice.dividend.controller;
 
 import com.banka1.tradingservice.dividend.domain.DividendPayout;
 import com.banka1.tradingservice.dividend.repository.DividendPayoutRepository;
+import com.banka1.tradingservice.dividend.service.DividendDistributionService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -13,6 +14,7 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
@@ -24,12 +26,14 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -49,6 +53,9 @@ class DividendControllerWebMvcTest {
 
     @MockitoBean
     private DividendPayoutRepository payoutRepository;
+
+    @MockitoBean
+    private DividendDistributionService distributionService;
 
     private DividendPayout payout(Long userId, Long listingId) {
         return DividendPayout.builder()
@@ -117,6 +124,37 @@ class DividendControllerWebMvcTest {
     @Test
     void rejectsUnauthenticated() throws Exception {
         mockMvc.perform(get("/dividends"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void adminCanTriggerPayout() throws Exception {
+        when(distributionService.distribute(LocalDate.of(2026, 3, 31))).thenReturn(3);
+
+        mockMvc.perform(post("/dividends/trigger")
+                        .param("asOf", "2026-03-31")
+                        .with(jwt().jwt(j -> j.claim("id", 1L))
+                                .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paid").value(3))
+                .andExpect(jsonPath("$.asOf").value("2026-03-31"));
+
+        verify(distributionService).distribute(LocalDate.of(2026, 3, 31));
+    }
+
+    @Test
+    void nonAdminCannotTriggerPayout() throws Exception {
+        mockMvc.perform(post("/dividends/trigger")
+                        .with(jwt().jwt(j -> j.claim("id", 7L))
+                                .authorities(new SimpleGrantedAuthority("ROLE_CLIENT"))))
+                .andExpect(status().isForbidden());
+
+        verify(distributionService, never()).distribute(any());
+    }
+
+    @Test
+    void rejectsUnauthenticatedTrigger() throws Exception {
+        mockMvc.perform(post("/dividends/trigger"))
                 .andExpect(status().isUnauthorized());
     }
 
