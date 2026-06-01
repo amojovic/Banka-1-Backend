@@ -1,5 +1,6 @@
 package com.banka1.bankingcore.card.service;
 
+import com.banka1.card_service.service.LuhnService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -8,10 +9,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Verifikuje Luhn checksum algoritam za PAN brojeve (Celina 2.txt spec).
+ *
+ * <p>Banking-core-service konsoliduje card-service kao library dep (PR_02), pa se
+ * Luhn validacija testira nad stvarnom produkcionom klasom
+ * {@link com.banka1.card_service.service.LuhnService}.
  */
 class LuhnValidatorTest {
 
-    private final LuhnValidator validator = new LuhnValidator();
+    private final LuhnService validator = new LuhnService();
 
     @ParameterizedTest
     @ValueSource(strings = {
@@ -27,16 +32,10 @@ class LuhnValidatorTest {
     @ParameterizedTest
     @ValueSource(strings = {
             "4532015112830367",  // Visa sa pogresnim check digit-om
-            "1234567890123456",  // Generic invalid
-            "0000000000000000"   // Sve nule (Luhn returns 0 — granicni slucaj)
+            "1234567890123456"   // Generic invalid
     })
     void validatePan_odbija_pogresne_Luhn_PAN(String pan) {
-        // Note: 0000000000000000 prolazi Luhn (sum = 0), ali nije realan PAN.
-        // Validator treba dodatno da odbije sve-nule kao reservoirable case.
-        // Test je kao smoke; pun integracija u CardServiceTest.
-        if (!"0000000000000000".equals(pan)) {
-            assertThat(validator.isValid(pan)).isFalse();
-        }
+        assertThat(validator.isValid(pan)).isFalse();
     }
 
     @Test

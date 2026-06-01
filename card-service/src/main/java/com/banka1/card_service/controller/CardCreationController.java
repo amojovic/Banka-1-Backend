@@ -30,7 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
  * and internal service callers without duplicating controller mappings.
  */
 @RestController
-@RequestMapping("/api/cards")
+@RequestMapping
 @RequiredArgsConstructor
 public class CardCreationController {
 

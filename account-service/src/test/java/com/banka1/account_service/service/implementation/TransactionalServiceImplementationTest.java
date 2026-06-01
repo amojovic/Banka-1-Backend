@@ -140,8 +140,9 @@ class TransactionalServiceImplementationTest {
         assertThat(from.getStanje()).isEqualByComparingTo("800");
         // bankSender credited 200 RSD
         assertThat(bankSender.getStanje()).isEqualByComparingTo("50200");
-        // bankTarget debited 1.95 EUR
-        assertThat(bankTarget.getStanje()).isEqualByComparingTo("49998.05");
+        // bankTarget debited (toAmount - commission) = 1.95 - 0.10 = 1.85 EUR;
+        // provizija ostaje na bankin EUR racun (spec Celina 2 "provizije idu banci u toj valuti")
+        assertThat(bankTarget.getStanje()).isEqualByComparingTo("49998.15");
         // to credited (toAmount - commission) = 1.95 - 0.10 = 1.85 EUR
         assertThat(to.getStanje()).isEqualByComparingTo("501.85");
     }
@@ -152,15 +153,17 @@ class TransactionalServiceImplementationTest {
         FxAccount bankUsd = fxAccount("111000120000000099", -1L, EUR, "50000", "50000");
         CheckingAccount bankRsd = account("111000110000000099", -1L, RSD, "50000", "50000", "0", "0");
 
-        PaymentDto dto = payment("111000110000000011", "111000120000000099", "697.37", "6.98", "0.05", 1L);
+        // fromAmount mora ostati u okviru klijentovog dnevnog/mesecnog limita (500/1000)
+        PaymentDto dto = payment("111000110000000011", "111000120000000099", "300.00", "3.00", "0.05", 1L);
 
         UpdatedBalanceResponseDto result = service.transfer(from, bankUsd, bankRsd, bankUsd, dto);
 
-        assertThat(from.getStanje()).isEqualByComparingTo("302.63");
+        assertThat(from.getStanje()).isEqualByComparingTo("700");
+        // bankRsd (bankSender) je netaknut — transfer ka bankin racun ide direktno na bankUsd
         assertThat(bankRsd.getStanje()).isEqualByComparingTo("50000");
-        assertThat(bankUsd.getStanje()).isEqualByComparingTo("50006.98");
-        assertThat(result.getSenderBalance()).isEqualByComparingTo("302.63");
-        assertThat(result.getReceiverBalance()).isEqualByComparingTo("50006.98");
+        assertThat(bankUsd.getStanje()).isEqualByComparingTo("50003.00");
+        assertThat(result.getSenderBalance()).isEqualByComparingTo("700");
+        assertThat(result.getReceiverBalance()).isEqualByComparingTo("50003.00");
     }
 
     // ──────────────────── helpers ────────────────────

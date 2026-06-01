@@ -4,7 +4,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.TopicExchange;
+import org.springframework.boot.amqp.autoconfigure.RabbitAutoConfiguration;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.test.context.TestPropertySource;
@@ -17,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Verifikuje da {@link RabbitConfig} deklaracije queue-ova i binding-a po DoD #215.
  */
 @SpringBootTest(classes = RabbitConfig.class)
+@ImportAutoConfiguration(RabbitAutoConfiguration.class)
 @TestPropertySource(properties = {
         "spring.rabbitmq.host=localhost",
         "spring.rabbitmq.port=5672"

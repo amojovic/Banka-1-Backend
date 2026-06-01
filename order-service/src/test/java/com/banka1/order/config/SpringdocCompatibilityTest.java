@@ -26,7 +26,21 @@ import static org.assertj.core.api.Assertions.assertThat;
         "services.employee.url=http://localhost:18081",
         "services.client.url=http://localhost:18083",
         "services.exchange.url=http://localhost:18085",
-        "services.stock.url=http://localhost:18090"
+        "services.stock.url=http://localhost:18090",
+        // RabbitMQ properties: order-service runs as a library inside trading-service and
+        // normally inherits these from the host service's application.properties. When the
+        // OrderServiceApplication context is booted standalone for this test they must be
+        // supplied explicitly so RabbitConfig/OrderNotificationProducer can resolve.
+        "rabbitmq.exchange=order-events-test",
+        "spring.rabbitmq.host=localhost",
+        "spring.rabbitmq.port=5672",
+        "spring.rabbitmq.username=guest",
+        "spring.rabbitmq.password=guest",
+        // security-lib's SecurityConfig.authChain calls http.securityMatcher(props.getPermitAll());
+        // banka.security.permit-all has no default, so it must be supplied here (normally inherited
+        // from the host service). The springdoc endpoints below are exercised without a JWT, so they
+        // belong in the permit-all matcher.
+        "banka.security.permit-all=/v3/api-docs/**,/swagger-ui/**,/swagger-ui.html"
 }, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class SpringdocCompatibilityTest {
 

@@ -7,7 +7,6 @@ import com.banka1.bankingcore.account.repository.margin.CompanyMarginAccountRepo
 import com.banka1.bankingcore.account.repository.margin.MarginAccountRepository;
 import com.banka1.bankingcore.account.repository.margin.UserMarginAccountRepository;
 import com.banka1.bankingcore.account.service.AccountNumberGenerator;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -31,11 +30,6 @@ class MarginAccountServiceTest {
 
     @InjectMocks private MarginAccountService service;
 
-    @BeforeEach
-    void setUp() {
-        when(accountNumberGenerator.generate()).thenReturn("1234567890123456");
-    }
-
     @Test
     void createForUser_kreiraRacunSaActiveTrue_kadInitialPrekoMaintenance() {
         CreateUserMarginAccountDto dto = new CreateUserMarginAccountDto(
@@ -43,6 +37,7 @@ class MarginAccountServiceTest {
                 new BigDecimal("50000"),  // initial
                 new BigDecimal("20000"),  // maintenance
                 new BigDecimal("0.3"));   // bank participation
+        when(accountNumberGenerator.generate()).thenReturn("1234567890123456");
         when(userRepo.existsByUserId(100L)).thenReturn(false);
         when(userRepo.save(any())).thenAnswer(inv -> {
             UserMarginAccount a = inv.getArgument(0);

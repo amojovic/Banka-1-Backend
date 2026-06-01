@@ -82,7 +82,7 @@ class AuthEndpointsIntegrationTest {
 
         LoginRequestDto request = new LoginRequestDto("pera@banka.com", "Password12");
 
-        mockMvc.perform(post("/auth/login")
+        mockMvc.perform(post("/employees/auth/login")
                         .contentType(APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
@@ -105,7 +105,7 @@ class AuthEndpointsIntegrationTest {
 
         RefreshTokenRequestDto request = new RefreshTokenRequestDto(rawRefreshToken);
 
-        String rotatedToken = mockMvc.perform(post("/auth/refresh")
+        String rotatedToken = mockMvc.perform(post("/employees/auth/refresh")
                         .contentType(APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
@@ -127,7 +127,7 @@ class AuthEndpointsIntegrationTest {
 
         LoginRequestDto request = new LoginRequestDto("wrong@banka.com", "WrongPassword12");
 
-        mockMvc.perform(post("/auth/login")
+        mockMvc.perform(post("/employees/auth/login")
                         .contentType(APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isUnauthorized());
@@ -142,7 +142,7 @@ class AuthEndpointsIntegrationTest {
 
         LoginRequestDto request = new LoginRequestDto("inactive@banka.com", "Password12");
 
-        mockMvc.perform(post("/auth/login")
+        mockMvc.perform(post("/employees/auth/login")
                         .contentType(APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isForbidden());
@@ -162,7 +162,7 @@ class AuthEndpointsIntegrationTest {
 
         LogoutRequestDto request = new LogoutRequestDto(rawToken);
 
-        mockMvc.perform(delete("/auth/logout")
+        mockMvc.perform(delete("/employees/auth/logout")
                         .contentType(APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNoContent());
@@ -174,7 +174,7 @@ class AuthEndpointsIntegrationTest {
     void logoutWithUnknownTokenReturnsNoContentSilently() throws Exception {
         LogoutRequestDto request = new LogoutRequestDto("nonexistenttoken12345678901234567890123");
 
-        mockMvc.perform(delete("/auth/logout")
+        mockMvc.perform(delete("/employees/auth/logout")
                         .contentType(APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNoContent());
@@ -188,7 +188,7 @@ class AuthEndpointsIntegrationTest {
         ConfirmationToken ct = new ConfirmationToken(jwtService.sha256Hex(plainToken), employee);
         confirmationTokenRepository.save(ct);
 
-        mockMvc.perform(get("/auth/checkActivate")
+        mockMvc.perform(get("/employees/auth/checkActivate")
                         .param("confirmationToken", plainToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isNumber());
@@ -196,7 +196,7 @@ class AuthEndpointsIntegrationTest {
 
     @Test
     void checkActivateReturns400ForInvalidToken() throws Exception {
-        mockMvc.perform(get("/auth/checkActivate")
+        mockMvc.perform(get("/employees/auth/checkActivate")
                         .param("confirmationToken", "tooshort"))
                 .andExpect(status().isBadRequest());
     }
@@ -208,7 +208,7 @@ class AuthEndpointsIntegrationTest {
 
         ForgotPasswordDto request = new ForgotPasswordDto("forgot@banka.com");
 
-        mockMvc.perform(post("/auth/forgot-password")
+        mockMvc.perform(post("/employees/auth/forgot-password")
                         .contentType(APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isAccepted());
@@ -224,7 +224,7 @@ class AuthEndpointsIntegrationTest {
 
         ResendActivationDto request = new ResendActivationDto("resend@banka.com");
 
-        mockMvc.perform(post("/auth/resend-activation")
+        mockMvc.perform(post("/employees/auth/resend-activation")
                         .contentType(APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isAccepted());
@@ -237,7 +237,7 @@ class AuthEndpointsIntegrationTest {
 
         ResendActivationDto request = new ResendActivationDto("active@banka.com");
 
-        mockMvc.perform(post("/auth/resend-activation")
+        mockMvc.perform(post("/employees/auth/resend-activation")
                         .contentType(APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isAccepted())

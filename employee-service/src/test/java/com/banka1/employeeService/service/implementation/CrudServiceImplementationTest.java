@@ -70,6 +70,7 @@ class CrudServiceImplementationTest {
         ReflectionTestUtils.setField(crudService, "role", "roles");
         ReflectionTestUtils.setField(crudService, "permission", "permissions");
         ReflectionTestUtils.setField(crudService, "activateAccount", "http://localhost/activate?token=");
+        ReflectionTestUtils.setField(crudService, "confirmationTokenExpiration", 15L);
         TransactionSynchronizationManager.initSynchronization();
     }
 
@@ -121,7 +122,7 @@ class CrudServiceImplementationTest {
         Zaposlen mapped = employee("nikola@banka.com", "nikola", Role.BASIC);
         Zaposlen saved = employee("nikola@banka.com", "nikola", Role.BASIC);
         saved.setId(9L);
-        EmployeeResponseDto responseDto = new EmployeeResponseDto(9L, "Nikola", "Nikolic", "nikola@banka.com", "nikola", "Agent", "Prodaja", true, Role.BASIC);
+        EmployeeResponseDto responseDto = new EmployeeResponseDto(9L, "Nikola", "Nikolic", "nikola@banka.com", "nikola", LocalDate.of(1995, 5, 5), Pol.M, "+381601234567", "Ulica 1", "Agent", "Prodaja", true, Role.BASIC);
 
         when(zaposlenRepository.existsByEmail("nikola@banka.com")).thenReturn(false);
         when(zaposlenRepository.existsByUsername("nikola")).thenReturn(false);
@@ -144,7 +145,7 @@ class CrudServiceImplementationTest {
     @Test
     void searchEmployeesNormalizesNullFiltersToEmptyStrings() {
         Zaposlen emp = employee("ana@banka.com", "ana", Role.AGENT);
-        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", "Broker", "Prodaja", true, Role.AGENT);
+        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", LocalDate.of(1991, 1, 1), Pol.Z, "+381601234567", "Ulica 1", "Broker", "Prodaja", true, Role.AGENT);
         PageRequest pageable = PageRequest.of(0, 10);
 
         when(zaposlenRepository.searchEmployees("", "", "", "", "", pageable))
@@ -172,9 +173,9 @@ class CrudServiceImplementationTest {
 
     @Test
     void updateEmployeeThrowsWhenCallerRoleIsNotStrongEnough() {
-        Zaposlen emp = employee("ana@banka.com", "ana", Role.AGENT);
+        Zaposlen emp = employee("ana@banka.com", "ana", Role.SUPERVISOR);
         EmployeeUpdateRequestDto request = new EmployeeUpdateRequestDto();
-        Jwt jwt = jwtWithClaims(Map.of("roles", "AGENT"));
+        Jwt jwt = jwtWithClaims(Map.of("roles", "AGENT", "id", 99L));
 
         when(zaposlenRepository.findById(1L)).thenReturn(Optional.of(emp));
 
@@ -201,8 +202,8 @@ class CrudServiceImplementationTest {
         Zaposlen emp = employee("ana@banka.com", "ana", Role.BASIC);
         EmployeeUpdateRequestDto request = new EmployeeUpdateRequestDto();
         request.setDepartman("IT");
-        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", "Broker", "IT", true, Role.BASIC);
-        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN", "permissions", List.of()));
+        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", LocalDate.of(1991, 1, 1), Pol.Z, "+381601234567", "Ulica 1", "Broker", "IT", true, Role.BASIC);
+        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN", "permissions", List.of(), "id", 99L));
 
         when(zaposlenRepository.findById(1L)).thenReturn(Optional.of(emp));
         when(zaposlenRepository.save(emp)).thenReturn(emp);
@@ -218,8 +219,8 @@ class CrudServiceImplementationTest {
         Zaposlen emp = employee("ana@banka.com", "ana", Role.BASIC);
         EmployeeUpdateRequestDto request = new EmployeeUpdateRequestDto();
         request.setAktivan(false);
-        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", "Agent", "Prodaja", false, Role.BASIC);
-        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN", "permissions", List.of()));
+        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", LocalDate.of(1991, 1, 1), Pol.Z, "+381601234567", "Ulica 1", "Agent", "Prodaja", false, Role.BASIC);
+        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN", "permissions", List.of(), "id", 99L));
 
         when(zaposlenRepository.findById(1L)).thenReturn(Optional.of(emp));
         when(zaposlenRepository.save(emp)).thenReturn(emp);
@@ -234,7 +235,7 @@ class CrudServiceImplementationTest {
     void editEmployeeUpdatesCurrentUserByJwtId() {
         Zaposlen emp = employee("ana@banka.com", "ana", Role.AGENT);
         EmployeeEditRequestDto request = new EmployeeEditRequestDto("Ana", "Anic", "123", "Adresa", "Senior Agent", "IT");
-        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", "Senior Agent", "IT", true, Role.AGENT);
+        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", LocalDate.of(1991, 1, 1), Pol.Z, "+381601234567", "Ulica 1", "Senior Agent", "IT", true, Role.AGENT);
         Jwt jwt = jwtWithClaims(Map.of("id", 1L));
 
         when(zaposlenRepository.findById(1L)).thenReturn(Optional.of(emp));
@@ -250,7 +251,7 @@ class CrudServiceImplementationTest {
     @Test
     void globalSearchEmployeesMapsRepositoryResults() {
         Zaposlen emp = employee("ana@banka.com", "ana", Role.AGENT);
-        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", "Broker", "Prodaja", true, Role.AGENT);
+        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", LocalDate.of(1991, 1, 1), Pol.Z, "+381601234567", "Ulica 1", "Broker", "Prodaja", true, Role.AGENT);
         PageRequest pageable = PageRequest.of(0, 10);
 
         when(zaposlenRepository.globalSearchEmployees("ana", pageable))
@@ -316,8 +317,8 @@ class CrudServiceImplementationTest {
         Zaposlen emp = employee("ana@banka.com", "ana", Role.BASIC);
         EmployeeUpdateRequestDto request = new EmployeeUpdateRequestDto();
         request.setDepartman("HR");
-        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", "Broker", "HR", true, Role.BASIC);
-        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN", "permissions", List.of()));
+        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", LocalDate.of(1991, 1, 1), Pol.Z, "+381601234567", "Ulica 1", "Broker", "HR", true, Role.BASIC);
+        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN", "permissions", List.of(), "id", 99L));
 
         when(zaposlenRepository.findById(1L)).thenReturn(Optional.of(emp));
         when(zaposlenRepository.save(emp)).thenReturn(emp);
@@ -333,8 +334,8 @@ class CrudServiceImplementationTest {
         Zaposlen emp = employee("ana@banka.com", "ana", Role.BASIC);
         EmployeeUpdateRequestDto request = new EmployeeUpdateRequestDto();
         request.setAktivan(true);
-        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", "Broker", "Prodaja", true, Role.BASIC);
-        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN", "permissions", List.of()));
+        EmployeeResponseDto responseDto = new EmployeeResponseDto(1L, "Ana", "Anic", "ana@banka.com", "ana", LocalDate.of(1991, 1, 1), Pol.Z, "+381601234567", "Ulica 1", "Broker", "Prodaja", true, Role.BASIC);
+        Jwt jwt = jwtWithClaims(Map.of("roles", "ADMIN", "permissions", List.of(), "id", 99L));
 
         when(zaposlenRepository.findById(1L)).thenReturn(Optional.of(emp));
         when(zaposlenRepository.save(emp)).thenReturn(emp);
@@ -388,7 +389,7 @@ class CrudServiceImplementationTest {
         Zaposlen mapped = employee("nikola@banka.com", "nikola", Role.BASIC);
         Zaposlen saved = employee("nikola@banka.com", "nikola", Role.BASIC);
         saved.setId(9L);
-        EmployeeResponseDto responseDto = new EmployeeResponseDto(9L, "Nikola", "Nikolic", "nikola@banka.com", "nikola", "Agent", "Prodaja", true, Role.BASIC);
+        EmployeeResponseDto responseDto = new EmployeeResponseDto(9L, "Nikola", "Nikolic", "nikola@banka.com", "nikola", LocalDate.of(1995, 5, 5), Pol.M, "+381601234567", "Ulica 1", "Agent", "Prodaja", true, Role.BASIC);
 
         when(zaposlenRepository.existsByEmail("nikola@banka.com")).thenReturn(false);
         when(zaposlenRepository.existsByUsername("nikola")).thenReturn(false);
