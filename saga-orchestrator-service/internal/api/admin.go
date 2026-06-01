@@ -109,6 +109,28 @@ func corsPreflight(next http.Handler) http.Handler {
 	})
 }
 
+// ByCorrelation handles GET /saga/instances/by-correlation.
+// Query params: sagaType (required), correlationId (required).
+// Returns 400 if either param is missing, 404 if not found.
+func (h *AdminHandler) ByCorrelation(w http.ResponseWriter, r *http.Request) {
+	sagaType := r.URL.Query().Get("sagaType")
+	correlationID := r.URL.Query().Get("correlationId")
+	if sagaType == "" || correlationID == "" {
+		http.Error(w, "sagaType and correlationId are required", http.StatusBadRequest)
+		return
+	}
+	inst, err := h.store.FindByTypeAndCorrelation(r.Context(), sagaType, correlationID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if inst == nil {
+		http.Error(w, "saga instance not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, mapInstanceToView(*inst))
+}
+
 // NewRouter assembles the admin chi.Router. Health is unauthenticated and
 // responds quickly. Admin endpoints are also unauthenticated for now because
 // the admin port (8095) is only reachable inside the Docker network.
@@ -118,6 +140,7 @@ func NewRouter(admin *AdminHandler) http.Handler {
 	r.Get("/health", Health)
 	r.Route("/saga", func(r chi.Router) {
 		r.Get("/instances", admin.List)
+		r.Get("/instances/by-correlation", admin.ByCorrelation)
 		r.Get("/instances/{id}", admin.Get)
 	})
 	return r

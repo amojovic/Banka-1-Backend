@@ -9,28 +9,27 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-// Saga routing keys. Both publish and consume keys live on the SAGA_EVENTS
-// exchange (saga.events) — note this differs from funds, whose RESULT keys live
-// on saga.exchange. These match the Java OtcService publishes + the
-// @RabbitListener key= annotations byte-for-byte (saga-orchestrator-service binds
-// to them).
+// Saga routing keys for the Go saga-orchestrator-service (saga.exchange topic
+// exchange). Trigger keys are what this service PUBLISHes; result keys are what
+// the orchestrator PUBLISHes back and this service CONSUMEs.
 const (
+	// Trigger keys → published on saga.exchange, consumed by saga-orchestrator.
 	RoutingPremiumTransferRequested = "otc.premium.transfer.requested"
 	RoutingExerciseRequested        = "otc.exercise.requested"
 
-	RoutingPremiumTransferCompleted = "otc.premium.transfer.completed"
-	RoutingPremiumTransferFailed    = "otc.premium.transfer.failed"
-	RoutingExerciseCompleted        = "otc.exercise.completed"
+	// Result keys → published by saga-orchestrator on saga.exchange, consumed here.
+	RoutingPremiumTransferCompleted = "saga.OTC_PREMIUM_TRANSFER.completed"
+	RoutingPremiumTransferFailed    = "saga.OTC_PREMIUM_TRANSFER.failed"
+	RoutingExerciseCompleted        = "saga.OTC_EXERCISE.completed"
+	RoutingExerciseFailed           = "saga.OTC_EXERCISE.failed"
 )
 
-// Saga queue names. Must match the Java @Queue value= annotations exactly — they
-// are durable, broker-owned queues. Binding the same name from Java AND Go would
-// round-robin deliveries → half-processed contracts; that is why
-// OTC_SAGA_CONSUMERS_ENABLED is OFF by default during coexistence.
+// Saga queue names — durable broker queues for consuming orchestrator results.
 const (
 	QueuePremiumCompleted  = "trading.otc.premium.completed"
 	QueuePremiumFailed     = "trading.otc.premium.failed"
 	QueueExerciseCompleted = "trading.otc.exercise.completed"
+	QueueExerciseFailed    = "trading.otc.exercise.failed"
 )
 
 // SagaPublisher publishes the two OTC saga-request keys onto the saga.events
@@ -94,6 +93,7 @@ const (
 	kindPremiumCompleted sagaHandlerKind = iota
 	kindPremiumFailed
 	kindExerciseCompleted
+	kindExerciseFailed
 )
 
 type consumerBinding struct {
@@ -103,19 +103,19 @@ type consumerBinding struct {
 	label      string
 }
 
-// otcConsumerBindings enumerates the three durable queues the OTC domain owns,
-// each mapping a Java @RabbitListener (queue ← routing key on saga.events).
+// otcConsumerBindings enumerates the durable queues the OTC domain owns,
+// each mapping a routing key on the saga.exchange topic exchange.
 var otcConsumerBindings = []consumerBinding{
 	{QueuePremiumCompleted, RoutingPremiumTransferCompleted, kindPremiumCompleted, "otc.premium.completed"},
 	{QueuePremiumFailed, RoutingPremiumTransferFailed, kindPremiumFailed, "otc.premium.failed"},
 	{QueueExerciseCompleted, RoutingExerciseCompleted, kindExerciseCompleted, "otc.exercise.completed"},
+	{QueueExerciseFailed, RoutingExerciseFailed, kindExerciseFailed, "otc.exercise.failed"},
 }
 
-// StartSagaConsumers wires the three OTC saga-result consumers against the
-// saga.events exchange (rmqCfg.Exchange must be SAGA_EVENTS_EXCHANGE). Each
-// consumer dispatches into Service.CompletePremiumTransfer / FailPremiumTransfer /
-// CompleteExercise. Cancel ctx to stop them. Gated by cfg.OtcSagaConsumersEnabled
-// at the caller (NewApp); when OFF, this is never called.
+// StartSagaConsumers wires the OTC saga-result consumers against the
+// saga.exchange topic exchange (rmqCfg.Exchange must be SAGA_RESULTS_EXCHANGE
+// = saga.exchange). Each consumer dispatches into Service methods. Cancel ctx
+// to stop them. Gated by cfg.OtcSagaConsumersEnabled at the caller (NewApp).
 func StartSagaConsumers(ctx context.Context, rmqCfg rabbitmq.Config, svc *Service, logger *slog.Logger) ([]*rabbitmq.Consumer, error) {
 	out := make([]*rabbitmq.Consumer, 0, len(otcConsumerBindings))
 	for _, b := range otcConsumerBindings {
@@ -175,6 +175,8 @@ func buildSagaHandler(svc *Service, b consumerBinding, logger *slog.Logger) rabb
 			err = svc.FailPremiumTransfer(ctx, contractID, reason)
 		case kindExerciseCompleted:
 			err = svc.CompleteExercise(ctx, contractID)
+		case kindExerciseFailed:
+			err = svc.RevertExercise(ctx, contractID)
 		}
 		if err != nil {
 			logger.Error("otc saga: handler failed", "queue", b.queue, "contractId", contractID, "error", err)

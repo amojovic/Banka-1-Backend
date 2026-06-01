@@ -26,6 +26,18 @@ import "github.com/shopspring/decimal"
 // Trigger events (consumed by the orchestrator from downstream queues)
 // ---------------------------------------------------------------------------
 
+// FaultInjection carries X-Saga-* test headers from the HTTP request into the
+// saga orchestrator. Only honoured when SAGA_TEST_MODE=true in the orchestrator.
+// All fields are zero/empty for production traffic.
+type FaultInjection struct {
+	ForceFailStep       string `json:"forceFailStep,omitempty"`       // "F1"–"F5"
+	ForceFailKind       string `json:"forceFailKind,omitempty"`       // "before"|"after"
+	CompensateFailStep  string `json:"compensateFailStep,omitempty"`  // "C1"–"C5"
+	CompensateFailTimes int    `json:"compensateFailTimes,omitempty"` // fail N times before succeeding
+	InjectDelayStep     string `json:"injectDelayStep,omitempty"`     // "F1"–"F5"
+	InjectDelayMs       int    `json:"injectDelayMs,omitempty"`
+}
+
 // OtcExerciseRequested is published by trading-service when a buyer exercises
 // an option contract. correlationId = contractId (string form).
 type OtcExerciseRequested struct {
@@ -37,6 +49,7 @@ type OtcExerciseRequested struct {
 	PricePerStock   decimal.Decimal `json:"pricePerStock"`
 	Premium         decimal.Decimal `json:"premium"`
 	PremiumCurrency string          `json:"premiumCurrency"`
+	FaultInjection  *FaultInjection `json:"faultInjection,omitempty"`
 }
 
 // OtcPremiumTransferRequested is published by trading-service when an OTC offer

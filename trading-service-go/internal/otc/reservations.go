@@ -270,10 +270,11 @@ func (s *ReservationService) ReverseOwnership(ctx context.Context, ownershipTran
 				return err
 			}
 		}
-		// Restore seller (quantity + re-reserve).
+		// Restore seller quantity only. The reservation was COMMITTED by TransferOwnership
+		// so reserved_quantity is already 0 at this point — incrementing it here would
+		// create a phantom reservation that double-counts when C2 (ReleaseStocks) runs.
 		if seller != nil {
-			if err := s.portfolio.UpdateQuantityAndReserved(ctx, tx, seller.ID,
-				seller.Quantity+amount, seller.ReservedQuantity+amount); err != nil {
+			if err := s.portfolio.UpdateQuantity(ctx, tx, seller.ID, seller.Quantity+amount); err != nil {
 				return err
 			}
 		}

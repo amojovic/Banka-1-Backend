@@ -313,15 +313,19 @@ func TestHandleOtcExercise_HappyPath(t *testing.T) {
 		t.Errorf("currentStep=%d, want 5", inst.CurrentStep)
 	}
 
-	// Check compensation log has all 4 keys.
-	var compLog map[string]string
+	// Check compensation log has all 4 ref keys (new SagaLog format).
+	var compLog saga.SagaLog
 	if err := json.Unmarshal(inst.CompensationLog, &compLog); err != nil {
 		t.Fatalf("unmarshal comp log: %v", err)
 	}
 	for _, key := range []string{"step1_reservationId", "step2_stocksReservationId", "step3_transferId", "step4_ownershipTransferId"} {
-		if _, ok := compLog[key]; !ok {
-			t.Errorf("compensation log missing key %q", key)
+		if _, ok := compLog.Refs[key]; !ok {
+			t.Errorf("compensation log missing ref key %q", key)
 		}
+	}
+	// Steps log should have 5 "ok" entries.
+	if len(compLog.Steps) != 5 {
+		t.Errorf("expected 5 step records, got %d", len(compLog.Steps))
 	}
 
 	// Check completed event published.
@@ -350,13 +354,13 @@ func TestHandleOtcExercise_Step2Fails_CompensatesStep1(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 
-	// State should be FAILED.
+	// State should be COMPENSATED (F2 failed, C1 ran successfully).
 	inst, _ := fs.FindByTypeAndCorrelation(context.Background(), "OTC_EXERCISE", "102")
 	if inst == nil {
 		t.Fatal("instance not found")
 	}
-	if inst.State != store.SagaStateFailed {
-		t.Errorf("state=%q, want FAILED", inst.State)
+	if inst.State != store.SagaStateCompensated {
+		t.Errorf("state=%q, want COMPENSATED", inst.State)
 	}
 
 	// Step 1 reservation should have been released (compensation).

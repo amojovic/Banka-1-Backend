@@ -169,6 +169,7 @@ func registerRoutes(handle func(method, path string, handler http.Handler), app 
 	handle(http.MethodGet, "/otc/offers/history", authd(handlers.OtcNegotiationHistory))
 	handle(http.MethodGet, "/otc/public-stocks", authd(handlers.OtcPublicStocks))
 	handle(http.MethodPost, "/otc/contracts/{contractId}/exercise", authd(handlers.OtcExerciseContract))
+	handle(http.MethodPost, "/options/{contractId}/exercise", authd(handlers.OtcExerciseContract))
 	handle(http.MethodGet, "/otc/contracts/my", authd(handlers.OtcMyContracts))
 	handle(http.MethodGet, "/otc/my-positions", authd(handlers.OtcMyPositions))
 	handle(http.MethodPost, "/otc/positions", authd(handlers.OtcAddPosition))

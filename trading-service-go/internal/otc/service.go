@@ -366,8 +366,9 @@ func (s *Service) MyContracts(ctx context.Context, userID int64, statusFilter *s
 // ExerciseContract mirrors OtcService.exerciseContract: the buyer triggers
 // exercise. The contract is stamped exercised_at and stays ACTIVE; the exercise
 // saga is published after commit and the completion listener flips it to
-// EXERCISED.
-func (s *Service) ExerciseContract(ctx context.Context, contractID, buyerID int64) error {
+// EXERCISED. fi carries optional fault-injection headers (nil for production).
+// Returns the contractID so callers can return a correlationId to the client.
+func (s *Service) ExerciseContract(ctx context.Context, contractID, buyerID int64, fi *FaultInjection) (int64, error) {
 	var event ExerciseRequestedEvent
 	err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
 		c, err := s.repo.FindOptionContractByIDForUpdate(ctx, tx, contractID)
@@ -378,32 +379,36 @@ func (s *Service) ExerciseContract(ctx context.Context, contractID, buyerID int6
 			return err
 		}
 		if c.BuyerID != buyerID {
-			return api.NewOtcError(http.StatusConflict, "Samo kupac moze iskoristiti opciju.")
+			return api.NewOtcError(http.StatusForbidden, "Samo kupac moze iskoristiti opciju.")
 		}
 		if c.Status != ContractActive {
-			return api.NewOtcError(http.StatusConflict, "Ugovor nije aktivan: "+c.Status)
+			return api.NewOtcError(http.StatusConflict, "Ugovor nije u statusu 'važeći': "+c.Status)
+		}
+		if !time.Now().Before(c.SettlementDate) {
+			return api.NewOtcError(http.StatusConflict, "Rok za iskorišćavanje opcije je prošao.")
 		}
 		if err := s.repo.SetOptionContractExercisedAt(ctx, tx, contractID, time.Now()); err != nil {
 			return err
 		}
 		event = ExerciseRequestedEvent{
-			ContractID:    c.ID,
-			BuyerID:       c.BuyerID,
-			SellerID:      c.SellerID,
-			StockTicker:   c.StockTicker,
-			Amount:        c.Amount,
-			PricePerStock: c.PricePerStock,
+			ContractID:     c.ID,
+			BuyerID:        c.BuyerID,
+			SellerID:       c.SellerID,
+			StockTicker:    c.StockTicker,
+			Amount:         c.Amount,
+			PricePerStock:  c.PricePerStock,
+			FaultInjection: fi,
 		}
 		return nil
 	})
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if err := s.publisher.PublishExerciseRequested(ctx, event); err != nil {
 		s.logger.Warn("otc.exercise.requested publish failed (contract stays ACTIVE)",
 			"contractId", event.ContractID, "error", err)
 	}
-	return nil
+	return contractID, nil
 }
 
 // ===================== saga-completion transitions ========================
@@ -483,6 +488,33 @@ func (s *Service) CompleteExercise(ctx context.Context, contractID int64) error 
 			return err
 		}
 		s.logger.Info("otc contract ACTIVE -> EXERCISED", "contractId", contractID)
+		return nil
+	})
+}
+
+// RevertExercise resets exercised_at → NULL when the OTC_EXERCISE saga fails
+// and compensates. The contract stays ACTIVE so it can be re-exercised.
+// Idempotent: a non-ACTIVE contract is a no-op.
+func (s *Service) RevertExercise(ctx context.Context, contractID int64) error {
+	return gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+		c, err := s.repo.FindOptionContractByIDForUpdate(ctx, tx, contractID)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				s.logger.Warn("otc exercise revert: contract not found", "contractId", contractID)
+				return nil
+			}
+			return err
+		}
+		if c.Status != ContractActive {
+			s.logger.Info("otc exercise revert: contract not ACTIVE — no-op",
+				"contractId", contractID, "status", c.Status)
+			return nil
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE option_contracts SET exercised_at = NULL WHERE id = $1`, contractID); err != nil {
+			return err
+		}
+		s.logger.Info("otc exercise reverted (ACTIVE, exercised_at cleared)", "contractId", contractID)
 		return nil
 	})
 }

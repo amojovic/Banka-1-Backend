@@ -79,27 +79,28 @@ func main() {
 	// fund.redeem.with-liquidation.requested). saga-orchestrator-service binds.
 	// AllowNoop: a broker outage downgrades to NoopSagaPublisher so the local
 	// invest/redeem tx still commits PENDING — supervisor sees the stuck row.
+	// Both fund and OTC saga triggers are published to SAGA_RESULTS_EXCHANGE
+	// (saga.exchange) — the exchange the Go saga-orchestrator-service binds its
+	// trigger queues to. SAGA_EVENTS_EXCHANGE (saga.events) was the Java-era name
+	// and is no longer used now that the Go orchestrator is live.
 	sagaPubCfg := rabbitmq.LoadConfig()
 	sagaPubCfg.AllowNoop = true
-	sagaPubCfg.Exchange = cfg.SagaEventsExchange
+	sagaPubCfg.Exchange = cfg.SagaResultsExchange // saga.exchange (Go orchestrator)
 	var sagaPublisher funds.SagaPublisher = funds.NewNoopSagaPublisher(logger)
 	var otcSagaPublisher otc.SagaPublisher = otc.NewNoopSagaPublisher(logger)
 	if pub, perr := rabbitmq.NewPublisher(ctx, sagaPubCfg, logger); perr != nil {
 		logger.Warn("saga publisher init failed; fund/otc saga requests will noop", "error", perr)
 	} else {
 		defer pub.Close()
-		// Both funds and OTC publish on saga.events — share the one publisher.
 		sagaPublisher = funds.NewRabbitSagaPublisher(pub, logger)
 		otcSagaPublisher = otc.NewRabbitSagaPublisher(pub, logger)
 	}
-	// Saga-result consumer configs: same broker creds, different exchanges. Funds
-	// results land on SAGA_RESULTS_EXCHANGE (saga.exchange); OTC results land on
-	// SAGA_EVENTS_EXCHANGE (saga.events). The Consumer scaffold declares the
-	// exchange + queue + binds, so re-declaring an existing exchange is safe.
+	// Saga-result consumer configs: both funds and OTC results come back on
+	// SAGA_RESULTS_EXCHANGE (saga.exchange) from the Go orchestrator.
 	sagaConsCfg := rabbitmq.LoadConfig()
 	sagaConsCfg.Exchange = cfg.SagaResultsExchange
 	otcSagaConsCfg := rabbitmq.LoadConfig()
-	otcSagaConsCfg.Exchange = cfg.SagaEventsExchange
+	otcSagaConsCfg.Exchange = cfg.SagaResultsExchange
 
 	app := httpapi.NewApp(cfg, db, jwtService, logger, notifier, taxNotifier, sagaPublisher, sagaConsCfg, employeeEventsPub, otcSagaPublisher, otcSagaConsCfg)
 	defer app.Close()

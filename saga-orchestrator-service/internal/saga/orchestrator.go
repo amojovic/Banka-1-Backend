@@ -121,6 +121,65 @@ func NewOrchestratorForTest(
 }
 
 // ---------------------------------------------------------------------------
+// Step-log types — used by OTC_EXERCISE saga (and new sagas going forward)
+// ---------------------------------------------------------------------------
+
+// StepRecord records a single forward or compensation step attempt.
+type StepRecord struct {
+	Step    string `json:"step"`              // "F1"–"F5" or "C1"–"C5"
+	Outcome string `json:"outcome"`           // "ok" | "err"
+	Error   string `json:"error,omitempty"`
+}
+
+// SagaLog is the on-disk JSONB structure for compensation_log in OTC_EXERCISE.
+// Steps is the ordered audit trail; Refs holds idempotency keys/IDs for
+// compensation; CompCounts tracks compensator retry counts for fault injection.
+type SagaLog struct {
+	Steps      []StepRecord      `json:"steps"`
+	Refs       map[string]string `json:"refs"`
+	CompCounts map[string]int    `json:"compCounts,omitempty"`
+}
+
+func newSagaLog() *SagaLog {
+	return &SagaLog{
+		Refs:       make(map[string]string),
+		CompCounts: make(map[string]int),
+	}
+}
+
+func (l *SagaLog) appendStep(step, outcome, errMsg string) {
+	l.Steps = append(l.Steps, StepRecord{Step: step, Outcome: outcome, Error: errMsg})
+}
+
+func (l *SagaLog) marshalBytes() []byte {
+	b, _ := json.Marshal(l)
+	return b
+}
+
+func unmarshalSagaLog(b []byte) *SagaLog {
+	if len(b) == 0 {
+		return newSagaLog()
+	}
+	var l SagaLog
+	if err := json.Unmarshal(b, &l); err != nil {
+		return newSagaLog()
+	}
+	if l.Refs == nil {
+		l.Refs = make(map[string]string)
+	}
+	if l.CompCounts == nil {
+		l.CompCounts = make(map[string]int)
+	}
+	return &l
+}
+
+// saveFullLog persists the SagaLog into the instance and updates the DB.
+func (o *Orchestrator) saveFullLog(ctx context.Context, inst *store.SagaInstance, sl *SagaLog) error {
+	inst.CompensationLog = sl.marshalBytes()
+	return o.store.UpdateOptimistic(ctx, inst)
+}
+
+// ---------------------------------------------------------------------------
 // Internal helpers shared across all saga implementations
 // ---------------------------------------------------------------------------
 

@@ -132,15 +132,27 @@ type PremiumTransferRequestedEvent struct {
 	Premium    decimal.Decimal `json:"premium"`
 }
 
+// FaultInjection carries X-Saga-* test headers from the HTTP request into the
+// saga orchestrator message. Nil/empty for production traffic.
+type FaultInjection struct {
+	ForceFailStep       string `json:"forceFailStep,omitempty"`
+	ForceFailKind       string `json:"forceFailKind,omitempty"`
+	CompensateFailStep  string `json:"compensateFailStep,omitempty"`
+	CompensateFailTimes int    `json:"compensateFailTimes,omitempty"`
+	InjectDelayStep     string `json:"injectDelayStep,omitempty"`
+	InjectDelayMs       int    `json:"injectDelayMs,omitempty"`
+}
+
 // ExerciseRequestedEvent mirrors OtcService.OtcExerciseRequestedEvent. Published
 // on saga.events / otc.exercise.requested AFTER the exercise transaction commits.
 type ExerciseRequestedEvent struct {
-	ContractID    int64           `json:"contractId"`
-	BuyerID       int64           `json:"buyerId"`
-	SellerID      int64           `json:"sellerId"`
-	StockTicker   string          `json:"stockTicker"`
-	Amount        int             `json:"amount"`
-	PricePerStock decimal.Decimal `json:"pricePerStock"`
+	ContractID     int64           `json:"contractId"`
+	BuyerID        int64           `json:"buyerId"`
+	SellerID       int64           `json:"sellerId"`
+	StockTicker    string          `json:"stockTicker"`
+	Amount         int             `json:"amount"`
+	PricePerStock  decimal.Decimal `json:"pricePerStock"`
+	FaultInjection *FaultInjection `json:"faultInjection,omitempty"`
 }
 
 // sagaContractEvent is the loose-shape payload the three OTC saga-result

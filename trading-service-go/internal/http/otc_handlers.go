@@ -172,6 +172,8 @@ func (h *Handlers) OtcPublicStocks(w http.ResponseWriter, r *http.Request) {
 }
 
 // OtcExerciseContract ↔ POST /otc/contracts/{contractId}/exercise (202).
+// Also aliased to POST /options/{contractId}/exercise for SAGA test spec.
+// Returns {"correlationId":"<contractId>"} so callers can poll the saga log.
 func (h *Handlers) OtcExerciseContract(w http.ResponseWriter, r *http.Request) {
 	principal, _ := gpauth.PrincipalFromContext(r.Context())
 	contractID, err := parsePathInt64(r, "contractId")
@@ -179,11 +181,43 @@ func (h *Handlers) OtcExerciseContract(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, err)
 		return
 	}
-	if err := h.app.Otc.ExerciseContract(r.Context(), contractID, principal.ID); err != nil {
+	fi := parseFaultInjection(r)
+	corrID, err := h.app.Otc.ExerciseContract(r.Context(), contractID, principal.ID, fi)
+	if err != nil {
 		writeDomainError(w, r, err)
 		return
 	}
-	w.WriteHeader(http.StatusAccepted)
+	httpx.JSON(w, http.StatusAccepted, map[string]string{
+		"correlationId": strconv.FormatInt(corrID, 10),
+	})
+}
+
+// parseFaultInjection extracts X-Saga-* headers into a FaultInjection struct.
+// Returns nil when none are present or SAGA_TEST_MODE is not enabled.
+func parseFaultInjection(r *http.Request) *otc.FaultInjection {
+	if r.Header.Get("X-Saga-Force-Fail") == "" &&
+		r.Header.Get("X-Saga-Compensate-Fail") == "" &&
+		r.Header.Get("X-Saga-Inject-Delay") == "" {
+		return nil
+	}
+	fi := &otc.FaultInjection{}
+	fi.ForceFailStep = r.Header.Get("X-Saga-Force-Fail")
+	fi.ForceFailKind = r.Header.Get("X-Saga-Force-Fail-Kind")
+	fi.CompensateFailStep = r.Header.Get("X-Saga-Compensate-Fail")
+	if n, err := strconv.Atoi(r.Header.Get("X-Saga-Compensate-Fail-Times")); err == nil {
+		fi.CompensateFailTimes = n
+	}
+	// X-Saga-Inject-Delay format: "F3:5000"
+	if raw := r.Header.Get("X-Saga-Inject-Delay"); raw != "" {
+		parts := strings.SplitN(raw, ":", 2)
+		if len(parts) == 2 {
+			fi.InjectDelayStep = parts[0]
+			if ms, err := strconv.Atoi(parts[1]); err == nil {
+				fi.InjectDelayMs = ms
+			}
+		}
+	}
+	return fi
 }
 
 // OtcMyContracts ↔ GET /otc/contracts/my (200). Optional ?status filter.

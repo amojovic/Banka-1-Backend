@@ -19,7 +19,8 @@ const (
 	SagaStateInProgress   = "IN_PROGRESS"
 	SagaStateCompensating = "COMPENSATING"
 	SagaStateCompleted    = "COMPLETED"
-	SagaStateFailed       = "FAILED"
+	SagaStateCompensated  = "COMPENSATED" // compensation ran successfully
+	SagaStateFailed       = "FAILED"      // compensation itself failed (stuck)
 )
 
 // SagaInstance is the Go representation of the saga_instance table row.
@@ -40,9 +41,9 @@ type SagaInstance struct {
 	Version         int64
 }
 
-// IsTerminal returns true when the saga is in a final state (COMPLETED or FAILED).
+// IsTerminal returns true when the saga is in a final state.
 func (s *SagaInstance) IsTerminal() bool {
-	return s.State == SagaStateCompleted || s.State == SagaStateFailed
+	return s.State == SagaStateCompleted || s.State == SagaStateCompensated || s.State == SagaStateFailed
 }
 
 // SagaInstanceStore provides CRUD operations for saga_instance rows.
@@ -185,7 +186,7 @@ func (s *SagaInstanceStore) FindStuck(
 		SELECT id, saga_type, correlation_id, current_step, total_steps, state,
 		       payload, compensation_log, created_at, updated_at, retry_count, version
 		FROM saga_instance
-		WHERE state IN ('IN_PROGRESS', 'COMPENSATING') AND created_at < $1
+		WHERE state IN ('STARTED', 'IN_PROGRESS', 'COMPENSATING') AND created_at < $1
 		ORDER BY created_at ASC
 		LIMIT $2`
 	return queryRows(ctx, s.pool, q, cutoff, limit)
