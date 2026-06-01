@@ -221,7 +221,9 @@ public class NotificationDeliveryService {
         // FCM push for price alerts (fire-and-forget, email is authoritative)
         if ("PRICE_ALERT_TRIGGERED".equals(notificationType) && req.getClientId() != null) {
             Long clientId = req.getClientId();
-            Map<String, String> vars = req.getTemplateVariables();
+            Map<String, String> vars = req.getTemplateVariables() == null
+                    ? Map.of()
+                    : Map.copyOf(req.getTemplateVariables());
             runAfterCommit(() -> attemptPriceAlertFcmPush(clientId, vars));
         }
     }
