@@ -98,8 +98,15 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # SB4 useTrailingSlashMatch=false: `return 301 /transactions/` slao je bare
+    # GET /transactions na /transactions/ koji @GetMapping("/transactions") ne
+    # matchuje → 404. Proxy direktno uz path+query (kao /orders, /employees blok).
     location = /transactions {
-        return 301 /transactions/;
+        proxy_pass http://banking_core_service/transactions$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
     location /transactions/ {
         proxy_pass http://banking_core_service;
@@ -109,8 +116,15 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # SB4 useTrailingSlashMatch=false: `return 301 /transfers/` slao je bare
+    # GET /transfers (HistoryViewModel getTransfers) i POST /transfers na
+    # /transfers/ koji @GetMapping/@PostMapping("/transfers") ne matchuje → 404.
     location = /transfers {
-        return 301 /transfers/;
+        proxy_pass http://banking_core_service/transfers$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
     location /transfers/ {
         proxy_pass http://banking_core_service;
