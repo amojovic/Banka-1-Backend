@@ -1,5 +1,6 @@
 package com.banka1.order.service.impl;
 
+import com.banka1.order.audit.AuditPublisher;
 import com.banka1.order.client.AccountClient;
 import com.banka1.order.client.EmployeeClient;
 import com.banka1.order.client.ExchangeClient;
@@ -91,6 +92,8 @@ class OrderCreationServiceTest {
     private com.banka1.order.repository.TransactionRepository transactionRepository;
     @Mock
     private com.banka1.order.rabbitmq.OrderEventNotifier orderEventNotifier;
+    @Mock
+    private AuditPublisher auditPublisher;
 
     @InjectMocks
     private OrderCreationServiceImpl service;

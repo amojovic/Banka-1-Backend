@@ -1,5 +1,7 @@
 package com.banka1.order.service.impl;
 
+import com.banka1.order.audit.AuditEventDto;
+import com.banka1.order.audit.AuditPublisher;
 import com.banka1.order.client.AccountClient;
 import com.banka1.order.client.EmployeeClient;
 import com.banka1.order.client.ExchangeClient;
@@ -109,6 +111,7 @@ public class OrderCreationServiceImpl implements OrderCreationService {
     private final OrderExecutionService orderExecutionService;
     private final OrderNotificationProducer orderNotificationProducer;
     private final OrderEventNotifier orderEventNotifier;
+    private final AuditPublisher auditPublisher;
 
     @Override
     @Transactional
@@ -469,6 +472,7 @@ public class OrderCreationServiceImpl implements OrderCreationService {
         order.setApprovedBy(supervisorId);
         order = orderRepository.save(order);
         publishOrderDecisionNotification(order, supervisorId, OrderStatus.APPROVED);
+        publishOrderAuditEvent(order, supervisorId, OrderStatus.APPROVED);
         final Long approvedOrderId = order.getId();
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -604,6 +608,7 @@ public class OrderCreationServiceImpl implements OrderCreationService {
         if (publishNotification) {
             publishOrderDecisionNotification(savedOrder, approverId, OrderStatus.DECLINED);
         }
+        publishOrderAuditEvent(savedOrder, approverId, OrderStatus.DECLINED);
         return savedOrder;
     }
 
@@ -1162,5 +1167,49 @@ public class OrderCreationServiceImpl implements OrderCreationService {
     }
 
     private record ExchangeWindow(boolean closed, boolean afterHours) {
+    }
+
+    private void publishAfterCommit(Runnable action) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    action.run();
+                }
+            });
+        } else {
+            action.run();
+        }
+    }
+
+    private void publishOrderAuditEvent(Order order, Long actorId, OrderStatus status) {
+        boolean systemActor = actorId == null || actorId.equals(SYSTEM_APPROVAL);
+        Long auditActorId = systemActor ? null : actorId;
+        String auditActorName = systemActor ? "SYSTEM" : resolveActorName(actorId);
+        String actionType = status == OrderStatus.APPROVED ? "ORDER_APPROVED" : "ORDER_DECLINED";
+        String details = status == OrderStatus.APPROVED
+                ? "Order odobren (PENDING -> APPROVED)"
+                : "Order odbijen (PENDING -> DECLINED)";
+        AuditEventDto event = new AuditEventDto(
+                auditActorId,
+                auditActorName,
+                actionType,
+                "ORDER",
+                String.valueOf(order.getId()),
+                details,
+                System.currentTimeMillis());
+        publishAfterCommit(() -> auditPublisher.publish(event));
+    }
+
+    private String resolveActorName(Long actorId) {
+        try {
+            EmployeeDto employee = employeeClient.getEmployee(actorId);
+            if (employee != null) {
+                return formatEmployeeName(employee);
+            }
+        } catch (RuntimeException ex) {
+            log.debug("audit: ne mogu da razresim ime aktora {}: {}", actorId, ex.toString());
+        }
+        return String.valueOf(actorId);
     }
 }

@@ -47,4 +47,16 @@ public interface PortfolioRepository extends JpaRepository<Portfolio, Long> {
     @Query("select p from Portfolio p where p.listingType = com.banka1.order.entity.enums.ListingType.STOCK "
             + "and p.isPublic = true and p.publicQuantity > 0")
     List<Portfolio> findAllPublicStocks();
+
+    /**
+     * Sve STOCK pozicije sa pozitivnom kolicinom za zadati listing — drzaoci
+     * akcije koji ulaze u kvartalni obracun dividende (WP-14 Celina 3.7).
+     *
+     * @param listingId identifikator listinga u stock-service-u
+     * @return STOCK pozicije za taj listing sa {@code quantity > 0}
+     */
+    @Query("select p from Portfolio p where p.listingId = :listingId "
+            + "and p.listingType = com.banka1.order.entity.enums.ListingType.STOCK "
+            + "and p.quantity > 0")
+    List<Portfolio> findByListingIdStockHolders(@Param("listingId") Long listingId);
 }

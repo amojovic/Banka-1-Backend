@@ -59,4 +59,14 @@ public interface ExchangeRateService {
      * @return conversion result with zero commission
      */
     ConversionResponseDto convertWithoutCommission(ConversionRequestDto request);
+
+    /**
+     * Retrieves daily exchange rate snapshots for one currency over a date range.
+     *
+     * @param currencyCode three-letter ISO currency code
+     * @param from         start date (inclusive)
+     * @param to           end date (inclusive)
+     * @return date-sorted list of exchange rate snapshots
+     */
+    List<ExchangeRateDto> getRateHistory(String currencyCode, LocalDate from, LocalDate to);
 }

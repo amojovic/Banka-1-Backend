@@ -48,4 +48,8 @@ public interface ExchangeRateRepository extends JpaRepository<ExchangeRateEntity
      */
     @Query("select max(e.date) from ExchangeRateEntity e")
     LocalDate findLatestDate();
+
+    List<ExchangeRateEntity> findByCurrencyCodeAndDateBetweenOrderByDateAsc(
+            String currencyCode, LocalDate from, LocalDate to
+    );
 }

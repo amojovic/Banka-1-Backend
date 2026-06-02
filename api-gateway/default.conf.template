@@ -98,8 +98,15 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # SB4 useTrailingSlashMatch=false: `return 301 /transactions/` slao je bare
+    # GET /transactions na /transactions/ koji @GetMapping("/transactions") ne
+    # matchuje → 404. Proxy direktno uz path+query (kao /orders, /employees blok).
     location = /transactions {
-        return 301 /transactions/;
+        proxy_pass http://banking_core_service/transactions$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
     location /transactions/ {
         proxy_pass http://banking_core_service;
@@ -109,8 +116,15 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # SB4 useTrailingSlashMatch=false: `return 301 /transfers/` slao je bare
+    # GET /transfers (HistoryViewModel getTransfers) i POST /transfers na
+    # /transfers/ koji @GetMapping/@PostMapping("/transfers") ne matchuje → 404.
     location = /transfers {
-        return 301 /transfers/;
+        proxy_pass http://banking_core_service/transfers$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
     location /transfers/ {
         proxy_pass http://banking_core_service;
@@ -222,6 +236,55 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
     location /portfolio/ {
+        proxy_pass http://trading_service;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location = /recurring-orders {
+        proxy_pass http://trading_service/recurring-orders$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location /recurring-orders/ {
+        proxy_pass http://trading_service;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # === Dividend payout history (Issue 11) ===================================
+
+    location = /dividends {
+        proxy_pass http://trading_service/dividends$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location /dividends/ {
+        proxy_pass http://trading_service;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # === Audit log (Issue 9) ==================================================
+
+    location = /audit {
+        proxy_pass http://trading_service/audit$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location /audit/ {
         proxy_pass http://trading_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -418,6 +481,40 @@ server {
     # pokriven /interbank/ prefiks blokom iznad.
     location ~ ^/user/[0-9]+/[A-Za-z0-9_.-]+$ {
         proxy_pass http://interbank_service;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # === Price alerts (stock-service, runs inside market-service) ===========
+
+    location = /price-alerts {
+        proxy_pass http://market_service/price-alerts$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location /price-alerts/ {
+        proxy_pass http://market_service;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # === Watchlists (stock-service, runs inside market-service) ==============
+
+    location = /watchlists {
+        proxy_pass http://market_service/watchlists$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location /watchlists/ {
+        proxy_pass http://market_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

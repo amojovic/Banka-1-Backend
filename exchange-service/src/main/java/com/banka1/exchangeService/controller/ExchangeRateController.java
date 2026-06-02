@@ -118,6 +118,17 @@ public class ExchangeRateController {
      * @param request query DTO that Spring automatically populates from URL query parameters
      * @return conversion result including output amount, effective rate, commission, and rate date
      */
+    @GetMapping("/rates/{currencyCode}/history")
+    @Operation(summary = "Get exchange rate history for a currency over a date range")
+    @PreAuthorize("hasAnyRole('ADMIN','SERVICE','CLIENT_BASIC')")
+    public List<ExchangeRateDto> getRateHistory(
+            @PathVariable String currencyCode,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to
+    ) {
+        return exchangeRateService.getRateHistory(currencyCode, from, to);
+    }
+
     @GetMapping("/calculate")
     @Operation(summary = "Calculate currency equivalence via RSD base")
     @PreAuthorize("hasAnyRole('ADMIN','SERVICE')")

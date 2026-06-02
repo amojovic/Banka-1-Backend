@@ -130,7 +130,7 @@ public class NotificationDeliveryService {
      * Handles a newly consumed RabbitMQ message using the raw routing key.
      *
      * <p>Ovo je ulazna tacka za poruke koje dolaze sa broker-a.
-     * Prvo se proverava da li routing key moze da se mapira na poznat {@link NotificationType}.
+     * Prvo se proverava da li routing key moze da se mapira na poznat.
      * Ako ne moze, poruka se tretira kao nepodrzana i odmah se cuva failed audit zapis,
      * bez pokusaja slanja.
      *
@@ -183,13 +183,19 @@ public class NotificationDeliveryService {
     ) {
         validateIncoming(req);
         validateNotificationType(notificationType);
-        ResolvedEmail resolvedEmail = notificationService.resolveEmailContent(req, notificationType);
-        String deliveryId = UUID.randomUUID().toString();
-        NotificationDelivery delivery = buildPendingDelivery(
-                deliveryId, resolvedEmail, notificationType
-        );
-        notificationDeliveryTxService.createPendingDelivery(delivery);
-        runAfterCommit(() -> attemptDelivery(deliveryId));
+
+        // Push-only events (e.g. PRICE_ALERT_TRIGGERED) publish with userEmail=null. Skip the
+        // email channel for those instead of aborting the whole listener — push branches below
+        // must still fire. Other content-resolution failures still propagate.
+        ResolvedEmail resolvedEmail = tryResolveEmailContent(req, notificationType);
+        if (resolvedEmail != null) {
+            String deliveryId = UUID.randomUUID().toString();
+            NotificationDelivery delivery = buildPendingDelivery(
+                    deliveryId, resolvedEmail, notificationType
+            );
+            notificationDeliveryTxService.createPendingDelivery(delivery);
+            runAfterCommit(() -> attemptDelivery(deliveryId));
+        }
 
         // FCM push for verification OTPs (fire-and-forget, email is authoritative)
         if ("VERIFICATION_OTP".equals(notificationType) && req.getClientId() != null) {
@@ -204,12 +210,33 @@ public class NotificationDeliveryService {
         if (notificationType.startsWith("ORDER_") && req.getClientId() != null) {
             Long clientId = req.getClientId();
             String type = notificationType;
-            String title = resolvedEmail.subject();
-            String body = resolvedEmail.body();
+            String title = resolvedEmail != null ? resolvedEmail.subject() : notificationType;
+            String body = resolvedEmail != null ? resolvedEmail.body() : "";
             Map<String, String> vars = req.getTemplateVariables() == null
                     ? Map.of()
                     : Map.copyOf(req.getTemplateVariables());
             runAfterCommit(() -> attemptOrderFcmPush(clientId, type, title, body, vars));
+        }
+
+        // FCM push for price alerts (fire-and-forget, email is authoritative)
+        if ("PRICE_ALERT_TRIGGERED".equals(notificationType) && req.getClientId() != null) {
+            Long clientId = req.getClientId();
+            Map<String, String> vars = req.getTemplateVariables() == null
+                    ? Map.of()
+                    : Map.copyOf(req.getTemplateVariables());
+            runAfterCommit(() -> attemptPriceAlertFcmPush(clientId, vars));
+        }
+    }
+
+    private ResolvedEmail tryResolveEmailContent(NotificationRequest req, String notificationType) {
+        try {
+            return notificationService.resolveEmailContent(req, notificationType);
+        } catch (BusinessException ex) {
+            if (ex.getErrorCode() == ErrorCode.RECIPIENT_EMAIL_REQUIRED) {
+                log.debug("Skipping email channel for notificationType={} — payload has no recipient email.", notificationType);
+                return null;
+            }
+            throw ex;
         }
     }
 
@@ -506,6 +533,27 @@ public class NotificationDeliveryService {
             fcmPushService.sendOrderPush(token.get(), notificationType, title, body, variables);
         } catch (Exception e) {
             log.warn("FCM order push failed for clientId={}: {}", clientId, e.getMessage());
+        }
+    }
+
+    /**
+     * Attempts to send an FCM push notification for a price alert trigger.
+     * Fire-and-forget: failure does not affect email delivery.
+     */
+    private void attemptPriceAlertFcmPush(Long clientId, Map<String, String> vars) {
+        try {
+            Optional<String> token = fcmTokenService.findToken(clientId);
+            if (token.isEmpty()) {
+                log.debug("No FCM token for clientId={}, skipping price alert push", clientId);
+                return;
+            }
+            String ticker = vars.getOrDefault("ticker", "");
+            String price = vars.getOrDefault("price", "");
+            String title = "Cenovni alarm aktiviran";
+            String body = "Cena za " + ticker + " je dostigla " + price;
+            fcmPushService.sendPriceAlertPush(token.get(), "PRICE_ALERT_TRIGGERED", title, body, vars);
+        } catch (Exception e) {
+            log.warn("Price alert FCM push failed for clientId={}: {}", clientId, e.getMessage());
         }
     }
 
