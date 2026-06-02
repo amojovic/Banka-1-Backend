@@ -11,6 +11,7 @@ import (
 
 	"Banka1Back/notification-service-go/internal/config"
 	"Banka1Back/notification-service-go/internal/messaging"
+	"Banka1Back/notification-service-go/internal/push"
 	"Banka1Back/notification-service-go/internal/service"
 	"Banka1Back/notification-service-go/internal/smtp"
 	"Banka1Back/notification-service-go/internal/store"
@@ -59,6 +60,10 @@ func main() {
 		scheduler,
 		cfg.Retry,
 		slog.Default(),
+		service.WithPush(
+			store.NewFcmTokenStore(db),
+			push.NewFCMSender(push.SenderConfigFromEnv(), slog.Default()),
+		),
 	)
 
 	scheduler.SetService(notificationService)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"Banka1Back/notification-service-go/internal/config"
@@ -26,6 +27,11 @@ type DeliveryStore interface {
 	PersistFailedAudit(ctx context.Context, delivery *model.NotificationDelivery) error
 }
 
+// FcmTokenStore is the persistence port for looking up FCM device tokens.
+type FcmTokenStore interface {
+	FindByClientId(ctx context.Context, clientId int64) (*model.FcmToken, error)
+}
+
 // RetryScheduler feeds a deliveryID back into the retry work queue.
 type RetryScheduler interface {
 	Schedule(deliveryID string, at time.Time)
@@ -37,16 +43,24 @@ type EmailSender interface {
 	SendEmail(to, subject, body string) error
 }
 
+// PushSender is the port interface for FCM push delivery.
+type PushSender interface {
+	SendNotification(ctx context.Context, deviceToken, title, body string) error
+	SendData(ctx context.Context, deviceToken string, data map[string]string) error
+}
+
 // NotificationService orchestrates the complete notification delivery lifecycle:
-// template rendering → DB persistence → SMTP send → retry scheduling.
+// template rendering → DB persistence → SMTP send / FCM push → retry scheduling.
 type NotificationService struct {
-	store     DeliveryStore
-	renderer  *template.Renderer
-	sender    EmailSender
-	scheduler RetryScheduler
-	retryCfg  config.RetryConfig
-	log       *slog.Logger
-	exec      func(f func())
+	store      DeliveryStore
+	renderer   *template.Renderer
+	sender     EmailSender
+	scheduler  RetryScheduler
+	retryCfg   config.RetryConfig
+	log        *slog.Logger
+	exec       func(f func())
+	tokenStore FcmTokenStore
+	pushSender PushSender
 }
 
 // Option is a functional option for NotificationService.
@@ -55,6 +69,14 @@ type Option func(*NotificationService)
 // WithExec replaces the goroutine launcher. Used in tests to run AttemptDelivery synchronously.
 func WithExec(exec func(f func())) Option {
 	return func(s *NotificationService) { s.exec = exec }
+}
+
+// WithPush configures the FCM token store and push sender for push notification delivery.
+func WithPush(tokenStore FcmTokenStore, pushSender PushSender) Option {
+	return func(s *NotificationService) {
+		s.tokenStore = tokenStore
+		s.pushSender = pushSender
+	}
 }
 
 // NewNotificationService constructs a fully-wired NotificationService.
@@ -103,6 +125,10 @@ func NewNotificationServiceWithSender(
 //  2. Persist a PENDING delivery record.
 //  3. Launch AttemptDelivery asynchronously.
 //
+// For push-only notification types (PRICE_ALERT_TRIGGERED, ORDER_RECURRING_SKIPPED):
+// if the recipient email is missing, the email delivery channel is gracefully
+// skipped and an FCM push notification is sent instead.
+//
 // A non-nil error causes the Consumer to NACK the message.
 func (s *NotificationService) HandleIncoming(
 	ctx context.Context,
@@ -116,6 +142,13 @@ func (s *NotificationService) HandleIncoming(
 		req.TemplateVariables,
 	)
 	if err != nil {
+		if isEmailMissingError(err) && model.IsPushOnlyNotificationType(notificationType) {
+			s.log.Info("email missing for push-only notification — skipping email, proceeding to FCM push",
+				"notification_type", notificationType,
+				"client_id", req.ClientID,
+			)
+			return s.handlePushOnlyNotification(ctx, req, notificationType)
+		}
 		s.log.Error("template resolution failed — message will be NACKed",
 			"notification_type", notificationType,
 			"recipient", req.UserEmail,
@@ -145,7 +178,143 @@ func (s *NotificationService) HandleIncoming(
 	deliveryID := delivery.DeliveryID
 	s.exec(func() { s.AttemptDelivery(deliveryID) })
 
+	if model.IsPushOnlyNotificationType(notificationType) {
+		s.exec(func() {
+			s.tryPushDelivery(ctx, req, notificationType, resolved.Subject, resolved.Body)
+		})
+	}
+
 	return nil
+}
+
+func isEmailMissingError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "ERR_NOTIFICATION_003")
+}
+
+func (s *NotificationService) handlePushOnlyNotification(
+	ctx context.Context,
+	req *dto.NotificationRequest,
+	notificationType model.NotificationType,
+) error {
+	resolved, err := s.renderer.ResolveTemplates(
+		notificationType,
+		"",
+		req.EffectiveUsername(),
+		req.TemplateVariables,
+	)
+	if err != nil {
+		s.log.Error("push-only template resolution failed — message will be NACKed",
+			"notification_type", notificationType,
+			"error", err,
+		)
+		return fmt.Errorf("resolve push template [%s]: %w", notificationType, err)
+	}
+
+	s.tryPushDelivery(ctx, req, notificationType, resolved.Subject, resolved.Body)
+	return nil
+}
+
+func (s *NotificationService) tryPushDelivery(
+	ctx context.Context,
+	req *dto.NotificationRequest,
+	notificationType model.NotificationType,
+	subject string,
+	body string,
+) {
+	if s.tokenStore == nil || s.pushSender == nil {
+		s.log.Debug("push delivery skipped — FCM not configured",
+			"notification_type", notificationType,
+		)
+		return
+	}
+
+	if req.ClientID == 0 {
+		s.log.Warn("push delivery skipped — missing clientId",
+			"notification_type", notificationType,
+		)
+		return
+	}
+
+	token, err := s.tokenStore.FindByClientId(ctx, req.ClientID)
+	if err != nil {
+		s.log.Warn("push delivery skipped — token lookup error",
+			"notification_type", notificationType,
+			"client_id", req.ClientID,
+			"error", err,
+		)
+		return
+	}
+	if token == nil || token.Token == "" {
+		s.log.Debug("push delivery skipped — no FCM token for client",
+			"notification_type", notificationType,
+			"client_id", req.ClientID,
+		)
+		return
+	}
+
+	switch notificationType {
+	case model.NotificationTypePriceAlertTriggered:
+		s.sendPriceAlertPush(ctx, req, token.Token, subject)
+	case model.NotificationTypeOrderRecurringSkipped:
+		if err := s.pushSender.SendNotification(ctx, token.Token, subject, body); err != nil {
+			s.log.Warn("push notification send failed",
+				"notification_type", notificationType,
+				"client_id", req.ClientID,
+				"error", err,
+			)
+		} else {
+			s.log.Info("push notification sent successfully",
+				"notification_type", notificationType,
+				"client_id", req.ClientID,
+			)
+		}
+	default:
+		s.log.Debug("no push action defined for notification type",
+			"notification_type", notificationType,
+		)
+	}
+}
+
+func (s *NotificationService) sendPriceAlertPush(
+	ctx context.Context,
+	req *dto.NotificationRequest,
+	deviceToken string,
+	subject string,
+) {
+	vars := req.TemplateVariables
+	if vars == nil || len(vars) == 0 {
+		vars = make(map[string]string)
+	}
+
+	ticker := vars["ticker"]
+	triggeredPrice := vars["price"]
+	threshold := vars["threshold"]
+	condition := vars["condition"]
+
+	bodyMsg := fmt.Sprintf("Cena za %s je dostigla %s", ticker, triggeredPrice)
+
+	data := map[string]string{
+		"type":           "PRICE_ALERT_TRIGGERED",
+		"title":          subject,
+		"body":           bodyMsg,
+		"ticker":         ticker,
+		"threshold":      threshold,
+		"triggeredPrice": triggeredPrice,
+		"condition":      condition,
+	}
+
+	if err := s.pushSender.SendData(ctx, deviceToken, data); err != nil {
+		s.log.Warn("price alert push send failed",
+			"client_id", req.ClientID,
+			"ticker", ticker,
+			"error", err,
+		)
+	} else {
+		s.log.Info("price alert push sent successfully",
+			"client_id", req.ClientID,
+			"ticker", ticker,
+		)
+	}
 }
 
 // PersistUnsupportedAudit creates a terminal FAILED record for messages whose
