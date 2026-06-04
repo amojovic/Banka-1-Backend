@@ -170,6 +170,11 @@ func (s *Service) CreateBuyOrder(ctx context.Context, user AuthUser, req api.Cre
 	if isFund {
 		fee = decimal.Zero
 	}
+	// Scenario 63: reject margin orders for clients without MARGIN_TRADE permission.
+	if boolValue(req.Margin) && user.IsClient() && !user.HasMarginPermission() {
+		return api.OrderResponse{}, api.NewOrderError(409, "User does not have margin permission")
+	}
+
 	// At creation Java checks funds for institutional (BANK / INVESTMENT_FUND)
 	// or client orders, non-margin; a plain agent's funds are verified later
 	// at confirm.

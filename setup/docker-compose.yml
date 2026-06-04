@@ -58,7 +58,37 @@ services:
         reservations:
           memory: 256M
 
-  # Toxiproxy — TCP proxy for SAGA integration tests (SG-09b/c, SG-10).
+  # InfluxDB time-series storage for market/stock price history.
+  influxdb:
+    image: influxdb:2.7
+    container_name: banka_influxdb
+    restart: unless-stopped
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_USERNAME:-admin}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_PASSWORD:-adminadminadmin}
+      DOCKER_INFLUXDB_INIT_ORG: ${STOCK_INFLUX_ORG:-banka1}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${STOCK_INFLUX_BUCKET:-market_data}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${STOCK_INFLUX_TOKEN:-banka1-market-data-token}
+    ports:
+      - "${INFLUXDB_PORT:-8086}:8086"
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+    networks:
+      - banka-network
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+        reservations:
+          memory: 192M
+
+  # Toxiproxy TCP proxy for SAGA integration tests (SG-09b/c, SG-10).
   # Admin API on :8474; proxied ports configured at test runtime.
   toxiproxy:
     image: ghcr.io/shopify/toxiproxy:2.10.0
@@ -418,8 +448,9 @@ services:
       USER_ACTIVATE_ACCOUNT_URL: ${USER_ACTIVATE_ACCOUNT_URL:-http://localhost:4200/auth/activate-account?token=}
       CLIENT_RESET_PASSWORD_URL: ${CLIENT_RESET_PASSWORD_URL:-http://localhost:4200/auth/reset-password?token=}
       CLIENT_ACTIVATE_ACCOUNT_URL: ${CLIENT_ACTIVATE_ACCOUNT_URL:-http://localhost:4200/auth/activate-client?token=}
-      ACCOUNT_LOCKOUT_MAX_ATTEMPTS: ${ACCOUNT_LOCKOUT_MAX_ATTEMPTS:-4}
+      ACCOUNT_LOCKOUT_MAX_ATTEMPTS: ${ACCOUNT_LOCKOUT_MAX_ATTEMPTS:-5}
       ACCOUNT_LOCKOUT_DURATION_MINUTES: ${ACCOUNT_LOCKOUT_DURATION_MINUTES:-10}
+      SERVICES_TRADING_URL: http://trading-service:${TRADING_SERVICE_PORT:-8088}
       MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
       MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
@@ -546,6 +577,11 @@ services:
       TWELVE_DATA_API_KEY: ${TWELVE_DATA_API_KEY:-}
       ALPHA_VANTAGE_API_KEY: ${ALPHA_VANTAGE_API_KEY:-}
       STOCK_MARKET_DATA_BASE_URL: ${STOCK_MARKET_DATA_BASE_URL:-https://www.alphavantage.co}
+      STOCK_INFLUX_ENABLED: ${STOCK_INFLUX_ENABLED:-true}
+      STOCK_INFLUX_URL: ${STOCK_INFLUX_URL:-http://influxdb:8086}
+      STOCK_INFLUX_ORG: ${STOCK_INFLUX_ORG:-banka1}
+      STOCK_INFLUX_BUCKET: ${STOCK_INFLUX_BUCKET:-market_data}
+      STOCK_INFLUX_TOKEN: ${STOCK_INFLUX_TOKEN:-banka1-market-data-token}
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
       STOCK_PRICE_CACHE_TTL_SECONDS: ${STOCK_PRICE_CACHE_TTL_SECONDS:-15}
@@ -565,6 +601,7 @@ services:
       <<: *jvm-tuning
     depends_on:
       postgres: { condition: service_healthy }
+      influxdb: { condition: service_healthy }
       redis: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
       otel-collector: { condition: service_started }
@@ -605,6 +642,11 @@ services:
       TWELVE_DATA_API_KEY: ${TWELVE_DATA_API_KEY:-}
       ALPHA_VANTAGE_API_KEY: ${ALPHA_VANTAGE_API_KEY:-}
       STOCK_MARKET_DATA_BASE_URL: ${STOCK_MARKET_DATA_BASE_URL:-https://www.alphavantage.co}
+      STOCK_INFLUX_ENABLED: ${STOCK_INFLUX_ENABLED:-true}
+      STOCK_INFLUX_URL: ${STOCK_INFLUX_URL:-http://influxdb:8086}
+      STOCK_INFLUX_ORG: ${STOCK_INFLUX_ORG:-banka1}
+      STOCK_INFLUX_BUCKET: ${STOCK_INFLUX_BUCKET:-market_data}
+      STOCK_INFLUX_TOKEN: ${STOCK_INFLUX_TOKEN:-banka1-market-data-token}
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
       STOCK_PRICE_CACHE_TTL_SECONDS: ${STOCK_PRICE_CACHE_TTL_SECONDS:-15}
@@ -617,6 +659,7 @@ services:
       EXCHANGE_RATES_FETCH_CRON: ${EXCHANGE_RATES_FETCH_CRON:-0 0 8 * * *}
     depends_on:
       postgres: { condition: service_healthy }
+      influxdb: { condition: service_healthy }
       redis: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
     ports:
@@ -982,6 +1025,7 @@ networks:
 
 volumes:
   postgres-data:
+  influxdb-data:
   grafana-data:
   loki-data:
   prometheus-data:
