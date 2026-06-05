@@ -223,7 +223,8 @@ func TestTradingClient_GetPublicStocks_OK(t *testing.T) {
 		}
 		hasBearer(t, r)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`[{"ticker":"AAPL","sellers":[{"routingNumber":111,"id":"C-1"}],"quantity":100}]`))
+		// Nested protocol shape that trading-service actually emits.
+		_, _ = w.Write([]byte(`[{"stock":{"ticker":"AAPL"},"sellers":[{"seller":{"routingNumber":111,"id":"C-1"},"amount":100}]}]`))
 	}))
 	defer srv.Close()
 
@@ -235,14 +236,17 @@ func TestTradingClient_GetPublicStocks_OK(t *testing.T) {
 	if len(stocks) != 1 {
 		t.Fatalf("expected 1 stock, got %d", len(stocks))
 	}
-	if stocks[0].Ticker != "AAPL" {
-		t.Errorf("ticker want AAPL, got %s", stocks[0].Ticker)
+	if stocks[0].Stock.Ticker != "AAPL" {
+		t.Errorf("ticker want AAPL, got %s", stocks[0].Stock.Ticker)
 	}
-	if stocks[0].Quantity != 100 {
-		t.Errorf("quantity want 100, got %d", stocks[0].Quantity)
+	if len(stocks[0].Sellers) != 1 {
+		t.Fatalf("expected 1 seller, got %d", len(stocks[0].Sellers))
 	}
-	if len(stocks[0].Sellers) != 1 || stocks[0].Sellers[0].ID != "C-1" {
-		t.Errorf("sellers unexpected: %+v", stocks[0].Sellers)
+	if stocks[0].Sellers[0].Amount != 100 {
+		t.Errorf("amount want 100, got %d", stocks[0].Sellers[0].Amount)
+	}
+	if stocks[0].Sellers[0].Seller.ID != "C-1" || stocks[0].Sellers[0].Seller.RoutingNumber != 111 {
+		t.Errorf("seller unexpected: %+v", stocks[0].Sellers[0].Seller)
 	}
 }
 
