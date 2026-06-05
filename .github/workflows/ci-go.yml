@@ -115,17 +115,22 @@ jobs:
 
       - name: go vet
         working-directory: ${{ matrix.dir }}
+        env:
+          GOWORK: off
         run: go vet ./...
 
       - name: go build
         working-directory: ${{ matrix.dir }}
+        env:
+          GOWORK: off
         run: go build ./...
 
       - name: go test
         working-directory: ${{ matrix.dir }}
-        run: go test ./... -count=1
         env:
+          GOWORK: off
           TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
           SAGA_DB_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
           REDIS_HOST: localhost
           REDIS_PORT: "6379"
+        run: go test ./... -count=1
