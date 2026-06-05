@@ -78,13 +78,13 @@ type dvFakeRows struct {
 	idx  int
 }
 
-func (r *dvFakeRows) Next() bool { return r.idx < len(r.rows) }
-func (r *dvFakeRows) Close()     {}
-func (r *dvFakeRows) Err() error { return nil }
-func (r *dvFakeRows) CommandTag() pgconn.CommandTag               { return pgconn.CommandTag{} }
+func (r *dvFakeRows) Next() bool                                   { return r.idx < len(r.rows) }
+func (r *dvFakeRows) Close()                                       {}
+func (r *dvFakeRows) Err() error                                   { return nil }
+func (r *dvFakeRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
 func (r *dvFakeRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
-func (r *dvFakeRows) Values() ([]any, error)                        { return nil, nil }
-func (r *dvFakeRows) RawValues() [][]byte                           { return nil }
+func (r *dvFakeRows) Values() ([]any, error)                       { return nil, nil }
+func (r *dvFakeRows) RawValues() [][]byte                          { return nil }
 func (r *dvFakeRows) Conn() *pgx.Conn                              { return nil }
 func (r *dvFakeRows) Scan(dest ...any) error {
 	row := r.rows[r.idx]

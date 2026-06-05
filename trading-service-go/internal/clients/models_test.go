@@ -10,7 +10,7 @@ import (
 func sp(s string) *string { return &s }
 func ip(i int) *int       { return &i }
 func lp(v int64) *int64   { return &v }
-func bp(b bool) *bool      { return &b }
+func bp(b bool) *bool     { return &b }
 func dp(s string) *decimal.Decimal {
 	d := decimal.RequireFromString(s)
 	return &d

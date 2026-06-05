@@ -28,7 +28,12 @@ func (s *stubRepo) Insert(_ context.Context, _ Querier, e *Entry) error {
 func (s *stubRepo) Exec(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
 	return pgconn.CommandTag{}, nil
 }
-func (s *stubRepo) Query(_ context.Context, _ string, _ ...any) (interface{ Next() bool; Scan(...any) error; Close(); Err() error }, error) {
+func (s *stubRepo) Query(_ context.Context, _ string, _ ...any) (interface {
+	Next() bool
+	Scan(...any) error
+	Close()
+	Err() error
+}, error) {
 	return nil, nil
 }
 func (s *stubRepo) QueryRow(_ context.Context, _ string, _ ...any) interface{ Scan(...any) error } {
@@ -138,11 +143,11 @@ func TestEntry_Fields(t *testing.T) {
 	name := "test"
 	now := time.Now()
 	e := Entry{
-		ID:        1,
-		ActorID:   &id,
-		ActorName: &name,
+		ID:         1,
+		ActorID:    &id,
+		ActorName:  &name,
 		ActionType: ActionOrderApproved,
-		CreatedAt: now,
+		CreatedAt:  now,
 	}
 	if e.ActorID == nil || *e.ActorID != 42 {
 		t.Error("ActorID mismatch")

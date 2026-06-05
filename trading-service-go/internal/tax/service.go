@@ -36,14 +36,14 @@ var historyStart = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
 // the /portfolio summary (yearlyTaxPaid/monthlyTaxDue) via the portfolio.TaxReporter
 // interface — see CurrentYearPaidTax / CurrentMonthUnpaidTax.
 type Service struct {
-	taxRepo       *Repository
-	orderRepo     *order.Repository
-	portfolioRepo *portfolio.Repository
-	actuaryRepo   *actuary.Repository
-	market        *clients.MarketClient
-	account       *clients.AccountClient
-	employee      *clients.EmployeeClient
-	customer      *clients.CustomerClient
+	taxRepo       taxRepository
+	orderRepo     orderReader
+	portfolioRepo portfolioReader
+	actuaryRepo   actuaryReader
+	market        marketClient
+	account       accountClient
+	employee      employeeClient
+	customer      customerClient
 	notifier      Notifier
 	taxRate       decimal.Decimal
 	logger        *slog.Logger

@@ -12,8 +12,6 @@ import (
 	"banka1/trading-service-go/internal/api"
 	"banka1/trading-service-go/internal/clients"
 
-	gpdb "banka1/go-platform/db"
-	"github.com/jackc/pgx/v5"
 	"github.com/shopspring/decimal"
 )
 
@@ -29,13 +27,14 @@ type DividendService struct {
 	market    *clients.MarketClient
 	account   *clients.AccountClient
 	funds     *Service
+	runInTx   QRunner
 	logger    *slog.Logger
 }
 
 func NewDividendService(repo *Repository, holdings *HoldingService, snapshots *SnapshotService, market *clients.MarketClient, account *clients.AccountClient, funds *Service, logger *slog.Logger) *DividendService {
 	return &DividendService{
 		repo: repo, holdings: holdings, snapshots: snapshots, market: market,
-		account: account, funds: funds, logger: logger,
+		account: account, funds: funds, runInTx: PoolQRunner(repo.Pool()), logger: logger,
 	}
 }
 
@@ -60,15 +59,15 @@ func (s *DividendService) RecordDividend(ctx context.Context, fundID int64, req 
 		distribution *FundDividendDistribution
 		payouts      []FundDividendPayout
 	)
-	err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
-		fund, err := s.repo.FindFundByIDForUpdate(ctx, tx, fundID)
+	err := s.runInTx(ctx, func(q Querier) error {
+		fund, err := s.repo.FindFundByIDForUpdate(ctx, q, fundID)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
 				return api.NewOtcError(http.StatusNotFound, "Fond "+itoa(fundID)+" ne postoji.")
 			}
 			return err
 		}
-		holding, err := s.repo.FindHolding(ctx, tx, fundID, ticker)
+		holding, err := s.repo.FindHolding(ctx, q, fundID, ticker)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
 				return api.NewOtcError(http.StatusNotFound,
@@ -98,7 +97,7 @@ func (s *DividendService) RecordDividend(ctx context.Context, fundID int64, req 
 		// credit fund liquidity + bank account (commit before the strategy
 		// split — matching FundDividendService.creditFundDividend).
 		newLiq := fund.LikvidnaSredstva.Add(grossRsd).Round(2)
-		if err := s.repo.UpdateFundLiquidity(ctx, tx, fundID, newLiq); err != nil {
+		if err := s.repo.UpdateFundLiquidity(ctx, q, fundID, newLiq); err != nil {
 			return err
 		}
 		fund.LikvidnaSredstva = newLiq
@@ -122,19 +121,19 @@ func (s *DividendService) RecordDividend(ctx context.Context, fundID int64, req 
 
 		switch strategy {
 		case DividendReinvest:
-			payouts = s.handleReinvest(ctx, tx, dist, fund, holding, grossRsd)
+			payouts = s.handleReinvest(ctx, q, dist, fund, holding, grossRsd)
 		case DividendPayoutClients:
-			payouts = s.handleClientPayouts(ctx, tx, dist, fund, grossRsd)
+			payouts = s.handleClientPayouts(ctx, q, dist, fund, grossRsd)
 		default:
 			return api.NewOtcError(http.StatusNotFound, "Nepoznata strategija dividende: "+strategy)
 		}
 
-		if err := s.repo.InsertDistribution(ctx, tx, dist); err != nil {
+		if err := s.repo.InsertDistribution(ctx, q, dist); err != nil {
 			return err
 		}
 		for i := range payouts {
 			payouts[i].DistributionID = dist.ID
-			if err := s.repo.InsertPayout(ctx, tx, &payouts[i]); err != nil {
+			if err := s.repo.InsertPayout(ctx, q, &payouts[i]); err != nil {
 				return err
 			}
 		}
@@ -152,7 +151,7 @@ func (s *DividendService) RecordDividend(ctx context.Context, fundID int64, req 
 // if the live price is missing or the gross is below one share, the dividend
 // stays in liquidity (no shares purchased), status flagged
 // COMPLETED_WITH_WARNINGS.
-func (s *DividendService) handleReinvest(ctx context.Context, tx pgx.Tx, dist *FundDividendDistribution, fund *InvestmentFund, holding *FundHolding, grossRsd decimal.Decimal) []FundDividendPayout {
+func (s *DividendService) handleReinvest(ctx context.Context, q Querier, dist *FundDividendDistribution, fund *InvestmentFund, holding *FundHolding, grossRsd decimal.Decimal) []FundDividendPayout {
 	priceUsd, ok := s.market.CurrentPrice(ctx, holding.StockTicker)
 	if !ok || priceUsd.Sign() <= 0 {
 		priceUsd = holding.AvgUnitPrice
@@ -184,7 +183,7 @@ func (s *DividendService) handleReinvest(ctx context.Context, tx pgx.Tx, dist *F
 		return nil
 	}
 	reinvestAmount := priceRsd.Mul(decimal.NewFromInt(int64(shares))).Round(2)
-	if _, err := s.holdings.AddOrUpdate(ctx, tx, fund.ID, holding.StockTicker, shares, priceUsd); err != nil {
+	if _, err := s.holdings.AddOrUpdate(ctx, q, fund.ID, holding.StockTicker, shares, priceUsd); err != nil {
 		s.logger.Warn("dividend reinvest add holding failed", "fundId", fund.ID, "ticker", holding.StockTicker, "error", err)
 	}
 	if err := s.funds.DebitLiquidity(ctx, fund.ID, reinvestAmount, "Fund dividend reinvestment"); err != nil {
@@ -206,8 +205,8 @@ func (s *DividendService) handleReinvest(ctx context.Context, tx pgx.Tx, dist *F
 // clientId asc (matches Java Comparator.comparing(::getClientId)). Each
 // non-last share uses HALF_UP at scale 2; the last client absorbs the rounding
 // remainder (grossRsd - distributedSoFar).
-func (s *DividendService) handleClientPayouts(ctx context.Context, tx pgx.Tx, dist *FundDividendDistribution, fund *InvestmentFund, grossRsd decimal.Decimal) []FundDividendPayout {
-	positions, err := s.repo.FindPositionsByFund(ctx, tx, fund.ID)
+func (s *DividendService) handleClientPayouts(ctx context.Context, q Querier, dist *FundDividendDistribution, fund *InvestmentFund, grossRsd decimal.Decimal) []FundDividendPayout {
+	positions, err := s.repo.FindPositionsByFund(ctx, q, fund.ID)
 	if err != nil {
 		s.logger.Warn("dividend payout: load positions failed", "fundId", fund.ID, "error", err)
 		positions = nil

@@ -22,9 +22,9 @@ func stubService() *Service {
 	}
 }
 
-func intPtr(n int) *int { return &n }
-func int64Ptr(n int64) *int64 { return &n }
-func strPtr(s string) *string { return &s }
+func intPtr(n int) *int                { return &n }
+func int64Ptr(n int64) *int64          { return &n }
+func strPtr(s string) *string          { return &s }
 func decPtr(s string) *decimal.Decimal { d := decimal.RequireFromString(s); return &d }
 
 // ---- CreateBuyOrder early exits (before market call) ----
@@ -168,7 +168,6 @@ func TestValidateTradingAccess_ClientWithPermission_Currency_403(t *testing.T) {
 		t.Error("client cannot trade FOREX, should get 403")
 	}
 }
-
 
 // ---- decimalMin/decimalMax in execution ----
 

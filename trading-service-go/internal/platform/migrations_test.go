@@ -37,20 +37,20 @@ func (r *migFakeRow) Scan(dest ...any) error {
 // ---- fake pgx.Tx ----
 
 type migFakeTx struct {
-	execErr    error
-	commitErr  error
+	execErr     error
+	commitErr   error
 	rollbackErr error
 }
 
-func (t *migFakeTx) Begin(_ context.Context) (pgx.Tx, error)                          { return t, nil }
-func (t *migFakeTx) BeginFunc(_ context.Context, _ func(pgx.Tx) error) error          { return nil }
-func (t *migFakeTx) Commit(_ context.Context) error                                    { return t.commitErr }
-func (t *migFakeTx) Rollback(_ context.Context) error                                  { return t.rollbackErr }
+func (t *migFakeTx) Begin(_ context.Context) (pgx.Tx, error)                 { return t, nil }
+func (t *migFakeTx) BeginFunc(_ context.Context, _ func(pgx.Tx) error) error { return nil }
+func (t *migFakeTx) Commit(_ context.Context) error                          { return t.commitErr }
+func (t *migFakeTx) Rollback(_ context.Context) error                        { return t.rollbackErr }
 func (t *migFakeTx) CopyFrom(_ context.Context, _ pgx.Identifier, _ []string, _ pgx.CopyFromSource) (int64, error) {
 	return 0, nil
 }
 func (t *migFakeTx) SendBatch(_ context.Context, _ *pgx.Batch) pgx.BatchResults { return nil }
-func (t *migFakeTx) LargeObjects() pgx.LargeObjects                              { return pgx.LargeObjects{} }
+func (t *migFakeTx) LargeObjects() pgx.LargeObjects                             { return pgx.LargeObjects{} }
 func (t *migFakeTx) Prepare(_ context.Context, _, _ string) (*pgconn.StatementDescription, error) {
 	return nil, nil
 }
@@ -67,11 +67,11 @@ func (t *migFakeTx) Conn() *pgx.Conn { return nil }
 
 // migFakeDB is configurable: rows is a queue of responses for QueryRow calls.
 type migFakeDB struct {
-	execErr   error
-	rows      []*migFakeRow // queued responses for successive QueryRow calls
-	rowIdx    int
-	beginErr  error
-	tx        *migFakeTx
+	execErr  error
+	rows     []*migFakeRow // queued responses for successive QueryRow calls
+	rowIdx   int
+	beginErr error
+	tx       *migFakeTx
 }
 
 func (d *migFakeDB) Exec(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
@@ -124,7 +124,7 @@ func TestRunMigrations_EmptyDir_Success(t *testing.T) {
 	// CREATE TABLE succeeds, baseline returns nil (tracked=0, no portfolio/orders),
 	// ReadDir returns 0 .sql files → done.
 	db := &migFakeDB{rows: []*migFakeRow{
-		{intVal: 0},   // SELECT COUNT(*) → 0 (baseline check)
+		{intVal: 0},      // SELECT COUNT(*) → 0 (baseline check)
 		{boolVal: false}, // portfolio
 		{boolVal: false}, // orders
 	}}

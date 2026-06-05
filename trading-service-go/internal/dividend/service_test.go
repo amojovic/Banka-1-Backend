@@ -50,9 +50,9 @@ func (s *stubDivPortfolios) FindStockHoldersByListingID(_ context.Context, _ por
 }
 
 type stubDivMarket struct {
-	data       []clients.DividendData
-	converted  decimal.Decimal
-	convertOk  bool
+	data      []clients.DividendData
+	converted decimal.Decimal
+	convertOk bool
 }
 
 func (s *stubDivMarket) FetchDividendData(_ context.Context) []clients.DividendData {

@@ -425,9 +425,9 @@ func (s *Service) publishRecurringSkipped(ctx context.Context, ro *RecurringOrde
 		reason = "Nedovoljno sredstava"
 	}
 	s.notifier.RecurringOrderSkipped(ctx, api.RecurringOrderSkippedNotification{
-		Username: username,
+		Username:  username,
 		UserEmail: userEmail,
-		ClientID: clientID,
+		ClientID:  clientID,
 		TemplateVariables: map[string]string{
 			"orderId":   strconv.FormatInt(ro.ID, 10),
 			"reason":    reason,

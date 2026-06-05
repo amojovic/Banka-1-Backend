@@ -8,7 +8,6 @@ import (
 
 	"banka1/trading-service-go/internal/clients"
 
-	gpdb "banka1/go-platform/db"
 	"github.com/jackc/pgx/v5"
 	"github.com/shopspring/decimal"
 )
@@ -45,7 +44,7 @@ func (s *Service) processExecutionAttempt(orderID int64) {
 	}
 
 	var fill *portionFill
-	if err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	if err := s.runInTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		f, e := s.executeOrderPortion(ctx, tx, orderID)
 		fill = f
 		return e
