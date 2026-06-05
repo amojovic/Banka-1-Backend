@@ -509,12 +509,12 @@ func (a *pubStockAdapter) GetPublicStocks(ctx context.Context) ([]api.PublicStoc
 		sellers := make([]api.SellerRow, len(e.Sellers))
 		for i, s := range e.Sellers {
 			sellers[i] = api.SellerRow{
-				Seller: api.SellerID{RoutingNumber: s.RoutingNumber, ID: s.ID},
-				Amount: e.Quantity,
+				Seller: api.SellerID{RoutingNumber: s.Seller.RoutingNumber, ID: s.Seller.ID},
+				Amount: s.Amount,
 			}
 		}
 		out = append(out, api.PublicStockEntry{
-			Stock:   api.StockRef{Ticker: e.Ticker},
+			Stock:   api.StockRef{Ticker: e.Stock.Ticker},
 			Sellers: sellers,
 		})
 	}

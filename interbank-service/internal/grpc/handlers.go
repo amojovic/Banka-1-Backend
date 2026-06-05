@@ -252,13 +252,13 @@ func (s *Server) GetPublicStock(ctx context.Context, _ *interbankv1.GetPublicSto
 	resp := &interbankv1.GetPublicStockResponse{}
 	for _, e := range entries {
 		entry := &interbankv1.PublicStockEntry{
-			Ticker:   e.Ticker,
-			Quantity: int32(e.Quantity),
+			Ticker: e.Stock.Ticker,
 		}
 		for _, sel := range e.Sellers {
+			entry.Quantity += int32(sel.Amount)
 			entry.Sellers = append(entry.Sellers, &commonv1.ForeignBankId{
-				RoutingNumber: int32(sel.RoutingNumber),
-				Id:            sel.ID,
+				RoutingNumber: int32(sel.Seller.RoutingNumber),
+				Id:            sel.Seller.ID,
 			})
 		}
 		resp.Entries = append(resp.Entries, entry)

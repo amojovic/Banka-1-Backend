@@ -12,14 +12,29 @@ import (
 )
 
 // PublicStockEntry represents one row from GET /internal/interbank/public-stocks.
+// trading-service (Go) emits the NESTED protocol shape:
+//   {"stock":{"ticker":"AAPL"},"sellers":[{"seller":{"routingNumber":N,"id":"C-1"},"amount":N}]}
+// The previous FLAT tags (top-level `ticker`/`quantity`, flat seller) did not match this
+// shape, so the decode silently produced zero values — the partner bank saw empty ticker
+// and amount 0. Tags now mirror the wire shape so values actually decode.
 type PublicStockEntry struct {
-	Ticker   string      `json:"ticker"`
-	Sellers  []SellerRef `json:"sellers"`
-	Quantity int         `json:"quantity"`
+	Stock   StockDesc   `json:"stock"`
+	Sellers []SellerRef `json:"sellers"`
 }
 
-// SellerRef identifies one seller of a public stock.
+// StockDesc carries the ticker (trading-service StockDescription).
+type StockDesc struct {
+	Ticker string `json:"ticker"`
+}
+
+// SellerRef is one seller row: nested ForeignBankId + per-seller amount.
 type SellerRef struct {
+	Seller ForeignID `json:"seller"`
+	Amount int       `json:"amount"`
+}
+
+// ForeignID is the {routingNumber, id} foreign-bank tag of a seller.
+type ForeignID struct {
 	RoutingNumber int    `json:"routingNumber"`
 	ID            string `json:"id"`
 }

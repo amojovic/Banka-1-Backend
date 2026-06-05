@@ -619,7 +619,7 @@ func TestReal_GetPublicStock_Success(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode([]client.PublicStockEntry{
-			{Ticker: "AAPL", Quantity: 50, Sellers: []client.SellerRef{{RoutingNumber: 111, ID: "C-15"}}},
+			{Stock: client.StockDesc{Ticker: "AAPL"}, Sellers: []client.SellerRef{{Seller: client.ForeignID{RoutingNumber: 111, ID: "C-15"}, Amount: 50}}},
 		})
 	}))
 	defer ts.Close()
