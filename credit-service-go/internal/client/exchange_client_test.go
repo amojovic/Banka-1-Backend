@@ -14,7 +14,6 @@ import (
 )
 
 func TestExchangeClient_Calculate_Success(t *testing.T) {
-	t.Parallel()
 	expected := client.ConversionResponse{
 		FromCurrency: "EUR",
 		ToCurrency:   "RSD",
@@ -44,7 +43,6 @@ func TestExchangeClient_Calculate_Success(t *testing.T) {
 }
 
 func TestExchangeClient_Calculate_InvalidJSON_ReturnsError(t *testing.T) {
-	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte("{bad json"))
@@ -59,8 +57,6 @@ func TestExchangeClient_Calculate_InvalidJSON_ReturnsError(t *testing.T) {
 }
 
 func TestExchangeClient_Calculate_NetworkError_ReturnsError(t *testing.T) {
-	t.Parallel()
-	// Closed server causes a network error
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	server.Close()
 

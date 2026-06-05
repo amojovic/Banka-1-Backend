@@ -15,7 +15,6 @@ import (
 )
 
 func TestAccountClient_GetDetails_Success(t *testing.T) {
-	t.Parallel()
 	expected := client.AccountDetailsResponse{
 		OwnerID:  42,
 		Currency: model.CurrencyRSD,
@@ -42,7 +41,6 @@ func TestAccountClient_GetDetails_Success(t *testing.T) {
 }
 
 func TestAccountClient_GetDetails_NonSuccessStatus_ReturnsError(t *testing.T) {
-	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
@@ -57,7 +55,6 @@ func TestAccountClient_GetDetails_NonSuccessStatus_ReturnsError(t *testing.T) {
 }
 
 func TestAccountClient_GetDetails_InvalidJSON_ReturnsError(t *testing.T) {
-	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte("not-json{"))
@@ -72,7 +69,6 @@ func TestAccountClient_GetDetails_InvalidJSON_ReturnsError(t *testing.T) {
 }
 
 func TestAccountClient_GetDetails_ServerError_ReturnsError(t *testing.T) {
-	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
@@ -86,7 +82,6 @@ func TestAccountClient_GetDetails_ServerError_ReturnsError(t *testing.T) {
 }
 
 func TestAccountClient_TransactionFromBank_Success(t *testing.T) {
-	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
@@ -102,7 +97,6 @@ func TestAccountClient_TransactionFromBank_Success(t *testing.T) {
 }
 
 func TestAccountClient_TransactionFromBank_FailedStatus_ReturnsError(t *testing.T) {
-	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 	}))
@@ -117,7 +111,6 @@ func TestAccountClient_TransactionFromBank_FailedStatus_ReturnsError(t *testing.
 }
 
 func TestAccountClient_TransactionFromBank_InternalError_ReturnsError(t *testing.T) {
-	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
@@ -131,7 +124,6 @@ func TestAccountClient_TransactionFromBank_InternalError_ReturnsError(t *testing
 }
 
 func TestAccountClient_TransactionToBank_Success(t *testing.T) {
-	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		w.WriteHeader(http.StatusOK)
@@ -146,7 +138,6 @@ func TestAccountClient_TransactionToBank_Success(t *testing.T) {
 }
 
 func TestAccountClient_TransactionToBank_FailedStatus_ReturnsError(t *testing.T) {
-	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnprocessableEntity)
 	}))

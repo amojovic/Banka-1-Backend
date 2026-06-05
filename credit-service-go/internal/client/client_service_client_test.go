@@ -12,7 +12,6 @@ import (
 )
 
 func TestClientServiceClient_AddMarginPermission_Success(t *testing.T) {
-	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPut, r.Method)
 		assert.Contains(t, r.URL.Path, "/clients/customers/margin/")
@@ -28,7 +27,6 @@ func TestClientServiceClient_AddMarginPermission_Success(t *testing.T) {
 }
 
 func TestClientServiceClient_AddMarginPermission_FailedStatus_ReturnsError(t *testing.T) {
-	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 	}))
@@ -43,7 +41,6 @@ func TestClientServiceClient_AddMarginPermission_FailedStatus_ReturnsError(t *te
 }
 
 func TestClientServiceClient_AddMarginPermission_InternalServerError_ReturnsError(t *testing.T) {
-	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
@@ -57,7 +54,6 @@ func TestClientServiceClient_AddMarginPermission_InternalServerError_ReturnsErro
 }
 
 func TestClientServiceClient_AddMarginPermission_NetworkError_ReturnsError(t *testing.T) {
-	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	server.Close()
 
