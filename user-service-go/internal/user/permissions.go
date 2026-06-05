@@ -7,7 +7,7 @@ func employeePermissions(role string) []string {
 	case "SUPERVISOR":
 		return []string{"BANKING_BASIC", "CLIENT_MANAGE", "SECURITIES_TRADE_LIMITED", "SECURITIES_TRADE_UNLIMITED", "TRADE_UNLIMITED", "OTC_TRADE", "FUND_AGENT_MANAGE"}
 	case "AGENT":
-		return []string{"BANKING_BASIC", "CLIENT_MANAGE", "SECURITIES_TRADE_LIMITED"}
+		return []string{"BANKING_BASIC", "CLIENT_MANAGE", "SECURITIES_TRADE_LIMITED", "OTC_TRADE"}
 	case "BASIC":
 		return []string{"BANKING_BASIC", "CLIENT_MANAGE"}
 	case "SERVICE":

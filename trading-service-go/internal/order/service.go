@@ -322,9 +322,20 @@ func (s *Service) GetMyOrders(ctx context.Context, user AuthUser) ([]api.OrderRe
 	if err != nil {
 		return nil, err
 	}
+	listingCache := map[int64]*clients.StockListing{}
+	for i := range orders {
+		id := orders[i].ListingID
+		if _, ok := listingCache[id]; !ok {
+			listing, err := s.market.GetListing(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+			listingCache[id] = listing
+		}
+	}
 	out := make([]api.OrderResponse, 0, len(orders))
 	for i := range orders {
-		resp, err := s.mapStoredOrderToResponse(ctx, &orders[i])
+		resp, err := s.enrichStoredOrderResponse(ctx, &orders[i], listingCache[orders[i].ListingID])
 		if err != nil {
 			return nil, err
 		}
