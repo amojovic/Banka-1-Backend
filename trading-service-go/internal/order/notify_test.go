@@ -12,8 +12,8 @@ import (
 
 // stubPublisher captures Publish calls.
 type stubPublisher struct {
-	calls   []string
-	pubErr  error
+	calls  []string
+	pubErr error
 }
 
 func (p *stubPublisher) Publish(_ context.Context, routingKey string, _ any) error {

@@ -59,7 +59,7 @@ type SellResult struct {
 // would overshoot. Each round is RSD-aware (cumulative is converted from USD
 // before the comparison) so currency-mixed funds settle correctly.
 func (s *LiquidationService) LiquidateForFund(ctx context.Context, fundID int64, target decimal.Decimal, correlationID string) (*LiquidateResult, error) {
-	fund, err := s.repo.FindFundByIDForUpdate(ctx, s.repo.Pool(), fundID)
+	fund, err := s.repo.FindFundByIDForUpdate(ctx, nil, fundID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return nil, api.NewOtcError(http.StatusNotFound, "Fond "+itoa(fundID)+" ne postoji.")
@@ -112,7 +112,7 @@ func (s *LiquidationService) LiquidateForFund(ctx context.Context, fundID int64,
 		if sellQty <= 0 {
 			continue
 		}
-		if _, err := s.holding.Reduce(ctx, s.repo.Pool(), fundID, h.StockTicker, sellQty); err != nil {
+		if _, err := s.holding.Reduce(ctx, nil, fundID, h.StockTicker, sellQty); err != nil {
 			return nil, err
 		}
 		liquidatedUsd = liquidatedUsd.Add(sellAmount)
@@ -121,7 +121,7 @@ func (s *LiquidationService) LiquidateForFund(ctx context.Context, fundID int64,
 
 	liquidatedRsd := convertUsdToRsd(ctx, s.market, liquidatedUsd).Round(2)
 	newLiquidity := fund.LikvidnaSredstva.Add(liquidatedRsd)
-	if err := s.repo.UpdateFundLiquidity(ctx, s.repo.Pool(), fundID, newLiquidity); err != nil {
+	if err := s.repo.UpdateFundLiquidity(ctx, nil, fundID, newLiquidity); err != nil {
 		return nil, err
 	}
 	if err := s.creditFundAccount(ctx, fund, liquidatedRsd, correlationID); err != nil {
@@ -161,7 +161,7 @@ func newUUIDv4() string {
 // supervisor UI button on each ticker row. ticker is case-insensitive against
 // the fund's holdings (matches Java equalsIgnoreCase).
 func (s *LiquidationService) SellHolding(ctx context.Context, fundID int64, ticker string, quantity int) (*SellResult, error) {
-	fund, err := s.repo.FindFundByIDForUpdate(ctx, s.repo.Pool(), fundID)
+	fund, err := s.repo.FindFundByIDForUpdate(ctx, nil, fundID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return nil, api.NewOtcError(http.StatusNotFound, "Fond "+itoa(fundID)+" ne postoji.")
@@ -194,11 +194,11 @@ func (s *LiquidationService) SellHolding(ctx context.Context, fundID int64, tick
 	}
 	proceedsUsd := unitPrice.Mul(decimal.NewFromInt(int64(quantity))).Round(2)
 	proceedsRsd := convertUsdToRsd(ctx, s.market, proceedsUsd).Round(2)
-	if _, err := s.holding.Reduce(ctx, s.repo.Pool(), fundID, match.StockTicker, quantity); err != nil {
+	if _, err := s.holding.Reduce(ctx, nil, fundID, match.StockTicker, quantity); err != nil {
 		return nil, err
 	}
 	newLiquidity := fund.LikvidnaSredstva.Add(proceedsRsd)
-	if err := s.repo.UpdateFundLiquidity(ctx, s.repo.Pool(), fundID, newLiquidity); err != nil {
+	if err := s.repo.UpdateFundLiquidity(ctx, nil, fundID, newLiquidity); err != nil {
 		return nil, err
 	}
 	if err := s.creditFundAccount(ctx, fund, proceedsRsd, "supervisor-sell"); err != nil {

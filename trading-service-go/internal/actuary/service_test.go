@@ -58,8 +58,8 @@ func (s *stubEmployeeSearcher) SearchEmployees(_ context.Context, _, _, _, _ *st
 	return s.page, s.pageErr
 }
 
-func agentRole() *string { r := "AGENT"; return &r }
-func adminRole() *string { r := "ADMIN"; return &r }
+func agentRole() *string  { r := "AGENT"; return &r }
+func adminRole() *string  { r := "ADMIN"; return &r }
 func sp(s string) *string { return &s }
 
 func newTestActuaryService(repo actuaryRepo, emp employeeSearcher) *Service {

@@ -83,14 +83,14 @@ type fakeRows struct {
 	scanErr error
 }
 
-func (r *fakeRows) Next() bool     { return r.idx < len(r.rows) }
-func (r *fakeRows) Close()         {}
-func (r *fakeRows) Err() error     { return nil }
-func (r *fakeRows) CommandTag() pgconn.CommandTag { return pgconn.CommandTag{} }
+func (r *fakeRows) Next() bool                                   { return r.idx < len(r.rows) }
+func (r *fakeRows) Close()                                       {}
+func (r *fakeRows) Err() error                                   { return nil }
+func (r *fakeRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
 func (r *fakeRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
-func (r *fakeRows) Values() ([]any, error) { return nil, nil }
-func (r *fakeRows) RawValues() [][]byte    { return nil }
-func (r *fakeRows) Conn() *pgx.Conn       { return nil }
+func (r *fakeRows) Values() ([]any, error)                       { return nil, nil }
+func (r *fakeRows) RawValues() [][]byte                          { return nil }
+func (r *fakeRows) Conn() *pgx.Conn                              { return nil }
 func (r *fakeRows) Scan(dest ...any) error {
 	if r.scanErr != nil {
 		return r.scanErr

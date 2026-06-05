@@ -17,12 +17,12 @@ import (
 // ---- stubs ----
 
 type stubIBRepo struct {
-	stockRes    *StockReservation
-	stockResErr error
-	insertErr   error
-	finalizeErr error
-	optionRes   *OptionReservation
-	optionErr   error
+	stockRes     *StockReservation
+	stockResErr  error
+	insertErr    error
+	finalizeErr  error
+	optionRes    *OptionReservation
+	optionErr    error
 	updateOptErr error
 }
 
@@ -47,11 +47,11 @@ func (s *stubIBRepo) UpdateOptionReservationStatus(_ context.Context, _ Querier,
 }
 
 type stubIBPortfolio struct {
-	positions    []portfolio.Portfolio
-	posErr       error
-	position     *portfolio.Portfolio
-	posOneErr    error
-	updateErr    error
+	positions []portfolio.Portfolio
+	posErr    error
+	position  *portfolio.Portfolio
+	posOneErr error
+	updateErr error
 }
 
 func (s *stubIBPortfolio) Pool() *pgxpool.Pool { return nil }

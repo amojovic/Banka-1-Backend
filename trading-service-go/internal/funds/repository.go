@@ -28,12 +28,28 @@ var ErrNotFound = errors.New("funds: not found")
 // columns are scanned via ::text into decimal.Decimal to preserve scale.
 type Repository struct {
 	db *pgxpool.Pool
+	// q is the Querier used by the standalone (non-tx) read paths. It defaults to
+	// db (the pool) in production; tests inject a fake Querier so the repository
+	// query/scan paths are unit-testable without Postgres.
+	q Querier
 }
 
-func NewRepository(db *pgxpool.Pool) *Repository { return &Repository{db: db} }
+func NewRepository(db *pgxpool.Pool) *Repository { return &Repository{db: db, q: db} }
 
 // Pool exposes the pool for callers that need to start a RunInTx themselves.
 func (r *Repository) Pool() *pgxpool.Pool { return r.db }
+
+// querier returns the standalone Querier (the injected fake in tests, else the
+// pool). Guards against a zero-value Repository where q was never set.
+func (r *Repository) querier() Querier {
+	if r.q != nil {
+		return r.q
+	}
+	if r.db != nil {
+		return r.db
+	}
+	return nil
+}
 
 // =========================== investment_funds =============================
 
@@ -81,7 +97,7 @@ func scanFunds(rows pgx.Rows) ([]InvestmentFund, error) {
 // FindFundByID mirrors InvestmentFundRepository.findById.
 func (r *Repository) FindFundByID(ctx context.Context, q Querier, id int64) (*InvestmentFund, error) {
 	if q == nil {
-		q = r.db
+		q = r.querier()
 	}
 	f, err := scanFund(q.QueryRow(ctx,
 		`SELECT `+fundColumns+` FROM investment_funds WHERE id = $1`, id))
@@ -94,6 +110,9 @@ func (r *Repository) FindFundByID(ctx context.Context, q Querier, id int64) (*In
 // FindFundByIDForUpdate mirrors @Lock(PESSIMISTIC_WRITE)
 // InvestmentFundRepository.findByIdForUpdate.
 func (r *Repository) FindFundByIDForUpdate(ctx context.Context, q Querier, id int64) (*InvestmentFund, error) {
+	if q == nil {
+		q = r.querier()
+	}
 	f, err := scanFund(q.QueryRow(ctx,
 		`SELECT `+fundColumns+` FROM investment_funds WHERE id = $1 FOR UPDATE`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -105,7 +124,7 @@ func (r *Repository) FindFundByIDForUpdate(ctx context.Context, q Querier, id in
 // FundExists mirrors JpaRepository.existsById.
 func (r *Repository) FundExists(ctx context.Context, q Querier, id int64) (bool, error) {
 	if q == nil {
-		q = r.db
+		q = r.querier()
 	}
 	var exists bool
 	err := q.QueryRow(ctx,
@@ -115,7 +134,7 @@ func (r *Repository) FundExists(ctx context.Context, q Querier, id int64) (bool,
 
 // FindFundsActive mirrors findByDeletedFalseOrderByNazivAsc.
 func (r *Repository) FindFundsActive(ctx context.Context) ([]InvestmentFund, error) {
-	rows, err := r.db.Query(ctx,
+	rows, err := r.querier().Query(ctx,
 		`SELECT `+fundColumns+` FROM investment_funds WHERE deleted = false ORDER BY naziv ASC`)
 	if err != nil {
 		return nil, err
@@ -125,7 +144,7 @@ func (r *Repository) FindFundsActive(ctx context.Context) ([]InvestmentFund, err
 
 // FindFundsByManager mirrors findByManagerIdAndDeletedFalse.
 func (r *Repository) FindFundsByManager(ctx context.Context, managerID int64) ([]InvestmentFund, error) {
-	rows, err := r.db.Query(ctx,
+	rows, err := r.querier().Query(ctx,
 		`SELECT `+fundColumns+` FROM investment_funds WHERE manager_id = $1 AND deleted = false ORDER BY naziv ASC`,
 		managerID)
 	if err != nil {
@@ -137,7 +156,7 @@ func (r *Repository) FindFundsByManager(ctx context.Context, managerID int64) ([
 // InsertFund mirrors the persist branch of save(InvestmentFund).
 func (r *Repository) InsertFund(ctx context.Context, q Querier, f *InvestmentFund) error {
 	if q == nil {
-		q = r.db
+		q = r.querier()
 	}
 	if f.DatumKreiranja.IsZero() {
 		f.DatumKreiranja = time.Now().UTC()
@@ -161,7 +180,7 @@ func (r *Repository) InsertFund(ctx context.Context, q Querier, f *InvestmentFun
 // JPA @Version. Returns ErrNotFound when the row vanished.
 func (r *Repository) UpdateFundLiquidity(ctx context.Context, q Querier, fundID int64, liquidity decimal.Decimal) error {
 	if q == nil {
-		q = r.db
+		q = r.querier()
 	}
 	tag, err := q.Exec(ctx,
 		`UPDATE investment_funds SET likvidna_sredstva = $1, version = version + 1 WHERE id = $2`,
@@ -179,7 +198,7 @@ func (r *Repository) UpdateFundLiquidity(ctx context.Context, q Querier, fundID 
 // (used by /funds/admin/reassign-manager).
 func (r *Repository) UpdateFundManager(ctx context.Context, q Querier, fundID, newManagerID int64) error {
 	if q == nil {
-		q = r.db
+		q = r.querier()
 	}
 	tag, err := q.Exec(ctx,
 		`UPDATE investment_funds SET manager_id = $1, version = version + 1 WHERE id = $2`,
@@ -230,7 +249,7 @@ func scanPositions(rows pgx.Rows) ([]ClientFundPosition, error) {
 
 // FindPositionsByClient mirrors ClientFundPositionRepository.findByClientId.
 func (r *Repository) FindPositionsByClient(ctx context.Context, clientID int64) ([]ClientFundPosition, error) {
-	rows, err := r.db.Query(ctx,
+	rows, err := r.querier().Query(ctx,
 		`SELECT `+positionColumns+` FROM client_fund_positions WHERE client_id = $1`, clientID)
 	if err != nil {
 		return nil, err
@@ -241,7 +260,7 @@ func (r *Repository) FindPositionsByClient(ctx context.Context, clientID int64) 
 // FindPositionsByFund mirrors ClientFundPositionRepository.findByFundId.
 func (r *Repository) FindPositionsByFund(ctx context.Context, q Querier, fundID int64) ([]ClientFundPosition, error) {
 	if q == nil {
-		q = r.db
+		q = r.querier()
 	}
 	rows, err := q.Query(ctx,
 		`SELECT `+positionColumns+` FROM client_fund_positions WHERE fund_id = $1`, fundID)
@@ -254,7 +273,7 @@ func (r *Repository) FindPositionsByFund(ctx context.Context, q Querier, fundID 
 // FindPosition mirrors findByClientIdAndFundId.
 func (r *Repository) FindPosition(ctx context.Context, q Querier, clientID, fundID int64) (*ClientFundPosition, error) {
 	if q == nil {
-		q = r.db
+		q = r.querier()
 	}
 	p, err := scanPosition(q.QueryRow(ctx,
 		`SELECT `+positionColumns+` FROM client_fund_positions WHERE client_id = $1 AND fund_id = $2`,
@@ -268,6 +287,9 @@ func (r *Repository) FindPosition(ctx context.Context, q Querier, clientID, fund
 // FindPositionForUpdate mirrors @Lock(PESSIMISTIC_WRITE)
 // findByClientIdAndFundIdForUpdate.
 func (r *Repository) FindPositionForUpdate(ctx context.Context, q Querier, clientID, fundID int64) (*ClientFundPosition, error) {
+	if q == nil {
+		q = r.querier()
+	}
 	p, err := scanPosition(q.QueryRow(ctx,
 		`SELECT `+positionColumns+` FROM client_fund_positions WHERE client_id = $1 AND fund_id = $2 FOR UPDATE`,
 		clientID, fundID))
@@ -283,7 +305,7 @@ func (r *Repository) FindPositionForUpdate(ctx context.Context, q Querier, clien
 // fund_id) is the safety net for race conditions.
 func (r *Repository) UpsertPosition(ctx context.Context, q Querier, p *ClientFundPosition) error {
 	if q == nil {
-		q = r.db
+		q = r.querier()
 	}
 	if p.ID == 0 {
 		if p.FirstInvestedAt.IsZero() {
@@ -349,7 +371,7 @@ func scanTransactions(rows pgx.Rows) ([]ClientFundTransaction, error) {
 // FindTransactionByID mirrors ClientFundTransactionRepository.findById.
 func (r *Repository) FindTransactionByID(ctx context.Context, q Querier, id int64) (*ClientFundTransaction, error) {
 	if q == nil {
-		q = r.db
+		q = r.querier()
 	}
 	t, err := scanTransaction(q.QueryRow(ctx,
 		`SELECT `+transactionColumns+` FROM client_fund_transactions WHERE id = $1`, id))
@@ -361,7 +383,7 @@ func (r *Repository) FindTransactionByID(ctx context.Context, q Querier, id int6
 
 // FindTransactionsByClient mirrors findByClientIdOrderByOccurredAtDesc.
 func (r *Repository) FindTransactionsByClient(ctx context.Context, clientID int64) ([]ClientFundTransaction, error) {
-	rows, err := r.db.Query(ctx,
+	rows, err := r.querier().Query(ctx,
 		`SELECT `+transactionColumns+` FROM client_fund_transactions
 		 WHERE client_id = $1 ORDER BY occurred_at DESC`, clientID)
 	if err != nil {
@@ -372,7 +394,7 @@ func (r *Repository) FindTransactionsByClient(ctx context.Context, clientID int6
 
 // FindTransactionsByFund mirrors findByFundIdOrderByOccurredAtDesc.
 func (r *Repository) FindTransactionsByFund(ctx context.Context, fundID int64) ([]ClientFundTransaction, error) {
-	rows, err := r.db.Query(ctx,
+	rows, err := r.querier().Query(ctx,
 		`SELECT `+transactionColumns+` FROM client_fund_transactions
 		 WHERE fund_id = $1 ORDER BY occurred_at DESC`, fundID)
 	if err != nil {
@@ -385,7 +407,7 @@ func (r *Repository) FindTransactionsByFund(ctx context.Context, fundID int64) (
 // ClientFundTransactionRepository.save. Defaults occurred_at to now().
 func (r *Repository) InsertTransaction(ctx context.Context, q Querier, t *ClientFundTransaction) error {
 	if q == nil {
-		q = r.db
+		q = r.querier()
 	}
 	if t.OccurredAt.IsZero() {
 		t.OccurredAt = time.Now().UTC()
@@ -404,7 +426,7 @@ func (r *Repository) InsertTransaction(ctx context.Context, q Querier, t *Client
 // status/failure_reason transition (PENDING -> COMPLETED/FAILED).
 func (r *Repository) UpdateTransactionStatus(ctx context.Context, q Querier, id int64, status string, reason *string) error {
 	if q == nil {
-		q = r.db
+		q = r.querier()
 	}
 	tag, err := q.Exec(ctx,
 		`UPDATE client_fund_transactions SET status = $1, failure_reason = $2 WHERE id = $3`,

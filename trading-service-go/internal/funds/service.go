@@ -11,8 +11,6 @@ import (
 	"banka1/trading-service-go/internal/api"
 	"banka1/trading-service-go/internal/clients"
 
-	gpdb "banka1/go-platform/db"
-	"github.com/jackc/pgx/v5"
 	"github.com/shopspring/decimal"
 )
 
@@ -31,8 +29,15 @@ type Service struct {
 	account   *clients.AccountClient
 	employee  *clients.EmployeeClient
 	publisher SagaPublisher
+	runInTx   QRunner
 	logger    *slog.Logger
 }
+
+// QRunner runs fn with a Querier inside a transaction. In production it wraps
+// gpdb.RunInTx and hands the pgx.Tx (which satisfies Querier); tests substitute
+// a fake that calls fn(fakeQuerier) so the saga callbacks are unit-testable
+// without Postgres.
+type QRunner func(ctx context.Context, fn func(Querier) error) error
 
 // NewService wires the service. Publisher is the saga-events publisher; a
 // noop wrapper (NewNoopSagaPublisher) is fine when the broker is unreachable
@@ -42,7 +47,7 @@ func NewService(repo *Repository, snapshots *SnapshotService, stats *StatisticsS
 	return &Service{
 		repo: repo, snapshots: snapshots, stats: stats, holdings: holdings,
 		market: market, account: account, employee: employee,
-		publisher: publisher, logger: logger,
+		publisher: publisher, runInTx: PoolQRunner(repo.Pool()), logger: logger,
 	}
 }
 
@@ -108,8 +113,8 @@ func (s *Service) DebitLiquidity(ctx context.Context, fundID int64, amount decim
 	if amount.Sign() <= 0 {
 		return nil
 	}
-	return gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
-		fund, err := s.repo.FindFundByIDForUpdate(ctx, tx, fundID)
+	return s.runInTx(ctx, func(q Querier) error {
+		fund, err := s.repo.FindFundByIDForUpdate(ctx, q, fundID)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
 				return api.NewOtcError(http.StatusNotFound, "Fond "+itoa(fundID)+" ne postoji.")
@@ -117,7 +122,7 @@ func (s *Service) DebitLiquidity(ctx context.Context, fundID int64, amount decim
 			return err
 		}
 		newLiq := fund.LikvidnaSredstva.Sub(amount).Round(2)
-		if err := s.repo.UpdateFundLiquidity(ctx, tx, fundID, newLiq); err != nil {
+		if err := s.repo.UpdateFundLiquidity(ctx, q, fundID, newLiq); err != nil {
 			return err
 		}
 		s.logger.Info("fund liquidity debited",
@@ -374,8 +379,8 @@ func (s *Service) BankInvest(ctx context.Context, fundID int64, amount decimal.D
 func (s *Service) investImpl(ctx context.Context, fundID, clientID int64, amount decimal.Decimal, fromAccount string, _ bool) (*ClientFundTransaction, error) {
 	var saved *ClientFundTransaction
 	var fundAccount string
-	err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
-		fund, err := s.repo.FindFundByIDForUpdate(ctx, tx, fundID)
+	err := s.runInTx(ctx, func(q Querier) error {
+		fund, err := s.repo.FindFundByIDForUpdate(ctx, q, fundID)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
 				return api.NewOtcError(http.StatusNotFound, "Fond "+itoa(fundID)+" ne postoji.")
@@ -398,7 +403,7 @@ func (s *Service) investImpl(ctx context.Context, fundID, clientID int64, amount
 			Status:              TxStatusPending,
 			ClientAccountNumber: fromAccount,
 		}
-		if err := s.repo.InsertTransaction(ctx, tx, t); err != nil {
+		if err := s.repo.InsertTransaction(ctx, q, t); err != nil {
 			return err
 		}
 		saved = t
@@ -439,8 +444,8 @@ func (s *Service) redeemImpl(ctx context.Context, fundID, clientID int64, amount
 	var saved *ClientFundTransaction
 	var fundAccount string
 	var liquidEnough bool
-	err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
-		fund, err := s.repo.FindFundByIDForUpdate(ctx, tx, fundID)
+	err := s.runInTx(ctx, func(q Querier) error {
+		fund, err := s.repo.FindFundByIDForUpdate(ctx, q, fundID)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
 				return api.NewOtcError(http.StatusNotFound, "Fond "+itoa(fundID)+" ne postoji.")
@@ -450,7 +455,7 @@ func (s *Service) redeemImpl(ctx context.Context, fundID, clientID int64, amount
 		if err := s.ensureFundAccountExists(ctx, fund); err != nil {
 			return err
 		}
-		pos, err := s.repo.FindPositionForUpdate(ctx, tx, clientID, fundID)
+		pos, err := s.repo.FindPositionForUpdate(ctx, q, clientID, fundID)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
 				if clientID == BankInvestorID {
@@ -479,7 +484,7 @@ func (s *Service) redeemImpl(ctx context.Context, fundID, clientID int64, amount
 			Status:              TxStatusPending,
 			ClientAccountNumber: toAccount,
 		}
-		if err := s.repo.InsertTransaction(ctx, tx, t); err != nil {
+		if err := s.repo.InsertTransaction(ctx, q, t); err != nil {
 			return err
 		}
 		saved = t
@@ -508,8 +513,8 @@ func (s *Service) redeemImpl(ctx context.Context, fundID, clientID int64, amount
 // CompleteInvest mirrors InvestmentFundService.completeInvest. Idempotent —
 // no-op when the transaction has already left PENDING.
 func (s *Service) CompleteInvest(ctx context.Context, txID, clientID, fundID int64, amount decimal.Decimal) error {
-	return gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
-		t, err := s.repo.FindTransactionByID(ctx, tx, txID)
+	return s.runInTx(ctx, func(q Querier) error {
+		t, err := s.repo.FindTransactionByID(ctx, q, txID)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
 				s.logger.Warn("completeInvest: tx not found — skip", "txId", txID)
@@ -521,10 +526,10 @@ func (s *Service) CompleteInvest(ctx context.Context, txID, clientID, fundID int
 			s.logger.Info("completeInvest: tx already terminal — skip", "txId", txID, "status", t.Status)
 			return nil
 		}
-		if err := s.repo.UpdateTransactionStatus(ctx, tx, txID, TxStatusCompleted, nil); err != nil {
+		if err := s.repo.UpdateTransactionStatus(ctx, q, txID, TxStatusCompleted, nil); err != nil {
 			return err
 		}
-		pos, err := s.repo.FindPosition(ctx, tx, clientID, fundID)
+		pos, err := s.repo.FindPosition(ctx, q, clientID, fundID)
 		if err != nil && !errors.Is(err, ErrNotFound) {
 			return err
 		}
@@ -534,15 +539,15 @@ func (s *Service) CompleteInvest(ctx context.Context, txID, clientID, fundID int
 		}
 		pos.TotalInvested = pos.TotalInvested.Add(amount)
 		pos.LastModifiedAt = &now
-		if err := s.repo.UpsertPosition(ctx, tx, pos); err != nil {
+		if err := s.repo.UpsertPosition(ctx, q, pos); err != nil {
 			return err
 		}
-		fund, err := s.repo.FindFundByIDForUpdate(ctx, tx, fundID)
+		fund, err := s.repo.FindFundByIDForUpdate(ctx, q, fundID)
 		if err != nil {
 			return err
 		}
 		newLiq := fund.LikvidnaSredstva.Add(amount)
-		if err := s.repo.UpdateFundLiquidity(ctx, tx, fundID, newLiq); err != nil {
+		if err := s.repo.UpdateFundLiquidity(ctx, q, fundID, newLiq); err != nil {
 			return err
 		}
 		return nil
@@ -554,8 +559,8 @@ func (s *Service) CompleteInvest(ctx context.Context, txID, clientID, fundID int
 // this step subtracts what banking-core actually moved in step 2 (mirrors
 // Java's two-step net-zero balance).
 func (s *Service) CompleteRedeem(ctx context.Context, txID, clientID, fundID int64, amount decimal.Decimal) error {
-	return gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
-		t, err := s.repo.FindTransactionByID(ctx, tx, txID)
+	return s.runInTx(ctx, func(q Querier) error {
+		t, err := s.repo.FindTransactionByID(ctx, q, txID)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
 				s.logger.Warn("completeRedeem: tx not found — skip", "txId", txID)
@@ -567,10 +572,10 @@ func (s *Service) CompleteRedeem(ctx context.Context, txID, clientID, fundID int
 			s.logger.Info("completeRedeem: tx already terminal — skip", "txId", txID, "status", t.Status)
 			return nil
 		}
-		if err := s.repo.UpdateTransactionStatus(ctx, tx, txID, TxStatusCompleted, nil); err != nil {
+		if err := s.repo.UpdateTransactionStatus(ctx, q, txID, TxStatusCompleted, nil); err != nil {
 			return err
 		}
-		pos, err := s.repo.FindPosition(ctx, tx, clientID, fundID)
+		pos, err := s.repo.FindPosition(ctx, q, clientID, fundID)
 		if err != nil && !errors.Is(err, ErrNotFound) {
 			return err
 		}
@@ -582,11 +587,11 @@ func (s *Service) CompleteRedeem(ctx context.Context, txID, clientID, fundID int
 			}
 			pos.TotalInvested = newInvested
 			pos.LastModifiedAt = &now
-			if err := s.repo.UpsertPosition(ctx, tx, pos); err != nil {
+			if err := s.repo.UpsertPosition(ctx, q, pos); err != nil {
 				return err
 			}
 		}
-		fund, err := s.repo.FindFundByIDForUpdate(ctx, tx, fundID)
+		fund, err := s.repo.FindFundByIDForUpdate(ctx, q, fundID)
 		if err != nil {
 			return err
 		}
@@ -594,7 +599,7 @@ func (s *Service) CompleteRedeem(ctx context.Context, txID, clientID, fundID int
 		if newLiq.Sign() < 0 {
 			newLiq = decimal.Zero
 		}
-		if err := s.repo.UpdateFundLiquidity(ctx, tx, fundID, newLiq); err != nil {
+		if err := s.repo.UpdateFundLiquidity(ctx, q, fundID, newLiq); err != nil {
 			return err
 		}
 		return nil
@@ -604,8 +609,8 @@ func (s *Service) CompleteRedeem(ctx context.Context, txID, clientID, fundID int
 // FailTransaction mirrors InvestmentFundService.failTransaction. Idempotent —
 // no-op when already terminal.
 func (s *Service) FailTransaction(ctx context.Context, txID int64, reason string) error {
-	return gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
-		t, err := s.repo.FindTransactionByID(ctx, tx, txID)
+	return s.runInTx(ctx, func(q Querier) error {
+		t, err := s.repo.FindTransactionByID(ctx, q, txID)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
 				s.logger.Warn("failTransaction: tx not found", "txId", txID)
@@ -618,7 +623,7 @@ func (s *Service) FailTransaction(ctx context.Context, txID int64, reason string
 			return nil
 		}
 		r := reason
-		return s.repo.UpdateTransactionStatus(ctx, tx, txID, TxStatusFailed, &r)
+		return s.repo.UpdateTransactionStatus(ctx, q, txID, TxStatusFailed, &r)
 	})
 }
 

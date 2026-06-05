@@ -20,6 +20,15 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// Querier is satisfied by both *pgxpool.Pool and pgx.Tx (and the test fake), so
+// the repository can be unit-tested without a live Postgres. Mirrors the actuary
+// repository precedent.
+type Querier interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
 // TaxChargeStatus values. order-service entity/enums/TaxChargeStatus: trust the
 // enum (RESERVED/FAILED/CHARGED), not the stale entity javadoc (PENDING/.../PAID).
 const (
@@ -69,7 +78,7 @@ type OtcTaxEntry struct {
 }
 
 type Repository struct {
-	db *pgxpool.Pool
+	db Querier
 }
 
 func NewRepository(db *pgxpool.Pool) *Repository {

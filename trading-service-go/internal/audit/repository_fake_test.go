@@ -37,13 +37,13 @@ type auFakeRows struct {
 	idx  int
 }
 
-func (r *auFakeRows) Next() bool { return r.idx < len(r.rows) }
-func (r *auFakeRows) Close()     {}
-func (r *auFakeRows) Err() error { return nil }
-func (r *auFakeRows) CommandTag() pgconn.CommandTag               { return pgconn.CommandTag{} }
+func (r *auFakeRows) Next() bool                                   { return r.idx < len(r.rows) }
+func (r *auFakeRows) Close()                                       {}
+func (r *auFakeRows) Err() error                                   { return nil }
+func (r *auFakeRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
 func (r *auFakeRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
-func (r *auFakeRows) Values() ([]any, error)                        { return nil, nil }
-func (r *auFakeRows) RawValues() [][]byte                           { return nil }
+func (r *auFakeRows) Values() ([]any, error)                       { return nil, nil }
+func (r *auFakeRows) RawValues() [][]byte                          { return nil }
 func (r *auFakeRows) Conn() *pgx.Conn                              { return nil }
 func (r *auFakeRows) Scan(dest ...any) error {
 	row := r.rows[r.idx]
