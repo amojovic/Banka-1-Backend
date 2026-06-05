@@ -95,7 +95,7 @@ func TestLoadConfig_OverridesFromEnv(t *testing.T) {
 
 func TestDatabaseURL(t *testing.T) {
 	c := Config{DBUser: "u", DBPassword: "p", DBHost: "h", DBPort: "5432", DBName: "db"}
-	if got := c.DatabaseURL(); got != "postgres://u:p@h:5432/db" {
+	if got := c.DatabaseURL(); got != "postgres://u:p@h:5432/db?sslmode=disable" {
 		t.Errorf("DatabaseURL = %q", got)
 	}
 }

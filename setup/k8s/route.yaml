@@ -25,3 +25,7 @@ spec:
       backendRefs:
         - name: frontend
           port: 80
+
+
+        # front da mi kaze koji endpoint gadjaju, i da naprave da mogu da stave da se definise koji je to endpoint
+        # requestovi treba da idu na https://banka-1.radenkovic.rs/api/     gateway, bilo sta, u zavisnosti od kog servisa
