@@ -171,7 +171,11 @@ func LoadConfig() Config {
 
 // DatabaseURL builds the pgx connection string (same shape as market-service-go).
 func (c Config) DatabaseURL() string {
-	return "postgres://" + c.DBUser + ":" + c.DBPassword + "@" + c.DBHost + ":" + c.DBPort + "/" + c.DBName + "?sslmode=" + c.DBSSLMode
+	sslMode := c.DBSSLMode
+	if strings.TrimSpace(sslMode) == "" {
+		sslMode = "disable"
+	}
+	return "postgres://" + c.DBUser + ":" + c.DBPassword + "@" + c.DBHost + ":" + c.DBPort + "/" + c.DBName + "?sslmode=" + sslMode
 }
 
 func getEnv(key, fallback string) string {

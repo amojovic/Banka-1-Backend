@@ -15,7 +15,6 @@ import (
 	"banka1/trading-service-go/internal/clients"
 	"banka1/trading-service-go/internal/portfolio"
 
-	gpdb "banka1/go-platform/db"
 	"github.com/jackc/pgx/v5"
 	"github.com/shopspring/decimal"
 )
@@ -48,16 +47,17 @@ func (NoopFundCallback) DebitLiquidity(context.Context, int64, decimal.Decimal, 
 // OrderExecutionServiceImpl (unified here since they share the same clients and
 // the worker calls back into the service).
 type Service struct {
-	repo       *Repository
-	portfolios *portfolio.Repository
-	actuaries  *actuary.Repository
-	market     *clients.MarketClient
-	account    *clients.AccountClient
-	employees  *clients.EmployeeClient
-	customers  *clients.CustomerClient
+	repo       orderRepo
+	portfolios orderPortfolios
+	actuaries  orderActuaries
+	market     orderMarket
+	account    orderAccount
+	employees  orderEmployees
+	customers  orderCustomers
 	notifier   Notifier
 	funds      FundCallback
-	auditor    *audit.Service
+	auditor    orderAuditor
+	runInTx    txRunner
 	worker     *Worker
 	logger     *slog.Logger
 }
@@ -83,8 +83,13 @@ func NewService(repo *Repository, portfolios *portfolio.Repository, actuaries *a
 		customers:  cl.Customer,
 		notifier:   notifier,
 		funds:      fundCallback,
-		auditor:    auditor,
+		runInTx:    poolTxRunner(repo.Pool()),
 		logger:     logger,
+	}
+	// Assign the auditor only when non-nil so the typed-nil interface never
+	// defeats the s.auditor == nil guard in publishOrderAuditEvent.
+	if auditor != nil {
+		s.auditor = auditor
 	}
 	s.worker = NewWorker(s.processExecutionAttempt, logger, 4)
 	return s
@@ -322,9 +327,20 @@ func (s *Service) GetMyOrders(ctx context.Context, user AuthUser) ([]api.OrderRe
 	if err != nil {
 		return nil, err
 	}
+	listingCache := map[int64]*clients.StockListing{}
+	for i := range orders {
+		id := orders[i].ListingID
+		if _, ok := listingCache[id]; !ok {
+			listing, err := s.market.GetListing(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+			listingCache[id] = listing
+		}
+	}
 	out := make([]api.OrderResponse, 0, len(orders))
 	for i := range orders {
-		resp, err := s.mapStoredOrderToResponse(ctx, &orders[i])
+		resp, err := s.enrichStoredOrderResponse(ctx, &orders[i], listingCache[orders[i].ListingID])
 		if err != nil {
 			return nil, err
 		}
@@ -482,7 +498,7 @@ func (s *Service) ConfirmOrder(ctx context.Context, user AuthUser, orderID int64
 		createdTicker  string
 		emitCreated    bool
 	)
-	err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err := s.runInTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		order, err := s.repo.FindByID(ctx, tx, orderID)
 		if err != nil {
 			return err
@@ -623,7 +639,7 @@ func (s *Service) ApproveOrder(ctx context.Context, supervisorID, orderID int64)
 		approx, fee decimal.Decimal
 		notify      *api.OrderNotificationPayload
 	)
-	err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err := s.runInTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		order, err := s.repo.FindByID(ctx, tx, orderID)
 		if err != nil {
 			return err
@@ -699,7 +715,7 @@ func (s *Service) DeclineOrder(ctx context.Context, supervisorID, orderID int64)
 		approx, fee decimal.Decimal
 		notify      *api.OrderNotificationPayload
 	)
-	err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err := s.runInTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		order, err := s.repo.FindByID(ctx, tx, orderID)
 		if err != nil {
 			return err
@@ -755,7 +771,7 @@ func (s *Service) cancelOrder(ctx context.Context, orderID int64, quantityToCanc
 		result      *Order
 		approx, fee decimal.Decimal
 	)
-	err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err := s.runInTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		order, err := s.repo.FindByIDForUpdate(ctx, tx, orderID)
 		if err != nil {
 			return err
@@ -824,7 +840,7 @@ func (s *Service) AutoDeclineExpiredPendingOrders(ctx context.Context) error {
 			ticker    string
 			price     decimal.Decimal
 		)
-		err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+		err := s.runInTx(ctx, pgx.TxOptions{}, func(tx pgx.Tx) error {
 			locked, err := s.repo.FindByIDForUpdate(ctx, tx, id)
 			if err != nil {
 				return err

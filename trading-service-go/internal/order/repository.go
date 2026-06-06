@@ -68,16 +68,22 @@ type Transaction struct {
 	Timestamp    time.Time
 }
 
+// Repository reads/writes the orders, transactions, and recurring_orders tables.
+// Every query method takes an explicit Querier (satisfied by both *pgxpool.Pool
+// and pgx.Tx, and by a test fake), so the methods run standalone, inside the
+// execution transaction, or against a fake without a real DB. Only Pool() needs
+// the concrete pool — to hand it to RunInTx and the sibling portfolio/actuary
+// repositories.
 type Repository struct {
-	db *pgxpool.Pool
+	pool *pgxpool.Pool
 }
 
 func NewRepository(db *pgxpool.Pool) *Repository {
-	return &Repository{db: db}
+	return &Repository{pool: db}
 }
 
 // Pool exposes the pool so the service can open execution transactions.
-func (r *Repository) Pool() *pgxpool.Pool { return r.db }
+func (r *Repository) Pool() *pgxpool.Pool { return r.pool }
 
 const orderColumns = `id, user_id, listing_id, order_type, quantity, contract_size,
 	price_per_unit::text, limit_value::text, stop_value::text, direction, status,

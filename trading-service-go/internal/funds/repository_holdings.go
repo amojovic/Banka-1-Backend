@@ -47,7 +47,7 @@ func scanHoldings(rows pgx.Rows) ([]FundHolding, error) {
 // FindHoldingsActive mirrors findByFundIdAndDeletedFalse.
 func (r *Repository) FindHoldingsActive(ctx context.Context, q Querier, fundID int64) ([]FundHolding, error) {
 	if q == nil {
-		q = r.db
+		q = r.querier()
 	}
 	rows, err := q.Query(ctx,
 		`SELECT `+holdingColumns+` FROM fund_holdings
@@ -61,7 +61,7 @@ func (r *Repository) FindHoldingsActive(ctx context.Context, q Querier, fundID i
 // FindHolding mirrors findByFundIdAndStockTickerAndDeletedFalse.
 func (r *Repository) FindHolding(ctx context.Context, q Querier, fundID int64, ticker string) (*FundHolding, error) {
 	if q == nil {
-		q = r.db
+		q = r.querier()
 	}
 	h, err := scanHolding(q.QueryRow(ctx,
 		`SELECT `+holdingColumns+` FROM fund_holdings
@@ -76,7 +76,7 @@ func (r *Repository) FindHolding(ctx context.Context, q Querier, fundID int64, t
 // InsertHolding mirrors the persist branch of FundHoldingRepository.save.
 func (r *Repository) InsertHolding(ctx context.Context, q Querier, h *FundHolding) error {
 	if q == nil {
-		q = r.db
+		q = r.querier()
 	}
 	if h.CreatedAt.IsZero() {
 		h.CreatedAt = time.Now().UTC()
@@ -93,7 +93,7 @@ func (r *Repository) InsertHolding(ctx context.Context, q Querier, h *FundHoldin
 // UpdateHolding mirrors the merge branch. Bumps version like JPA @Version.
 func (r *Repository) UpdateHolding(ctx context.Context, q Querier, h *FundHolding) error {
 	if q == nil {
-		q = r.db
+		q = r.querier()
 	}
 	tag, err := q.Exec(ctx, `
 		UPDATE fund_holdings
@@ -158,7 +158,7 @@ func scanSnapshots(rows pgx.Rows) ([]FundValueSnapshot, error) {
 
 // FindSnapshots mirrors findByFundIdOrderBySnapshotDateAsc.
 func (r *Repository) FindSnapshots(ctx context.Context, fundID int64) ([]FundValueSnapshot, error) {
-	rows, err := r.db.Query(ctx,
+	rows, err := r.querier().Query(ctx,
 		`SELECT `+snapshotColumns+` FROM fund_value_snapshots
 		 WHERE fund_id = $1 ORDER BY snapshot_date ASC`, fundID)
 	if err != nil {
@@ -169,7 +169,7 @@ func (r *Repository) FindSnapshots(ctx context.Context, fundID int64) ([]FundVal
 
 // FindSnapshotByDate mirrors findByFundIdAndSnapshotDate.
 func (r *Repository) FindSnapshotByDate(ctx context.Context, fundID int64, date time.Time) (*FundValueSnapshot, error) {
-	s, err := scanSnapshot(r.db.QueryRow(ctx,
+	s, err := scanSnapshot(r.querier().QueryRow(ctx,
 		`SELECT `+snapshotColumns+` FROM fund_value_snapshots
 		 WHERE fund_id = $1 AND snapshot_date = $2`, fundID, date))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -183,7 +183,7 @@ func (r *Repository) FindSnapshotByDate(ctx context.Context, fundID int64, date 
 // constraint uk_fund_value_snapshot_fund_date as the conflict key.
 func (r *Repository) UpsertSnapshot(ctx context.Context, q Querier, s *FundValueSnapshot) error {
 	if q == nil {
-		q = r.db
+		q = r.querier()
 	}
 	if s.CreatedAt.IsZero() {
 		s.CreatedAt = time.Now().UTC()
@@ -259,7 +259,7 @@ func scanDistribution(row pgx.Row) (*FundDividendDistribution, error) {
 // FindDistribution mirrors
 // FundDividendDistributionRepository.findByFundIdAndStockTickerAndPaymentDate.
 func (r *Repository) FindDistribution(ctx context.Context, fundID int64, ticker string, paymentDate time.Time) (*FundDividendDistribution, error) {
-	d, err := scanDistribution(r.db.QueryRow(ctx,
+	d, err := scanDistribution(r.querier().QueryRow(ctx,
 		`SELECT `+distributionColumns+` FROM fund_dividend_distributions
 		 WHERE fund_id = $1 AND stock_ticker = $2 AND payment_date = $3`,
 		fundID, ticker, paymentDate))
@@ -272,7 +272,7 @@ func (r *Repository) FindDistribution(ctx context.Context, fundID int64, ticker 
 // InsertDistribution mirrors FundDividendDistributionRepository.save (persist).
 func (r *Repository) InsertDistribution(ctx context.Context, q Querier, d *FundDividendDistribution) error {
 	if q == nil {
-		q = r.db
+		q = r.querier()
 	}
 	if d.ProcessedAt.IsZero() {
 		d.ProcessedAt = time.Now().UTC()
@@ -295,7 +295,7 @@ func (r *Repository) InsertDistribution(ctx context.Context, q Querier, d *FundD
 // InsertPayout mirrors FundDividendPayoutRepository.save (persist).
 func (r *Repository) InsertPayout(ctx context.Context, q Querier, p *FundDividendPayout) error {
 	if q == nil {
-		q = r.db
+		q = r.querier()
 	}
 	if p.CreatedAt.IsZero() {
 		p.CreatedAt = time.Now().UTC()

@@ -43,14 +43,14 @@ type PartialCancelOrderRequest struct {
 // orders). nextRun arrives as a Jackson LocalDateTime string
 // ("2026-06-10T09:00:00"); the handler parses + @Future-validates it.
 type CreateRecurringOrderRequest struct {
-	ListingID *int64           `json:"listingId"`
-	Direction *string          `json:"direction"`
-	Mode      *string          `json:"mode"`
-	Value     *decimal.Decimal `json:"value"`
-	AccountID *int64           `json:"accountId"`
-	Cadence   *string          `json:"cadence"`
-	NextRun   *string          `json:"nextRun"`
-	DayOfMonth *int            `json:"dayOfMonth"`
+	ListingID  *int64           `json:"listingId"`
+	Direction  *string          `json:"direction"`
+	Mode       *string          `json:"mode"`
+	Value      *decimal.Decimal `json:"value"`
+	AccountID  *int64           `json:"accountId"`
+	Cadence    *string          `json:"cadence"`
+	NextRun    *string          `json:"nextRun"`
+	DayOfMonth *int             `json:"dayOfMonth"`
 }
 
 // RecurringOrderDto ↔ order-service RecurringOrderDto (all entity fields).

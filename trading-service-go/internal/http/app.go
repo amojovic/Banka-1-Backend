@@ -22,17 +22,29 @@ import (
 
 	gpauth "banka1/go-platform/auth"
 	"banka1/go-platform/rabbitmq"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/robfig/cron/v3"
 	"github.com/shopspring/decimal"
 )
+
+// DBPool is the subset of *pgxpool.Pool the raw-SQL convenience handlers
+// (watchlists / price-alerts) use directly. Declaring it as an interface — which
+// *pgxpool.Pool satisfies unchanged — lets those handlers be unit-tested over an
+// in-memory fake without a live Postgres.
+type DBPool interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
 
 // App holds the wired domain services shared by the HTTP and gRPC servers, plus
 // the order-execution worker and the (optional) cron schedulers. Domains are
 // added per phase (P1: analytics; P2: portfolio/actuary; P3: order; P4: tax;
 // P5: funds + saga consumers + snapshot scheduler).
 type App struct {
-	DB             *pgxpool.Pool
+	DB             DBPool
 	Analytics      *analytics.Service
 	Portfolio      *portfolio.Service
 	Actuary        *actuary.Service
