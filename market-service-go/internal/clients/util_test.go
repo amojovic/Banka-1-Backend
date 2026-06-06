@@ -31,7 +31,7 @@ func TestIOReadAllReturnsReadError(t *testing.T) {
 	got, err := ioReadAll(failingReader{})
 
 	require.Error(t, err)
-	assert.Nil(t, got)
+	assert.Empty(t, got)
 	assert.Contains(t, err.Error(), "read failed")
 }
 
