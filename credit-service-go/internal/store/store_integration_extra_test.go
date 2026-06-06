@@ -20,7 +20,7 @@ func sampleInstallment(loanID int64) model.Installment {
 		InterestRateAtPayment: decimal.NewFromFloat(0.01),
 		Currency:              model.CurrencyRSD,
 		ExpectedDueDate:       time.Date(now.Year(), now.Month()+1, now.Day(), 0, 0, 0, 0, now.Location()),
-		PaymentStatus:         model.PaymentPending,
+		PaymentStatus:         model.PaymentUnpaid,
 		Retry:                 0,
 	}
 }
@@ -86,7 +86,7 @@ func TestLoanRequestStore_CreateLoanWithFirstInstallment_InstallmentInDB(t *test
 	installments, err := installStore.FindByLoanID(ctx, created.ID)
 	require.NoError(t, err)
 	require.Len(t, installments, 1)
-	assert.Equal(t, model.PaymentPending, installments[0].PaymentStatus)
+	assert.Equal(t, model.PaymentUnpaid, installments[0].PaymentStatus)
 }
 
 // ---------------------------------------------------------------------------
