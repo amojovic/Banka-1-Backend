@@ -398,6 +398,9 @@ services:
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       MAIL_SMTP_STARTTLS: ${MAIL_SMTP_STARTTLS:-true}
       MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-true}
+      # FCM: map project env-var names → what the Go sender reads
+      GOOGLE_APPLICATION_CREDENTIALS: ${FIREBASE_CREDENTIALS_PATH:-/app/firebase-credentials.json}
+      FCM_PROJECT_ID: ${FCM_PROJECT_ID:-}
     depends_on:
       postgres: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
@@ -408,6 +411,10 @@ services:
       - banka-network
     volumes:
       - notification-service-logs:/var/log/banka
+      # Mount Firebase service-account JSON from host into container.
+      # Set FIREBASE_CREDENTIALS_HOST_PATH in setup/.env to the absolute host path.
+      # Leave unset to skip FCM (push notifications gracefully disabled).
+      - ${FIREBASE_CREDENTIALS_HOST_PATH:-/dev/null}:${FIREBASE_CREDENTIALS_PATH:-/app/firebase-credentials.json}:ro
     healthcheck:
       test: ["CMD-SHELL", "wget --quiet --tries=1 --timeout=3 -O- http://localhost:${NOTIFICATION_SERVER_PORT:-8006}/health > /dev/null || exit 1"]
       interval: 15s

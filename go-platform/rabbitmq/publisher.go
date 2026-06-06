@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"banka1/go-platform/httpx"
@@ -33,12 +34,20 @@ type Publisher interface {
 	Close() error
 }
 
-// amqpPublisher is the live broker-backed implementation.
+// amqpPublisher is the live broker-backed implementation. The broker can close
+// the channel/connection out from under us (idle drop, heartbeat miss, broker
+// restart); a single long-lived channel would then return "504 channel/connection
+// is not open" on every subsequent publish until the process restarts. So the
+// connection+channel are treated as a recoverable resource: each publish ensures
+// they are open (re-dialing and re-declaring the exchange if needed) under mu.
 type amqpPublisher struct {
 	logger   *slog.Logger
+	cfg      Config
 	exchange string
-	conn     *amqp.Connection
-	ch       *amqp.Channel
+
+	mu   sync.Mutex // serializes publishes + recovery (amqp.Channel is not concurrency-safe)
+	conn *amqp.Connection
+	ch   *amqp.Channel
 }
 
 // NewPublisher dials the broker (with retry), declares the topic exchange
@@ -65,7 +74,46 @@ func NewPublisher(ctx context.Context, cfg Config, logger *slog.Logger) (Publish
 		return nil, fmt.Errorf("rabbitmq: declare exchange %q: %w", cfg.Exchange, err)
 	}
 	logger.Info("rabbitmq publisher ready", "exchange", cfg.Exchange)
-	return &amqpPublisher{logger: logger, exchange: cfg.Exchange, conn: conn, ch: ch}, nil
+	return &amqpPublisher{logger: logger, cfg: cfg, exchange: cfg.Exchange, conn: conn, ch: ch}, nil
+}
+
+// ensureChannelLocked guarantees p.conn and p.ch are open, rebuilding whichever
+// the broker has closed (and re-declaring the exchange on a fresh channel).
+// Caller must hold p.mu.
+func (p *amqpPublisher) ensureChannelLocked(ctx context.Context) error {
+	if p.conn != nil && !p.conn.IsClosed() && p.ch != nil && !p.ch.IsClosed() {
+		return nil
+	}
+
+	// Drop the dead channel; reopening on the same connection is enough when only
+	// the channel faulted.
+	if p.ch != nil {
+		_ = p.ch.Close()
+		p.ch = nil
+	}
+
+	if p.conn == nil || p.conn.IsClosed() {
+		if p.conn != nil {
+			_ = p.conn.Close()
+		}
+		conn, err := dialWithBackoff(ctx, p.cfg, p.logger)
+		if err != nil {
+			return fmt.Errorf("rabbitmq: reconnect: %w", err)
+		}
+		p.conn = conn
+	}
+
+	ch, err := p.conn.Channel()
+	if err != nil {
+		return fmt.Errorf("rabbitmq: reopen channel: %w", err)
+	}
+	if err := ch.ExchangeDeclare(p.exchange, "topic", true, false, false, false, nil); err != nil {
+		_ = ch.Close()
+		return fmt.Errorf("rabbitmq: redeclare exchange %q: %w", p.exchange, err)
+	}
+	p.ch = ch
+	p.logger.Info("rabbitmq publisher channel re-established", "exchange", p.exchange)
+	return nil
 }
 
 func dialWithBackoff(ctx context.Context, cfg Config, logger *slog.Logger) (*amqp.Connection, error) {
@@ -114,8 +162,6 @@ func (p *amqpPublisher) PublishWithID(ctx context.Context, routingKey, eventID s
 	if err != nil {
 		return fmt.Errorf("rabbitmq: marshal payload: %w", err)
 	}
-	pubCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
 	headers := amqp.Table{}
 	if id := httpx.CorrelationFromContext(ctx); id != "" {
 		headers["x-correlation-id"] = id
@@ -128,14 +174,39 @@ func (p *amqpPublisher) PublishWithID(ctx context.Context, routingKey, eventID s
 		Headers:      headers,
 		Body:         body,
 	}
-	if err := p.ch.PublishWithContext(pubCtx, p.exchange, routingKey, false, false, pub); err != nil {
-		log.FromContext(ctx, p.logger).Warn("rabbitmq publish failed", "routingKey", routingKey, "error", err.Error())
-		return err
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Two attempts: the first may fail on a channel the broker closed since the
+	// previous publish; ensureChannelLocked then rebuilds it and we retry once.
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		if err := p.ensureChannelLocked(ctx); err != nil {
+			lastErr = err
+			log.FromContext(ctx, p.logger).Warn("rabbitmq ensure channel failed", "routingKey", routingKey, "attempt", attempt+1, "error", err.Error())
+			continue
+		}
+		pubCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		err := p.ch.PublishWithContext(pubCtx, p.exchange, routingKey, false, false, pub)
+		cancel()
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		log.FromContext(ctx, p.logger).Warn("rabbitmq publish failed", "routingKey", routingKey, "attempt", attempt+1, "error", err.Error())
+		// Force a rebuild before the retry — the channel is unusable after a fault.
+		if p.ch != nil {
+			_ = p.ch.Close()
+			p.ch = nil
+		}
 	}
-	return nil
+	return lastErr
 }
 
 func (p *amqpPublisher) Close() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if p.ch != nil {
 		_ = p.ch.Close()
 	}
