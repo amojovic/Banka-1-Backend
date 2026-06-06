@@ -149,6 +149,14 @@ func (s *NotificationService) HandleIncoming(
 		}
 	}
 
+	// VERIFICATION_OTP is the one push-capable type that is ALSO email-authoritative:
+	// fire the Quick-Approve data push here (best-effort) and fall through to the
+	// normal email delivery path below. Mirrors celina-3 NotificationDeliveryService,
+	// which sent both channels; the Go port had dropped the push leg.
+	if notificationType == model.NotificationTypeVerificationOTP {
+		s.tryPushDelivery(ctx, req, notificationType, "", "")
+	}
+
 	resolved, err := s.renderer.Resolve(
 		notificationType,
 		req.UserEmail,
@@ -258,6 +266,8 @@ func (s *NotificationService) tryPushDelivery(
 	}
 
 	switch notificationType {
+	case model.NotificationTypeVerificationOTP:
+		s.sendVerificationPush(ctx, req, token.Token)
 	case model.NotificationTypePriceAlertTriggered:
 		s.sendPriceAlertPush(ctx, req, token.Token, subject, body)
 	case model.NotificationTypeOrderRecurringSkipped,
@@ -265,21 +275,88 @@ func (s *NotificationService) tryPushDelivery(
 		model.NotificationTypeOrderDone,
 		model.NotificationTypeOrderPartialFill,
 		model.NotificationTypeOrderAutoCancelled:
-		if err := s.pushSender.SendNotification(ctx, token.Token, subject, body); err != nil {
-			s.log.Warn("push notification send failed",
-				"notification_type", notificationType,
-				"client_id", req.ClientID,
-				"error", err,
-			)
-		} else {
-			s.log.Info("push notification sent successfully",
-				"notification_type", notificationType,
-				"client_id", req.ClientID,
-			)
-		}
+		s.sendOrderPush(ctx, req, notificationType, token.Token, subject, body)
 	default:
 		s.log.Debug("no push action defined for notification type",
 			"notification_type", notificationType,
+		)
+	}
+}
+
+// sendVerificationPush emits the data-only Quick-Approve push the mobile app
+// consumes (BankMessagingService.handleVerificationOtp): type=VERIFICATION_OTP
+// plus the code, operationType and sessionId. The OTP email remains the
+// authoritative channel; this push is best-effort, mirroring celina-3
+// FcmPushService.sendVerificationPush.
+func (s *NotificationService) sendVerificationPush(
+	ctx context.Context,
+	req *dto.NotificationRequest,
+	deviceToken string,
+) {
+	vars := req.TemplateVariables
+	if len(vars) == 0 {
+		vars = make(map[string]string)
+	}
+
+	data := map[string]string{
+		"type":          "VERIFICATION_OTP",
+		"code":          vars["code"],
+		"operationType": req.OperationType,
+		"sessionId":     req.SessionID,
+	}
+
+	if err := s.pushSender.SendData(ctx, deviceToken, data); err != nil {
+		s.log.Warn("verification otp push send failed",
+			"client_id", req.ClientID,
+			"operation_type", req.OperationType,
+			"error", err,
+		)
+	} else {
+		s.log.Info("verification otp push sent successfully",
+			"client_id", req.ClientID,
+			"operation_type", req.OperationType,
+		)
+	}
+}
+
+// sendOrderPush emits the data-only order-lifecycle push the mobile app ingests
+// (BankMessagingService.handleOrderNotification dispatches on data["type"] and
+// reads title/body/orderId/status). Mirrors celina-3 FcmPushService.sendOrderPush.
+// IMPORTANT: this must be a DATA message, not a notification message — a
+// notification-only push has empty data, so the app's onMessageReceived ignores
+// it and it never lands in the in-app inbox.
+func (s *NotificationService) sendOrderPush(
+	ctx context.Context,
+	req *dto.NotificationRequest,
+	notificationType model.NotificationType,
+	deviceToken string,
+	subject string,
+	body string,
+) {
+	vars := req.TemplateVariables
+	if len(vars) == 0 {
+		vars = make(map[string]string)
+	}
+
+	data := map[string]string{
+		"type":    string(notificationType),
+		"title":   subject,
+		"body":    body,
+		"orderId": vars["orderId"],
+		"ticker":  vars["ticker"],
+		"status":  vars["status"],
+	}
+
+	if err := s.pushSender.SendData(ctx, deviceToken, data); err != nil {
+		s.log.Warn("order push send failed",
+			"notification_type", notificationType,
+			"client_id", req.ClientID,
+			"error", err,
+		)
+	} else {
+		s.log.Info("push notification sent successfully",
+			"notification_type", notificationType,
+			"client_id", req.ClientID,
 		)
 	}
 }

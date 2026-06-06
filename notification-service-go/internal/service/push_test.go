@@ -126,7 +126,10 @@ func TestHandleIncoming_PriceAlertTriggered_SendDataFailure_NoError(t *testing.T
 // Push-only notification type: ORDER_RECURRING_SKIPPED
 // ---------------------------------------------------------------------------
 
-func TestHandleIncoming_OrderRecurringSkipped_CallsSendNotification(t *testing.T) {
+// Order lifecycle pushes MUST be data messages (type/title/body/orderId/status),
+// not notification messages — the mobile app's onMessageReceived dispatches on
+// data["type"] and ignores notification-only pushes (they never reach the inbox).
+func TestHandleIncoming_OrderRecurringSkipped_CallsSendData(t *testing.T) {
 	t.Parallel()
 
 	push := &stubPushSender{}
@@ -140,14 +143,38 @@ func TestHandleIncoming_OrderRecurringSkipped_CallsSendNotification(t *testing.T
 
 	err := svc.HandleIncoming(context.Background(), req, model.NotificationTypeOrderRecurringSkipped)
 	require.NoError(t, err)
-	assert.Equal(t, 1, push.notifCalls)
-	assert.Equal(t, 0, push.dataCalls)
+	assert.Equal(t, 0, push.notifCalls, "order pushes must NOT use notification messages")
+	assert.Equal(t, 1, push.dataCalls, "order pushes must be data messages")
+	assert.Equal(t, "ORDER_RECURRING_SKIPPED", push.lastDataMap["type"])
+	assert.Equal(t, "ORD-1", push.lastDataMap["orderId"])
+}
+
+func TestHandleIncoming_OrderLifecycle_CallsSendDataWithFields(t *testing.T) {
+	t.Parallel()
+
+	push := &stubPushSender{}
+	token := &model.FcmToken{Token: "tok-xyz"}
+	svc := newPushService(&stubStore{}, &stubTokenStore{token: token}, push)
+
+	req := &dto.NotificationRequest{
+		ClientID:          2,
+		TemplateVariables: map[string]string{"orderId": "55", "ticker": "BAC", "status": "DONE"},
+	}
+
+	err := svc.HandleIncoming(context.Background(), req, model.NotificationTypeOrderDone)
+	require.NoError(t, err)
+	assert.Equal(t, 0, push.notifCalls)
+	assert.Equal(t, 1, push.dataCalls)
+	assert.Equal(t, "ORDER_DONE", push.lastDataMap["type"])
+	assert.Equal(t, "55", push.lastDataMap["orderId"])
+	assert.Equal(t, "BAC", push.lastDataMap["ticker"])
+	assert.Equal(t, "DONE", push.lastDataMap["status"])
 }
 
 func TestHandleIncoming_OrderRecurringSkipped_SendFailure_NoError(t *testing.T) {
 	t.Parallel()
 
-	push := &stubPushSender{sendNotifErr: assert.AnError}
+	push := &stubPushSender{sendDataErr: assert.AnError}
 	token := &model.FcmToken{Token: "tok-abc"}
 	svc := newPushService(&stubStore{}, &stubTokenStore{token: token}, push)
 
