@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"flag"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -15,6 +17,12 @@ import (
 )
 
 func main() {
+	healthcheck := flag.Bool("healthcheck", false, "probe the local liveness endpoint and exit (0=UP, 1=down)")
+	flag.Parse()
+	if *healthcheck {
+		os.Exit(runHealthcheck())
+	}
+
 	logger := gplog.New("user-service-go", gplog.Level(os.Getenv("LOG_LEVEL_APP")))
 	cfg := platform.LoadConfig()
 
@@ -81,4 +89,21 @@ func main() {
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error("graceful shutdown failed", "error", err)
 	}
+}
+
+func runHealthcheck() int {
+	port := strings.TrimSpace(os.Getenv("SERVER_PORT"))
+	if port == "" {
+		port = "8081"
+	}
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get("http://127.0.0.1:" + port + "/actuator/health/liveness")
+	if err != nil {
+		return 1
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 1
+	}
+	return 0
 }
