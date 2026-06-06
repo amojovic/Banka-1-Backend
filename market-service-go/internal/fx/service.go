@@ -68,6 +68,18 @@ func (s *Service) GetRate(ctx context.Context, currencyCode, dateText string) (*
 	return nil, fmt.Errorf("rate not found for %s on %s", currencyCode, snapshotDate.Format("2006-01-02"))
 }
 
+func (s *Service) GetRateHistory(ctx context.Context, currencyCode, fromText, toText string) ([]ExchangeRate, error) {
+	from, err := time.Parse("2006-01-02", fromText)
+	if err != nil {
+		return nil, fmt.Errorf("invalid from date: %w", err)
+	}
+	to, err := time.Parse("2006-01-02", toText)
+	if err != nil {
+		return nil, fmt.Errorf("invalid to date: %w", err)
+	}
+	return s.repo.GetRatesByRange(ctx, currencyCode, from, to)
+}
+
 func (s *Service) Calculate(ctx context.Context, fromCurrency, toCurrency, amountText, dateText string, includeCommission bool) (*ConversionResponse, error) {
 	amount, err := decimal.NewFromString(amountText)
 	if err != nil {

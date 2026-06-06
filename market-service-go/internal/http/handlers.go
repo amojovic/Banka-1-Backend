@@ -324,8 +324,20 @@ func (h *Handlers) GetRates(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) GetRateByCurrency(w http.ResponseWriter, r *http.Request) {
-	currencyCode := strings.TrimPrefix(r.URL.Path, "/rates/")
-	rate, err := h.app.FXService.GetRate(r.Context(), currencyCode, r.URL.Query().Get("date"))
+	rawPath := strings.TrimPrefix(r.URL.Path, "/rates/")
+
+	if strings.HasSuffix(rawPath, "/history") {
+		currencyCode := strings.TrimSuffix(rawPath, "/history")
+		rates, err := h.app.FXService.GetRateHistory(r.Context(), currencyCode, r.URL.Query().Get("from"), r.URL.Query().Get("to"))
+		if err != nil {
+			respondFXError(w, err)
+			return
+		}
+		platform.JSON(w, http.StatusOK, rates)
+		return
+	}
+
+	rate, err := h.app.FXService.GetRate(r.Context(), rawPath, r.URL.Query().Get("date"))
 	if err != nil {
 		respondFXError(w, err)
 		return

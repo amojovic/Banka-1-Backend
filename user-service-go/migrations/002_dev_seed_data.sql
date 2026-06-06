@@ -53,3 +53,21 @@ SELECT c.id, 'CLIENT_BASIC'
 FROM clients c
 WHERE c.role = 'CLIENT_BASIC'
 ON CONFLICT DO NOTHING;
+
+-- Marko Markovic (client_id=1) gets CLIENT_TRADING for mobile trading/orders screens.
+UPDATE clients SET role = 'CLIENT_TRADING' WHERE email = 'marko.markovic@banka.com';
+
+INSERT INTO client_permissions (client_id, permission)
+SELECT c.id, 'CLIENT_TRADING'
+FROM clients c
+WHERE c.email = 'marko.markovic@banka.com'
+ON CONFLICT DO NOTHING;
+
+-- Ana Anic gets CLIENT_TRADING as a second trading client.
+UPDATE clients SET role = 'CLIENT_TRADING' WHERE email = 'ana.anic@banka.com';
+
+INSERT INTO client_permissions (client_id, permission)
+SELECT c.id, 'CLIENT_TRADING'
+FROM clients c
+WHERE c.email = 'ana.anic@banka.com'
+ON CONFLICT DO NOTHING;

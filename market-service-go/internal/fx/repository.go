@@ -2,6 +2,7 @@ package fx
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -19,6 +20,35 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 func (r *Repository) GetRatesByDate(ctx context.Context, date time.Time) ([]ExchangeRate, error) {
 	rows, err := r.db.Query(ctx, `select currency_code, buying_rate::text, selling_rate::text, rate_date, created_at
 		from exchange_rate where rate_date = $1 order by currency_code asc`, date.Format("2006-01-02"))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]ExchangeRate, 0)
+	for rows.Next() {
+		var item ExchangeRate
+		var snapshotDate time.Time
+		var createdAt time.Time
+		var buyingRate string
+		var sellingRate string
+		if err := rows.Scan(&item.CurrencyCode, &buyingRate, &sellingRate, &snapshotDate, &createdAt); err != nil {
+			return nil, err
+		}
+		item.BuyingRate = decimal.RequireFromString(buyingRate)
+		item.SellingRate = decimal.RequireFromString(sellingRate)
+		item.Date = snapshotDate.Format("2006-01-02")
+		item.CreatedAt = createdAt.UTC().Format(time.RFC3339)
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repository) GetRatesByRange(ctx context.Context, currencyCode string, from, to time.Time) ([]ExchangeRate, error) {
+	rows, err := r.db.Query(ctx, `select currency_code, buying_rate::text, selling_rate::text, rate_date, created_at
+		from exchange_rate
+		where currency_code = $1 and rate_date >= $2 and rate_date <= $3
+		order by rate_date asc`,
+		strings.ToUpper(currencyCode), from.Format("2006-01-02"), to.Format("2006-01-02"))
 	if err != nil {
 		return nil, err
 	}
