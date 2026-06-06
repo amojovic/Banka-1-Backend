@@ -118,11 +118,17 @@ func (s *LoanService) FindAllLoanRequests(
 		return dto.PageResponse[model.LoanRequest]{}, err
 	}
 
+	totalPages := 0
+	if size > 0 {
+		totalPages = (total + size - 1) / size
+	}
 	return dto.PageResponse[model.LoanRequest]{
 		Content:       requests,
 		Page:          page,
+		Number:        page,
 		Size:          size,
 		TotalElements: total,
+		TotalPages:    totalPages,
 	}, nil
 }
 
@@ -285,11 +291,17 @@ func (s *LoanService) FindClientLoans(
 		})
 	}
 
+	totalPages := 0
+	if size > 0 {
+		totalPages = (total + size - 1) / size
+	}
 	return dto.PageResponse[dto.LoanResponseDTO]{
 		Content:       responses,
 		Page:          page,
+		Number:        page,
 		Size:          size,
 		TotalElements: total,
+		TotalPages:    totalPages,
 	}, nil
 }
 
@@ -378,11 +390,17 @@ func (s *LoanService) FindAllLoans(
 		})
 	}
 
+	totalPages := 0
+	if size > 0 {
+		totalPages = (total + size - 1) / size
+	}
 	return dto.PageResponse[dto.LoanResponseDTO]{
 		Content:       responses,
 		Page:          page,
+		Number:        page,
 		Size:          size,
 		TotalElements: total,
+		TotalPages:    totalPages,
 	}, nil
 }
 

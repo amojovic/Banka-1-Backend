@@ -201,4 +201,58 @@ SELECT 0, 'FX', '1110001800000000321', 'Aleksandar', 'Aleksic',
     5000.00, 20000.00, 0.00, 0.00, NULL, NULL, NULL, 'PERSONAL'
 FROM currency_table c WHERE c.oznaka = 'USD'
 ON CONFLICT (broj_racuna) DO NOTHING;
+
+-- Marko — EUR FX account (mobile devizni racun screen)
+INSERT INTO account_table (
+    version, account_type, broj_racuna, ime_vlasnika_racuna, prezime_vlasnika_racuna,
+    email, username, naziv_racuna, vlasnik, zaposlen, stanje, raspolozivo_stanje,
+    datum_i_vreme_kreiranja, datum_isteka, currency_id, status,
+    dnevni_limit, mesecni_limit, dnevna_potrosnja, mesecna_potrosnja,
+    company_id, account_concrete, odrzavanje_racuna, account_ownership_type
+)
+SELECT 0, 'FX', '1110001100000000221', 'Marko', 'Markovic',
+    NULL, NULL, 'Devizni racun EUR', 1, 1,
+    5000.00, 5000.00, NOW(), '2031-03-25', c.id, 'ACTIVE',
+    10000.00, 50000.00, 0.00, 0.00, NULL, NULL, NULL, 'PERSONAL'
+FROM currency_table c WHERE c.oznaka = 'EUR'
+ON CONFLICT (broj_racuna) DO NOTHING;
+
+-- Marko — VISA DEBIT card (ACTIVE) on his RSD account
+INSERT INTO cards (
+    card_number, card_type, card_name, creation_date, expiration_date,
+    account_number, client_id, authorized_person_id, cvv, card_limit, status
+) VALUES (
+    '4532015112830366', 'DEBIT', 'Visa Debit',
+    CURRENT_DATE, CURRENT_DATE + INTERVAL '5 years',
+    '1110001100000000111', 1, NULL,
+    '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy',
+    50000.00, 'ACTIVE'
+) ON CONFLICT (card_number) DO NOTHING;
+
+-- Marko — Mastercard DEBIT (BLOCKED) on his RSD account — tests block/unblock toggle
+INSERT INTO cards (
+    card_number, card_type, card_name, creation_date, expiration_date,
+    account_number, client_id, authorized_person_id, cvv, card_limit, status
+) VALUES (
+    '5425233430109903', 'DEBIT', 'Mastercard Debit',
+    CURRENT_DATE, CURRENT_DATE + INTERVAL '5 years',
+    '1110001100000000111', 1, NULL,
+    '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy',
+    30000.00, 'BLOCKED'
+) ON CONFLICT (card_number) DO NOTHING;
+
+-- Marko — payment history (5 transactions with Ana Anic)
+INSERT INTO payment_table (
+    from_account_number, to_account_number,
+    initial_amount, final_amount, commission,
+    sender_client_id, recipient_client_id,
+    recipient_name, payment_code, reference_number,
+    payment_purpose, status, from_currency, to_currency, exchange_rate, created_at
+) VALUES
+  ('1110001100000000111','1110001200000000111', 5000,  5000,  0, 1, 2, 'Ana Anic',      '289','REF-001','Kirija',       'COMPLETED',   'RSD','RSD',NULL, NOW()-INTERVAL '28 days'),
+  ('1110001100000000111','1110001200000000111', 12000, 12000, 0, 1, 2, 'Ana Anic',      '221','REF-002','Racun za gas', 'COMPLETED',   'RSD','RSD',NULL, NOW()-INTERVAL '21 days'),
+  ('1110001100000000111','1110001200000000111', 3500,  3500,  0, 1, 2, 'Ana Anic',      '289','REF-003','Rata kredita', 'COMPLETED',   'RSD','RSD',NULL, NOW()-INTERVAL '14 days'),
+  ('1110001200000000111','1110001100000000111', 8000,  8000,  0, 2, 1, 'Marko Markovic','289','REF-004','Povrat',       'COMPLETED',   'RSD','RSD',NULL, NOW()-INTERVAL '7 days'),
+  ('1110001100000000111','1110001200000000111', 2000,  2000,  0, 1, 2, 'Ana Anic',      '289','REF-005','Hrana',        'IN_PROGRESS', 'RSD','RSD',NULL, NOW()-INTERVAL '1 day')
+ON CONFLICT DO NOTHING;
 `

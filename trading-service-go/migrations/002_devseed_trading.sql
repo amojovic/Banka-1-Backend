@@ -601,3 +601,70 @@ JOIN (
         ('Likvidni Balans RSD', 'WMT', 75, 90.0000)
 ) AS v(fund_name, stock_ticker, quantity, avg_unit_price)
   ON f.naziv = v.fund_name;
+
+-- ============================================================================
+-- source: celina3-mobile-seed — orders for Marko Markovic (user_id=1)
+-- ============================================================================
+-- 4 orders in various states so the mobile "Moji Nalozi" screen is non-empty.
+-- account_id=18 is Marko's RSD checking account in banking-core (id=18 after
+-- the deterministic dev seed: ~9 system accounts + 9 client accounts before his).
+-- listing ids: 1=AAPL, 2=MSFT, 3=GOOGL, 5=TSLA (from market seed).
+
+INSERT INTO orders (
+    user_id, listing_id, order_type, quantity, contract_size,
+    price_per_unit, limit_value, stop_value, direction, status,
+    approved_by, is_done, last_modification, remaining_portions,
+    after_hours, all_or_none, margin, account_id, exchange_closed,
+    reserved_limit_exposure
+)
+SELECT 1, 1, 'MARKET', 10, 1, 311.23, NULL, NULL, 'BUY', 'DONE',
+       NULL, true, NOW()-INTERVAL '20 days', 0,
+       false, false, false, 18, false, 0
+WHERE NOT EXISTS (SELECT 1 FROM orders WHERE user_id=1 AND listing_id=1 AND status='DONE' AND direction='BUY' AND quantity=10);
+
+INSERT INTO orders (
+    user_id, listing_id, order_type, quantity, contract_size,
+    price_per_unit, limit_value, stop_value, direction, status,
+    approved_by, is_done, last_modification, remaining_portions,
+    after_hours, all_or_none, margin, account_id, exchange_closed,
+    reserved_limit_exposure
+)
+SELECT 1, 2, 'LIMIT', 20, 1, 415.00, 415.00, NULL, 'BUY', 'PARTIALLY_FILLED',
+       NULL, false, NOW()-INTERVAL '10 days', 12,
+       false, false, false, 18, false, 0
+WHERE NOT EXISTS (SELECT 1 FROM orders WHERE user_id=1 AND listing_id=2 AND status='PARTIALLY_FILLED');
+
+INSERT INTO orders (
+    user_id, listing_id, order_type, quantity, contract_size,
+    price_per_unit, limit_value, stop_value, direction, status,
+    approved_by, is_done, last_modification, remaining_portions,
+    after_hours, all_or_none, margin, account_id, exchange_closed,
+    reserved_limit_exposure
+)
+SELECT 1, 3, 'MARKET', 5, 1, 180.50, NULL, NULL, 'SELL', 'CANCELLED',
+       NULL, false, NOW()-INTERVAL '5 days', 5,
+       false, false, false, 18, false, 0
+WHERE NOT EXISTS (SELECT 1 FROM orders WHERE user_id=1 AND listing_id=3 AND status='CANCELLED');
+
+INSERT INTO orders (
+    user_id, listing_id, order_type, quantity, contract_size,
+    price_per_unit, limit_value, stop_value, direction, status,
+    approved_by, is_done, last_modification, remaining_portions,
+    after_hours, all_or_none, margin, account_id, exchange_closed,
+    reserved_limit_exposure
+)
+SELECT 1, 5, 'LIMIT', 3, 1, 245.00, 245.00, NULL, 'BUY', 'PENDING',
+       NULL, false, NOW()-INTERVAL '1 day', 3,
+       false, false, false, 18, false, 0
+WHERE NOT EXISTS (SELECT 1 FROM orders WHERE user_id=1 AND listing_id=5 AND status='PENDING');
+
+-- Futures + Forex orders for user 1 / account 18 (so "Moji nalozi" shows non-stock orders)
+INSERT INTO orders (user_id,account_id,listing_id,order_type,direction,status,quantity,contract_size,price_per_unit,remaining_portions,is_done,all_or_none,margin,after_hours,last_modification,created_at,executed_at)
+SELECT v.* FROM (VALUES
+ (1,18,101,'MARKET','BUY','DONE',100,1,117.20,0,true,false,false,false, now(),now(),now()),
+ (1,18,102,'LIMIT','SELL','DONE',50,1,108.50,0,true,false,false,false, now(),now(),now()),
+ (1,18,103,'MARKET','BUY','DONE',200,1,1.08,0,true,false,false,false, now(),now(),now()),
+ (1,18,201,'MARKET','BUY','DONE',2,5000,620.00,0,true,false,false,false, now(),now(),now()),
+ (1,18,202,'LIMIT','BUY','APPROVED',1,1000,78.50,1,false,false,false,false, now(),now(),null)
+) AS v(user_id,account_id,listing_id,order_type,direction,status,quantity,contract_size,price_per_unit,remaining_portions,is_done,all_or_none,margin,after_hours,last_modification,created_at,executed_at)
+WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.user_id=v.user_id AND o.listing_id=v.listing_id AND o.order_type=v.order_type);
