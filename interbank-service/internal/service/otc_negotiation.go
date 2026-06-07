@@ -55,6 +55,10 @@ func (a IntAmount) MarshalJSON() ([]byte, error) {
 type NegotiationStoreIface interface {
 	Insert(ctx context.Context, n *store.Negotiation) error
 	FindByAuthoritativeRef(ctx context.Context, routing int, id string) (*store.Negotiation, error)
+	// FindByID looks a negotiation up by its LOCAL primary-key id (unlike
+	// FindByAuthoritativeRef, which matches a mirror only by remote_negotiation_id).
+	// Needed by exercise outbound to resolve a held mirror's remote id from its local id.
+	FindByID(ctx context.Context, id string) (*store.Negotiation, error)
 	UpdateCounter(ctx context.Context, n *store.Negotiation) error
 	MarkClosed(ctx context.Context, id string) error
 }
@@ -364,6 +368,23 @@ func (l *NegotiationSellerLookup) FindSellerID(ctx context.Context, negID string
 		return "", fmt.Errorf("%w: %s", ErrNegotiationNotFound, negID)
 	}
 	return neg.SellerID, nil
+}
+
+// ResolveLocalNegotiationID maps a wire negotiation id to the local
+// interbank_negotiations.id that the interbank_contracts FK references. It reuses
+// FindByAuthoritativeRef, which matches an authoritative row by its own id or a
+// mirror row by its remote_negotiation_id. The returned id is always neg.ID — i.e.
+// our LOCAL primary key — so a contract keyed on it satisfies the FK regardless of
+// whether we authored the negotiation (authoritative) or mirror a partner's.
+func (l *NegotiationSellerLookup) ResolveLocalNegotiationID(ctx context.Context, wireID string) (string, bool, error) {
+	neg, err := l.store.FindByAuthoritativeRef(ctx, 0, wireID)
+	if err != nil {
+		return "", false, err
+	}
+	if neg == nil {
+		return "", false, nil
+	}
+	return neg.ID, true, nil
 }
 
 // FindNegotiation adapts to service.NegotiationReader for Validator use.

@@ -35,4 +35,8 @@ var (
 	// ErrInterbankProtocol signals a protocol-level failure during 2PC
 	// (e.g. local prepare failed, partner rejected, catastrophic commit).
 	ErrInterbankProtocol = errors.New("service: inter-bank protocol failure")
+
+	// ErrInsufficientFunds is returned by the outbound regular-payment funds guard
+	// when the sender account cannot cover the requested amount. Mapped to 400.
+	ErrInsufficientFunds = errors.New("service: insufficient funds")
 )

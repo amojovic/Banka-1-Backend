@@ -181,8 +181,15 @@ func TestCommitRef_AllKinds(t *testing.T) {
 			t.Errorf("commitRef %s: %v", ref.Kind, err)
 		}
 	}
-	if len(bc.committed) != 1 || len(td.committed) != 2 {
-		t.Errorf("expected 1 monas + 2 trading commits, got bc=%d td=%d", len(bc.committed), len(td.committed))
+	// [S3 FIX] commitRef for an OPTION ref is intentionally a no-op (the accept-commit
+	// KEEPS the seller's HELD reservation; the real ExerciseOption only runs from the
+	// dedicated exercise round). So: 1 MONAS commit + 1 STOCK commit, and the OPTION
+	// ref produces NO trading commit or release.
+	if len(bc.committed) != 1 || len(td.committed) != 1 {
+		t.Errorf("expected 1 monas + 1 trading (stock) commit, got bc=%d td=%d", len(bc.committed), len(td.committed))
+	}
+	if len(td.released) != 0 {
+		t.Errorf("expected no option release on commit, got td.released=%v", td.released)
 	}
 }
 

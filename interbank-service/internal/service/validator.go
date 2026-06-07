@@ -142,11 +142,19 @@ func (v *Validator) validateRealAccount(ctx context.Context, acc *protocol.RealA
 			}
 			return nil, err
 		}
-		if info.Currency != monas.Currency {
-			return &protocol.NoVoteReason{Reason: protocol.ReasonNoSuchAsset, Posting: &p}, nil
-		}
-		if p.Amount.IsNegative() && info.AvailableBalance.LessThan(p.Amount.Abs()) {
-			return &protocol.NoVoteReason{Reason: protocol.ReasonInsufficientAsset, Posting: &p}, nil
+		// MONAS is always an acceptable asset for a cash account. A currency mismatch
+		// on a DEBIT (positive / recipient) leg is NOT a NO vote — banking-core converts
+		// it on commit via CreditMonas (protocol §2.8.4). Only the CREDIT (negative /
+		// sender) leg requires same-currency funds and the INSUFFICIENT balance check.
+		if p.Amount.IsNegative() {
+			if info.Currency != monas.Currency {
+				// Sender pays from a same-currency account; a foreign-currency sender leg
+				// cannot be debited here without conversion (out of this wave's scope).
+				return &protocol.NoVoteReason{Reason: protocol.ReasonNoSuchAsset, Posting: &p}, nil
+			}
+			if info.AvailableBalance.LessThan(p.Amount.Abs()) {
+				return &protocol.NoVoteReason{Reason: protocol.ReasonInsufficientAsset, Posting: &p}, nil
+			}
 		}
 		return nil, nil
 
@@ -242,14 +250,57 @@ func (v *Validator) validateOption(ctx context.Context, id protocol.ForeignBankI
 	return nil, nil
 }
 
-// accountIsOurs returns true if the 18-digit account number's routing prefix (first 3 digits)
-// matches our routing number.
+// ValidateExerciseTx validates an inbound EXERCISE transaction at the seller bank
+// (we host the OPTION pseudo-account). Per §2.8.6/§2.12.1:
+//   - the negotiation must exist and not be past its settlement date
+//     (else OPTION_USED_OR_EXPIRED);
+//   - the OPTION account must be debited EXACTLY amount×pricePerUnit money and
+//     credited EXACTLY amount stocks (else OPTION_AMOUNT_INCORRECT).
+//
+// moneyDebit is the (positive) money amount on the OPTION account; stockCredit is
+// the (negative) stock amount on the OPTION account. Either may be nil when the
+// corresponding leg is absent — that is itself an OPTION_AMOUNT_INCORRECT.
+//
+// IMPORTANT: this validator deliberately does NOT gate on neg.IsOngoing. After an
+// OTC accept concludes, the negotiation is correctly is_ongoing=false (the deal is
+// done) while the resulting CONTRACT is ACTIVE and exercisable until settlement.
+// !IsOngoing is the WRONG proxy for "option already used" and rejected every
+// legitimate inter-bank exercise. "Already used/expired" is the CONTRACT status,
+// which the per-posting validator cannot reach; that gate lives in the executor
+// (PrepareLocal exercise branch + settleSellerExercise), where e.contracts is wired.
+func (v *Validator) ValidateExerciseTx(ctx context.Context, negID string, moneyDebit, stockCredit *decimal.Decimal) []protocol.NoVoteReason {
+	id := protocol.ForeignBankId{RoutingNumber: v.myRouting, Id: negID}
+	if v.negs == nil {
+		return []protocol.NoVoteReason{{Reason: protocol.ReasonOptionNegotiationNotFound}}
+	}
+	neg, err := v.negs.FindNegotiation(ctx, id)
+	if err != nil || neg == nil {
+		return []protocol.NoVoteReason{{Reason: protocol.ReasonOptionNegotiationNotFound}}
+	}
+	if !neg.SettlementDate.IsZero() && !neg.SettlementDate.After(time.Now()) {
+		return []protocol.NoVoteReason{{Reason: protocol.ReasonOptionUsedOrExpired}}
+	}
+	k := decimal.NewFromInt(int64(neg.Amount))
+	kPi := k.Mul(neg.PricePerUnit)
+	if moneyDebit == nil || stockCredit == nil ||
+		!moneyDebit.Equal(kPi) || !stockCredit.Abs().Equal(k) {
+		return []protocol.NoVoteReason{{Reason: protocol.ReasonOptionAmountIncorrect}}
+	}
+	return nil
+}
+
+// accountIsOurs returns true if the account number's routing prefix (first 3 digits)
+// matches our routing number. Ownership is decided by the prefix (first 3 digits =
+// the bank's routing number), NOT by an exact length: Banka 1 uses 19-digit accounts
+// (e.g. 1110001000000000322), so a hardcoded len != 18 check rejected OUR OWN accounts,
+// meaning an inbound RealAccount recipient/sender leg was never recognised as ours
+// (CreditMonas/ReserveMonas was skipped) → payments never booked. The prefix is
+// sufficient and unique: foreign banks carry a different routing prefix.
 func (v *Validator) accountIsOurs(num string) bool {
-	if len(num) != 18 {
+	if len(num) < 3 {
 		return false
 	}
-	prefix := num[:3]
-	return prefix == fmt.Sprintf("%03d", v.myRouting)
+	return num[:3] == fmt.Sprintf("%03d", v.myRouting)
 }
 
 // parseOwnerID extracts the numeric portion of a prefixed id like "C-7" or "E-42".
