@@ -96,6 +96,14 @@ func NewRouter(d ServerDeps) http.Handler {
 				r.Post("/negotiations/{id}/accept", d.OtcOutbound.Accept)
 				r.Delete("/negotiations/{id}", d.OtcOutbound.Delete)
 				r.Get("/public-stock", d.OtcOutbound.PartnerPublicStock)
+				// Buyer-side held option contracts (S4) + exercise (S7/S8).
+				r.Get("/contracts", d.OtcOutbound.Contracts)
+				r.Get("/contracts/my", d.OtcOutbound.MyContracts)
+				r.Post("/contracts/{id}/exercise", d.OtcOutbound.ExerciseContract)
+				// Buyer "Odbi" — abandon a held option early (S10 decline).
+				r.Post("/contracts/{id}/decline", d.OtcOutbound.DeclineContract)
+				// Outbound regular inter-bank payment (Banka1→Banka2), backend-only.
+				r.Post("/payments", d.OtcOutbound.Payment)
 			})
 		})
 	}
@@ -143,6 +151,14 @@ func NewRouterWithMock(d ServerDeps, mountMock func(chi.Router)) http.Handler {
 				r.Post("/negotiations/{id}/accept", d.OtcOutbound.Accept)
 				r.Delete("/negotiations/{id}", d.OtcOutbound.Delete)
 				r.Get("/public-stock", d.OtcOutbound.PartnerPublicStock)
+				// Buyer-side held option contracts (S4) + exercise (S7/S8).
+				r.Get("/contracts", d.OtcOutbound.Contracts)
+				r.Get("/contracts/my", d.OtcOutbound.MyContracts)
+				r.Post("/contracts/{id}/exercise", d.OtcOutbound.ExerciseContract)
+				// Buyer "Odbi" — abandon a held option early (S10 decline).
+				r.Post("/contracts/{id}/decline", d.OtcOutbound.DeclineContract)
+				// Outbound regular inter-bank payment (Banka1→Banka2), backend-only.
+				r.Post("/payments", d.OtcOutbound.Payment)
 			})
 		})
 	}

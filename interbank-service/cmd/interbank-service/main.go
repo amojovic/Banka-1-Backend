@@ -184,7 +184,13 @@ func run() error {
 		logger,
 	)
 
-	// Coordinator uses BankingCoreClient for MONAS account resolution.
+	// Wire the optional contract store into the executor for the option post-accept
+	// lifecycle (S4 buyer-persist on inbound accept, S9 EXERCISED flip after inbound
+	// seller settlement).
+	executor.SetContractStore(contractStore)
+
+	// Coordinator uses BankingCoreClient for MONAS account resolution; bcReserver +
+	// tdClient + contractStore power the outbound exercise coordinator (S7/S8).
 	coordinator := service.NewCoordinator(
 		cfg.Interbank.MyRoutingNumber,
 		executor,
@@ -192,6 +198,9 @@ func run() error {
 		negStore,
 		contractStore, // *store.ContractStore satisfies service.ContractStoreIface
 		bcReserver,    // satisfies service.BankingCoreAccountResolver
+		bcReserver,    // satisfies service.BankingCoreReserver (strike reserve/commit/release)
+		tdClient,      // satisfies service.TradingReserver (CreditPortfolio)
+		contractStore, // satisfies service.ContractWriter (find + EXERCISED flip)
 		logger,
 	)
 	// Fill shim now that coordinator is ready.
@@ -208,6 +217,10 @@ func run() error {
 		registry, // satisfies service.PartnerNameResolver
 		logger,
 	)
+	// Wire the buyer-side held-option list (S4) + the exercise coordinator (S7/S8).
+	otcOutbound.SetContractDeps(contractStore, coordinator)
+	// Wire the outbound regular-payment coordinator (POST /api/interbank/otc/payments).
+	otcOutbound.SetPaymentCoordinator(coordinator)
 
 	// -------------------------------------------------------------------------
 	// API handlers
@@ -265,6 +278,21 @@ func run() error {
 	)
 	schedDone := make(chan error, 1)
 	go func() { schedDone <- retrySched.Run(ctx) }()
+
+	// -------------------------------------------------------------------------
+	// Expiry sweeper (S10) — settles ACTIVE contracts past their settlement date.
+	// contractStore satisfies scheduler.ExpiryContractStore; tdClient satisfies
+	// scheduler.OptionReleaser (ReleaseOption for seller-side reservations).
+	// -------------------------------------------------------------------------
+	expirySched := scheduler.NewExpiryScheduler(
+		contractStore,
+		tdClient,
+		cfg.Interbank.MyRoutingNumber,
+		cfg.Interbank.Expiry.Interval,
+		logger,
+	)
+	expiryDone := make(chan error, 1)
+	go func() { expiryDone <- expirySched.Run(ctx) }()
 
 	// -------------------------------------------------------------------------
 	// HTTP server
@@ -339,6 +367,11 @@ func run() error {
 			cancel()
 			return fmt.Errorf("retry scheduler fatal: %w", err)
 		}
+	case err := <-expiryDone:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			cancel()
+			return fmt.Errorf("expiry scheduler fatal: %w", err)
+		}
 	}
 
 	// -------------------------------------------------------------------------
@@ -354,11 +387,16 @@ func run() error {
 		logger.Error("http server shutdown error", "err", err)
 	}
 
-	// Wait for scheduler goroutine to exit.
+	// Wait for scheduler goroutines to exit.
 	select {
 	case <-schedDone:
 	case <-shutdownCtx.Done():
 		logger.Warn("timed out waiting for retry scheduler to stop")
+	}
+	select {
+	case <-expiryDone:
+	case <-shutdownCtx.Done():
+		logger.Warn("timed out waiting for expiry scheduler to stop")
 	}
 
 	logger.Info("shutdown complete")
@@ -469,6 +507,10 @@ func (a *bcAdapter) ReserveMonas(ctx context.Context, accountNum, currency strin
 
 func (a *bcAdapter) CommitMonas(ctx context.Context, reservationID string) error {
 	return a.c.CommitMonas(ctx, reservationID)
+}
+
+func (a *bcAdapter) CreditMonas(ctx context.Context, accountNum, currency string, amount decimal.Decimal, txIDRouting int, txIDLocal string) error {
+	return a.c.CreditMonas(ctx, accountNum, currency, amount, txIDRouting, txIDLocal)
 }
 
 func (a *bcAdapter) ReleaseMonas(ctx context.Context, reservationID string) error {

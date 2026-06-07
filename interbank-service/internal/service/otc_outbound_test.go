@@ -572,3 +572,170 @@ func TestToView_CounterpartyBankName(t *testing.T) {
 		t.Errorf("expected remoteId=%s, got %v", remoteID, view.RemoteID)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// DeclineContract (buyer "Odbi") + PayOutbound (regular payment) fakes & tests
+// ---------------------------------------------------------------------------
+
+// fakeContractRW implements ContractReader (read + UpdateStatus) for decline tests.
+type fakeContractRW struct {
+	byID     map[string]*store.Contract
+	statuses map[string]string
+}
+
+func newFakeContractRW(cs ...*store.Contract) *fakeContractRW {
+	m := map[string]*store.Contract{}
+	for _, c := range cs {
+		m[c.ID] = c
+	}
+	return &fakeContractRW{byID: m, statuses: map[string]string{}}
+}
+
+func (f *fakeContractRW) FindByID(_ context.Context, id string) (*store.Contract, error) {
+	if c, ok := f.byID[id]; ok {
+		cp := *c
+		return &cp, nil
+	}
+	return nil, nil
+}
+
+func (f *fakeContractRW) ListBuyerContracts(_ context.Context, _ string) ([]*store.Contract, error) {
+	return nil, nil
+}
+
+func (f *fakeContractRW) UpdateStatus(_ context.Context, id, status string) error {
+	f.statuses[id] = status
+	return nil
+}
+
+func buyerActiveContract(id string, settlement time.Time, party string) *store.Contract {
+	return &store.Contract{
+		ID:             id,
+		NegotiationID:  "neg-" + id,
+		BuyerRouting:   testOutboundMyRouting,
+		BuyerID:        "C-15",
+		SellerRouting:  testOutboundPartnerRN,
+		SellerID:       "C-2",
+		StockTicker:    "AAPL",
+		Amount:         10,
+		StrikeCurrency: "USD",
+		StrikeAmount:   decimal.NewFromInt(150),
+		SettlementDate: settlement,
+		Status:         store.ContractStatusActive,
+		LocalPartyType: party,
+	}
+}
+
+func TestDeclineContract_BuyerActiveFuture_FlipsDeclined(t *testing.T) {
+	c := buyerActiveContract("otc-dec-1", time.Now().Add(24*time.Hour), store.ContractPartyBuyer)
+	cr := newFakeContractRW(c)
+	svc := newOutboundSvc(newFakeOutboundNegStore(), &fakeOtcOutboundClient{})
+	svc.SetContractDeps(cr, nil)
+
+	if err := svc.DeclineContract(context.Background(), 15, "otc-dec-1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cr.statuses["otc-dec-1"] != store.ContractStatusDeclined {
+		t.Errorf("expected DECLINED, got %q", cr.statuses["otc-dec-1"])
+	}
+}
+
+func TestDeclineContract_NotFound(t *testing.T) {
+	cr := newFakeContractRW()
+	svc := newOutboundSvc(newFakeOutboundNegStore(), &fakeOtcOutboundClient{})
+	svc.SetContractDeps(cr, nil)
+
+	err := svc.DeclineContract(context.Background(), 15, "ghost")
+	if !errors.Is(err, ErrNegotiationNotFound) {
+		t.Fatalf("expected ErrNegotiationNotFound (404), got %v", err)
+	}
+}
+
+func TestDeclineContract_NotBuyer_Conflict(t *testing.T) {
+	c := buyerActiveContract("otc-dec-sell", time.Now().Add(24*time.Hour), store.ContractPartySeller)
+	cr := newFakeContractRW(c)
+	svc := newOutboundSvc(newFakeOutboundNegStore(), &fakeOtcOutboundClient{})
+	svc.SetContractDeps(cr, nil)
+
+	err := svc.DeclineContract(context.Background(), 15, "otc-dec-sell")
+	if !errors.Is(err, ErrNegotiationClosed) {
+		t.Fatalf("expected ErrNegotiationClosed (409) for non-buyer, got %v", err)
+	}
+	if _, flipped := cr.statuses["otc-dec-sell"]; flipped {
+		t.Errorf("seller contract must not be DECLINED")
+	}
+}
+
+func TestDeclineContract_NotActive_Conflict(t *testing.T) {
+	c := buyerActiveContract("otc-dec-ex", time.Now().Add(24*time.Hour), store.ContractPartyBuyer)
+	c.Status = store.ContractStatusExercised
+	cr := newFakeContractRW(c)
+	svc := newOutboundSvc(newFakeOutboundNegStore(), &fakeOtcOutboundClient{})
+	svc.SetContractDeps(cr, nil)
+
+	err := svc.DeclineContract(context.Background(), 15, "otc-dec-ex")
+	if !errors.Is(err, ErrNegotiationClosed) {
+		t.Fatalf("expected ErrNegotiationClosed (409) for non-active, got %v", err)
+	}
+}
+
+func TestDeclineContract_PastSettlement_Conflict(t *testing.T) {
+	c := buyerActiveContract("otc-dec-past", time.Now().Add(-1*time.Hour), store.ContractPartyBuyer)
+	cr := newFakeContractRW(c)
+	svc := newOutboundSvc(newFakeOutboundNegStore(), &fakeOtcOutboundClient{})
+	svc.SetContractDeps(cr, nil)
+
+	err := svc.DeclineContract(context.Background(), 15, "otc-dec-past")
+	if !errors.Is(err, ErrNegotiationClosed) {
+		t.Fatalf("expected ErrNegotiationClosed (409) past settlement, got %v", err)
+	}
+}
+
+// fakePaymentCoordinator captures the PaymentRequest passed to ExecutePayment.
+type fakePaymentCoordinator struct {
+	called bool
+	got    PaymentRequest
+	err    error
+}
+
+func (f *fakePaymentCoordinator) ExecutePayment(_ context.Context, req PaymentRequest) error {
+	f.called = true
+	f.got = req
+	return f.err
+}
+
+func TestPayOutbound_DelegatesToCoordinator(t *testing.T) {
+	pc := &fakePaymentCoordinator{}
+	svc := newOutboundSvc(newFakeOutboundNegStore(), &fakeOtcOutboundClient{})
+	svc.SetPaymentCoordinator(pc)
+
+	body := PaymentBody{
+		FromAccount: "111000000000000015",
+		ToRouting:   testOutboundPartnerRN,
+		ToAccount:   "222000000000000099",
+		Amount:      decimal.NewFromInt(500),
+		Currency:    "USD",
+		Purpose:     "rent",
+	}
+	if err := svc.PayOutbound(context.Background(), body); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !pc.called || pc.got.FromAccount != "111000000000000015" || pc.got.ToAccount != "222000000000000099" || !pc.got.Amount.Equal(decimal.NewFromInt(500)) {
+		t.Errorf("coordinator not invoked with expected request: %+v", pc.got)
+	}
+}
+
+func TestPayOutbound_RejectsSameBankRouting(t *testing.T) {
+	pc := &fakePaymentCoordinator{}
+	svc := newOutboundSvc(newFakeOutboundNegStore(), &fakeOtcOutboundClient{})
+	svc.SetPaymentCoordinator(pc)
+
+	body := PaymentBody{FromAccount: "111000000000000015", ToRouting: testOutboundMyRouting, ToAccount: "111000000000000099", Amount: decimal.NewFromInt(10), Currency: "USD"}
+	err := svc.PayOutbound(context.Background(), body)
+	if !errors.Is(err, ErrNegotiationInvalid) {
+		t.Fatalf("expected ErrNegotiationInvalid for same-bank routing, got %v", err)
+	}
+	if pc.called {
+		t.Errorf("coordinator must not be called for same-bank routing")
+	}
+}

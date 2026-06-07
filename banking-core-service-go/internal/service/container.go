@@ -58,7 +58,7 @@ func NewContainer(cfg config.Config, db *sql.DB) *Container {
 		MarginAccounts:    marginAccounts,
 		MarginTx:          NewMarginTransactionService(db, cfg, accountSvc, marginAccounts),
 		Internal:          internal,
-		Interbank:         NewInterbankService(db, accountSvc),
+		Interbank:         NewInterbankService(db, accountSvc, market),
 		CardService:       cardSvc,
 		Verification:      verificationSvc,
 		Transactions:      transactionSvc,

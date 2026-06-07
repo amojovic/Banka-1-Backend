@@ -13,6 +13,7 @@ import (
 	"banka1/trading-service-go/internal/portfolio"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/shopspring/decimal"
 )
 
 // Service exposes the interbank 2PC stock primitives + the option lifecycle +
@@ -294,6 +295,92 @@ func (s *Service) ReleaseOption(ctx context.Context, negotiationID string) error
 		}
 		return s.repo.UpdateOptionReservationStatus(ctx, tx, negotiationID, OptionReleased)
 	})
+}
+
+// CreditPortfolio is the inverse of the reserve-stock path: it delivers `quantity`
+// shares of `ticker` into the BUYER's portfolio. It is the buyer-side leg (p4) of
+// the inter-bank EXERCISE transaction — when our user is the option buyer, the
+// strike has been paid and the seller-bank has released the shares, so we add the
+// shares to the buyer here. One transaction (Java @Transactional).
+//
+// Listing resolution mirrors the rest of this service: there is no global
+// ticker→listingId index, so we scan the buyer's own positions first, then fall
+// back to the public-stock pool (the seller's advertised position carries the same
+// listingId) to discover the listingId for a brand-new buyer lot. If the buyer
+// already holds the listing, we increment its quantity; otherwise we insert a new
+// lot (average price 0 — the strike was settled on the money leg, not capitalised
+// into the cost basis here, matching the simple delivery semantics of the protocol).
+func (s *Service) CreditPortfolio(ctx context.Context, buyerUserID int64, ticker string, quantity int) error {
+	if quantity <= 0 {
+		return api.NewOtcError(http.StatusNotFound, "Quantity must be positive: "+itoa(int64(quantity)))
+	}
+	if strings.TrimSpace(ticker) == "" {
+		return api.NewOtcError(http.StatusNotFound, "Ticker must not be blank")
+	}
+	return s.runTx(ctx, func(tx pgx.Tx) error {
+		// 1. Resolve the listingId for this ticker (buyer positions → public pool).
+		listingID, found, err := s.resolveListingByTicker(ctx, tx, buyerUserID, ticker)
+		if err != nil {
+			return err
+		}
+		listingType := "STOCK"
+		if !found {
+			lid, lt, ok, perr := s.resolveListingFromPublicPool(ctx, tx, ticker)
+			if perr != nil {
+				return perr
+			}
+			if !ok {
+				return api.NewOtcError(http.StatusNotFound,
+					"Cannot resolve listing for ticker="+ticker+" — no buyer position and not in the public pool")
+			}
+			listingID = lid
+			listingType = lt
+		}
+
+		// 2. Upsert the buyer's lot under a write lock.
+		buyer, err := s.portfolio.FindByUserIDAndListingIDForUpdate(ctx, tx, buyerUserID, listingID)
+		if err != nil {
+			return err
+		}
+		if buyer == nil {
+			if err := s.portfolio.Insert(ctx, tx, buyerUserID, listingID, listingType, quantity, decimal.Zero); err != nil {
+				return err
+			}
+			s.logger.Info("interbank creditPortfolio (new lot)", "buyer", buyerUserID, "ticker", ticker,
+				"listing", listingID, "qty", quantity)
+			return nil
+		}
+		if err := s.portfolio.UpdateQuantity(ctx, tx, buyer.ID, buyer.Quantity+quantity); err != nil {
+			return err
+		}
+		s.logger.Info("interbank creditPortfolio (increment)", "buyer", buyerUserID, "ticker", ticker,
+			"listing", listingID, "qty", quantity, "newQuantity", buyer.Quantity+quantity)
+		return nil
+	})
+}
+
+// resolveListingFromPublicPool finds the listingId (and its listing type) for a
+// ticker by scanning the advertised public-stock positions. Used by CreditPortfolio
+// to deliver to a buyer who does not yet hold the foreign stock.
+func (s *Service) resolveListingFromPublicPool(ctx context.Context, q portfolio.Querier, ticker string) (int64, string, bool, error) {
+	positions, err := s.portfolio.FindAllPublicStocks(ctx, q)
+	if err != nil {
+		return 0, "", false, err
+	}
+	for _, p := range positions {
+		listing, lerr := s.market.GetListing(ctx, p.ListingID)
+		if lerr != nil || listing == nil || listing.Ticker == nil {
+			continue
+		}
+		if strings.EqualFold(ticker, *listing.Ticker) {
+			lt := "STOCK"
+			if p.ListingType != "" {
+				lt = p.ListingType
+			}
+			return p.ListingID, lt, true, nil
+		}
+	}
+	return 0, "", false, nil
 }
 
 // ============================== public-stocks =============================
