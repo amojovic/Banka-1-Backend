@@ -222,6 +222,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	case r.Method == http.MethodPost && path == "/internal/interbank/reserve-monas":
 		h.reserveMonas(w, r)
+	case r.Method == http.MethodPost && path == "/internal/interbank/credit-monas":
+		h.creditMonas(w, r)
 	case r.Method == http.MethodPost && strings.HasPrefix(path, "/internal/interbank/reservations/") && strings.HasSuffix(path, "/commit-monas"):
 		id, _ := trimPrefixSuffix(path, "/internal/interbank/reservations/", "/commit-monas")
 		h.commitMonas(w, r, id)
@@ -483,6 +485,18 @@ func (h *Handler) reserveMonas(w http.ResponseWriter, r *http.Request) {
 	respond(w, service.ReserveMonasResponse{ReservationID: id}, http.StatusOK, err)
 }
 
+func (h *Handler) creditMonas(w http.ResponseWriter, r *http.Request) {
+	if !h.requireServiceRole(w, r) {
+		return
+	}
+	var req service.CreditMonasRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	resp, err := h.services.Interbank.CreditMonas(r.Context(), req)
+	respond(w, resp, http.StatusOK, err)
+}
+
 func (h *Handler) commitMonas(w http.ResponseWriter, r *http.Request, id string) {
 	if !h.requireServiceRole(w, r) {
 		return
@@ -690,7 +704,8 @@ func isKnownPath(path string) bool {
 		"/accounts/createMarginAccount", "/accounts/company/createMarginAccount",
 		"/transactions/stockBuyMarginTransaction", "/transactions/stockSellMarginTransaction",
 		"/transactions/internal/reserve-funds", "/transactions/internal/transfer",
-		"/internal/interbank/reserve-monas", "/internal/interbank/account-by-owner", "/internal/interbank/account-resolve",
+		"/internal/interbank/reserve-monas", "/internal/interbank/credit-monas",
+		"/internal/interbank/account-by-owner", "/internal/interbank/account-resolve",
 		"/internal/accounts/transaction", "/internal/accounts/exchange/buy", "/internal/accounts/exchange/sell",
 		"/internal/accounts/transactionFromBank", "/internal/accounts/debit", "/internal/accounts/credit",
 		"/internal/accounts/creditBank", "/internal/accounts/debitBank",

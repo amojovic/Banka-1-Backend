@@ -1,4 +1,10 @@
-INSERT INTO listing_daily_price_info (listing_id, date, price, ask, bid, change, volume) VALUES
+-- FIX (lokalni integ + fresh deploy): originalni seed je referencirao listing_id
+-- 101/102/103/201/202 (forex/futures) koji NE postoje — katalog (022) kreira listinge
+-- na sekvencijalnim id-jevima (1-10 akcije, 11+ opcije), nikad 101/201. Na fresh DB
+-- to obara FK fk_listing_daily_price_info_listing i rusi ceo market-service startup.
+-- Wrap u SELECT ... WHERE EXISTS filtrira nepostojece listinge (cosmetic price history).
+INSERT INTO listing_daily_price_info (listing_id, date, price, ask, bid, change, volume)
+SELECT v.listing_id, v.date::date, v.price, v.ask, v.bid, v.change, v.volume FROM (VALUES
   (1, '2026-05-06', 315.59059441, 315.906185, 315.27500382, 4.42169001, 39270903),
   (1, '2026-05-07', 314.89454637, 315.20944092, 314.57965182, -0.69451288, 51642344),
   (1, '2026-05-08', 316.8224777, 317.13930018, 316.50565522, 1.93973502, 43795192),
@@ -389,4 +395,6 @@ INSERT INTO listing_daily_price_info (listing_id, date, price, ask, bid, change,
   (202, '2026-06-02', 74.84600603, 74.92085204, 74.77116002, -1.03276668, 364225),
   (202, '2026-06-03', 76.13837788, 76.21451626, 76.0622395, 1.31468734, 341839),
   (202, '2026-06-04', 77.67744013, 77.75511757, 77.59976269, 1.57017288, 318847)
+) AS v(listing_id, date, price, ask, bid, change, volume)
+WHERE EXISTS (SELECT 1 FROM listing l WHERE l.id = v.listing_id)
 ON CONFLICT (listing_id, date) DO NOTHING;

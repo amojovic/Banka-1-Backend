@@ -205,7 +205,7 @@ func contractRowVals() []any {
 	return []any{
 		"c-1", "neg-1", 222, "C-2", 111, "C-5",
 		"AAPL", 10, "USD", decimal.RequireFromString("200.00"), now, ContractStatusActive,
-		222, "C-2",
+		222, "C-2", ContractPartySeller,
 		int64(0), now, nil, nil,
 	}
 }

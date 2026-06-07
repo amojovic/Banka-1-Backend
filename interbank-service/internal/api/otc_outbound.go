@@ -136,6 +136,82 @@ func (h *OtcOutboundHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// Contracts handles GET /api/interbank/otc/contracts (+ /contracts/my): the
+// buyer-side held option contracts the caller can exercise (S4).
+func (h *OtcOutboundHandler) Contracts(w http.ResponseWriter, r *http.Request) {
+	principalID := extractPrincipalID(r)
+	isAdmin := hasAdminOrSupervisor(r)
+
+	views, err := h.svc.ListContracts(r.Context(), principalID, isAdmin)
+	if err != nil {
+		h.handleOutboundError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, views)
+}
+
+// MyContracts handles GET /api/interbank/otc/contracts/my — always scoped to the
+// caller's own held options (never admin-wide).
+func (h *OtcOutboundHandler) MyContracts(w http.ResponseWriter, r *http.Request) {
+	principalID := extractPrincipalID(r)
+	views, err := h.svc.ListContracts(r.Context(), principalID, false)
+	if err != nil {
+		h.handleOutboundError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, views)
+}
+
+// ExerciseContract handles POST /api/interbank/otc/contracts/{id}/exercise.
+func (h *OtcOutboundHandler) ExerciseContract(w http.ResponseWriter, r *http.Request) {
+	principalID := extractPrincipalID(r)
+	id := chi.URLParam(r, "id")
+
+	// Optional body: { "accountNumber": "111..." } to pin the strike source account.
+	var body struct {
+		AccountNumber string `json:"accountNumber"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&body) // empty/absent body is fine
+	}
+
+	if err := h.svc.ExerciseContract(r.Context(), principalID, id, body.AccountNumber); err != nil {
+		h.handleOutboundError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// DeclineContract handles POST /api/interbank/otc/contracts/{id}/decline — the
+// buyer "Odbi" action that abandons a held option early.
+func (h *OtcOutboundHandler) DeclineContract(w http.ResponseWriter, r *http.Request) {
+	principalID := extractPrincipalID(r)
+	id := chi.URLParam(r, "id")
+
+	if err := h.svc.DeclineContract(r.Context(), principalID, id); err != nil {
+		h.handleOutboundError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// Payment handles POST /api/interbank/otc/payments — an outbound REGULAR inter-bank
+// money transfer (Banka1→Banka2). Backend capability only (no Banka-1 FE — Tim-1
+// scope). Returns 204 on success.
+func (h *OtcOutboundHandler) Payment(w http.ResponseWriter, r *http.Request) {
+	var body service.PaymentBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body: "+err.Error())
+		return
+	}
+
+	if err := h.svc.PayOutbound(r.Context(), body); err != nil {
+		h.handleOutboundError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // PartnerPublicStock handles GET /api/interbank/otc/public-stock?bankCode=222.
 func (h *OtcOutboundHandler) PartnerPublicStock(w http.ResponseWriter, r *http.Request) {
 	bankCode := 222 // default: Banka 2
@@ -174,6 +250,8 @@ func (h *OtcOutboundHandler) handleOutboundError(w http.ResponseWriter, r *http.
 	case errors.Is(err, service.ErrNegotiationClosed):
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrNegotiationInvalid):
+		writeError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, service.ErrInsufficientFunds):
 		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, service.ErrSenderNotParty):
 		writeError(w, http.StatusForbidden, err.Error())
