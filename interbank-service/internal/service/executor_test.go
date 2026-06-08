@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"testing"
-	"time"
 
 	"github.com/shopspring/decimal"
 
@@ -83,22 +82,11 @@ type fakeBankingCoreReserver struct {
 	reserved  []string // reservation IDs created
 	committed []string
 	released  []string
-	credited  []creditCall // CreditMonas calls recorded (positive-leg credits)
 
 	failReserve bool
 	reserveErr  error
-	creditErr   error // forced CreditMonas failure
 	// failAfter: if > 0, the Nth call to ReserveMonas (1-indexed) will fail.
 	failAfter int
-}
-
-// creditCall records a single CreditMonas invocation for assertions.
-type creditCall struct {
-	accountNum  string
-	currency    string
-	amount      decimal.Decimal
-	txIDRouting int
-	txIDLocal   string
 }
 
 func newFakeBC(accounts map[string]*AccountInfo) *fakeBankingCoreReserver {
@@ -153,17 +141,6 @@ func (f *fakeBankingCoreReserver) CommitMonas(_ context.Context, reservationID s
 	return nil
 }
 
-func (f *fakeBankingCoreReserver) CreditMonas(_ context.Context, accountNum, currency string, amount decimal.Decimal, txIDRouting int, txIDLocal string) error {
-	if f.creditErr != nil {
-		return f.creditErr
-	}
-	f.credited = append(f.credited, creditCall{
-		accountNum: accountNum, currency: currency, amount: amount,
-		txIDRouting: txIDRouting, txIDLocal: txIDLocal,
-	})
-	return nil
-}
-
 func (f *fakeBankingCoreReserver) ReleaseMonas(_ context.Context, reservationID string) error {
 	f.released = append(f.released, reservationID)
 	return nil
@@ -177,17 +154,6 @@ type fakeTradingReserver struct {
 
 	failReserveStock bool
 	optionSellers    map[string]string // negotiation id → sellerForeignID (for lookup validation)
-
-	// CreditPortfolio tracking (S7/S8 buyer-side delivery + S9 settlement tests).
-	creditedPortfolio   []creditPortfolioCall
-	failCreditPortfolio bool
-}
-
-// creditPortfolioCall records a single CreditPortfolio invocation for assertions.
-type creditPortfolioCall struct {
-	buyerUserID int64
-	ticker      string
-	quantity    int
 }
 
 func (f *fakeTradingReserver) ReserveStock(_ context.Context, sellerUserID int64, ticker string, quantity int, txIDRouting int, txIDLocal string) (string, error) {
@@ -225,14 +191,6 @@ func (f *fakeTradingReserver) ReleaseOption(_ context.Context, negotiationID pro
 	return nil
 }
 
-func (f *fakeTradingReserver) CreditPortfolio(_ context.Context, buyerUserID int64, ticker string, quantity int) error {
-	if f.failCreditPortfolio {
-		return errors.New("fakeTradingReserver: CreditPortfolio forced failure")
-	}
-	f.creditedPortfolio = append(f.creditedPortfolio, creditPortfolioCall{buyerUserID: buyerUserID, ticker: ticker, quantity: quantity})
-	return nil
-}
-
 // fakeNegotiationLookup implements NegotiationReader for the Executor's validator needs,
 // and also serves as OptionNegotiationLookup for reservePosting.
 type fakeNegotiationLookup struct {
@@ -240,15 +198,10 @@ type fakeNegotiationLookup struct {
 }
 
 type fakeNegForExec struct {
-	SellerID     string
-	IsOngoing    bool
-	Amount       int
-	Settlement   string          // RFC3339 (parsed into NegotiationLite.SettlementDate when set)
-	PricePerUnit decimal.Decimal // per-unit strike; drives ValidateExerciseTx amount check
-	// RemoteID, when set, marks this as a non-authoritative mirror row whose
-	// remote_negotiation_id == RemoteID (the wire/partner id). Drives
-	// ResolveLocalNegotiationID's remote→local mapping.
-	RemoteID string
+	SellerID   string
+	IsOngoing  bool
+	Amount     int
+	Settlement string // RFC3339
 }
 
 func (f *fakeNegotiationLookup) FindNegotiation(ctx context.Context, id protocol.ForeignBankId) (*NegotiationLite, error) {
@@ -256,41 +209,15 @@ func (f *fakeNegotiationLookup) FindNegotiation(ctx context.Context, id protocol
 	if !ok {
 		return nil, errors.New("not found")
 	}
-	lite := &NegotiationLite{IsOngoing: n.IsOngoing, Amount: n.Amount, PricePerUnit: n.PricePerUnit}
-	if n.Settlement != "" {
-		if t, perr := time.Parse(time.RFC3339, n.Settlement); perr == nil {
-			lite.SettlementDate = t
-		}
-	}
-	return lite, nil
+	return &NegotiationLite{IsOngoing: n.IsOngoing, Amount: n.Amount}, nil
 }
 
 func (f *fakeNegotiationLookup) FindSellerID(ctx context.Context, negID string) (string, error) {
-	// Match the real FindByAuthoritativeRef: by local key OR by remote id (mirror row).
-	if n, ok := f.negs[negID]; ok {
-		return n.SellerID, nil
+	n, ok := f.negs[negID]
+	if !ok {
+		return "", errors.New("negotiation not found: " + negID)
 	}
-	for _, n := range f.negs {
-		if n.RemoteID == negID {
-			return n.SellerID, nil
-		}
-	}
-	return "", errors.New("negotiation not found: " + negID)
-}
-
-// ResolveLocalNegotiationID mirrors store.NegotiationStore.FindByAuthoritativeRef:
-// an entry keyed by its own (local) id resolves to itself (authoritative); an entry
-// whose RemoteID == wireID resolves to its local key (mirror row).
-func (f *fakeNegotiationLookup) ResolveLocalNegotiationID(ctx context.Context, wireID string) (string, bool, error) {
-	if _, ok := f.negs[wireID]; ok {
-		return wireID, true, nil
-	}
-	for localID, n := range f.negs {
-		if n.RemoteID == wireID {
-			return localID, true, nil
-		}
-	}
-	return "", false, nil
+	return n.SellerID, nil
 }
 
 // discardLogger returns a slog.Logger that discards all output.
@@ -676,12 +603,8 @@ func TestRollbackLocal_AlreadyTerminal_NoOp(t *testing.T) {
 // Additional tests
 // ---------------------------------------------------------------------------
 
-// Test 13 [S3 FIX]: CommitLocal of an accept-COMMIT carrying an OPTION ref must
-// KEEP the seller's HELD reservation — it must NOT exercise (strip the seller's
-// shares) on accept. The real ExerciseOption runs only from the dedicated exercise
-// round (inbound EXERCISE tx). So no ExerciseOption is called here; the tx still
-// transitions to COMMITTED.
-func TestCommitLocal_OptionRef_KeepsHeldReservation_NoExercise(t *testing.T) {
+// Test 13: CommitLocal with OPTION ref → ExerciseOption called.
+func TestCommitLocal_OptionRef_Exercises(t *testing.T) {
 	td := &fakeTradingReserver{}
 	negID := "neg-exercise-1"
 	negRouting := 111
@@ -703,12 +626,8 @@ func TestCommitLocal_OptionRef_KeepsHeldReservation_NoExercise(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CommitLocal: %v", err)
 	}
-	// S3: accept-commit must NOT exercise → no commit/exercise side effect on the option.
-	if len(td.committed) != 0 {
-		t.Errorf("accept-commit must KEEP the HELD reservation (no exercise), got td.committed=%v", td.committed)
-	}
-	if len(td.released) != 0 {
-		t.Errorf("accept-commit must not release the option, got td.released=%v", td.released)
+	if len(td.committed) != 1 || td.committed[0] != "option-exercise-"+negID {
+		t.Errorf("expected ExerciseOption(%q), got td.committed=%v", negID, td.committed)
 	}
 	tx := s.txns[txKey(222, "tx-option-commit")]
 	if tx.Status != store.TxStatusCommitted {

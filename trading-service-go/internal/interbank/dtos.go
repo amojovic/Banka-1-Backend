@@ -23,16 +23,6 @@ type ReserveStockRes struct {
 	ReservationID string `json:"reservationId"`
 }
 
-// CreditPortfolioReq is the body of POST /internal/interbank/portfolio/credit —
-// the buyer-side stock delivery leg (p4) of the inter-bank EXERCISE transaction.
-// interbank-service calls this when OUR user is the option buyer and the exercise
-// has committed: deliver `quantity` shares of `ticker` into the buyer's portfolio.
-type CreditPortfolioReq struct {
-	BuyerUserID int64  `json:"buyerUserId"`
-	Ticker      string `json:"ticker"`
-	Quantity    int    `json:"quantity"`
-}
-
 // ReserveOptionReq mirrors InterbankOptionController.ReserveOptionReq.
 // sellerForeignId is a pointer so an absent field (Java null →
 // "sellerForeignId must not be null") is distinguishable from a present value

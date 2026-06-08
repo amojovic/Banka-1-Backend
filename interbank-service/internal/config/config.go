@@ -70,7 +70,6 @@ type InterbankConfig struct {
 	Services        ServicesConfig
 	Outbound        OutboundConfig
 	Retry           RetryConfig
-	Expiry          ExpiryConfig
 }
 
 // Partner describes a remote bank used for outbound calls and inbound auth.
@@ -109,13 +108,6 @@ type OutboundConfig struct {
 type RetryConfig struct {
 	Interval   time.Duration `envconfig:"INTERVAL" default:"2m"`
 	MaxRetries int           `envconfig:"MAX_RETRIES" default:"5"`
-}
-
-// ExpiryConfig controls the contract-expiry sweeper (S10).
-// Env prefix: INTERBANK_EXPIRY_*.
-type ExpiryConfig struct {
-	// Interval between expiry sweeps. Mirrors the retry scheduler's interval style.
-	Interval time.Duration `envconfig:"INTERVAL" default:"5m"`
 }
 
 // Load reads all INTERBANK_* env vars into a Config struct.

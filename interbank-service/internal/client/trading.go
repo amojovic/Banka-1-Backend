@@ -125,18 +125,6 @@ func (c *TradingClient) ReleaseOption(ctx context.Context, negotiationID protoco
 	return c.do(ctx, http.MethodDelete, u, nil, nil)
 }
 
-// CreditPortfolio delivers `quantity` shares of `ticker` into the buyer's
-// portfolio (the buyer-side leg of an inter-bank option EXERCISE). Inverse of the
-// reserve-stock path. Returns nil on 204.
-func (c *TradingClient) CreditPortfolio(ctx context.Context, buyerUserID int64, ticker string, quantity int) error {
-	body := map[string]any{
-		"buyerUserId": buyerUserID,
-		"ticker":      ticker,
-		"quantity":    quantity,
-	}
-	return c.do(ctx, http.MethodPost, c.baseURL+"/internal/interbank/portfolio/credit", body, nil)
-}
-
 func (c *TradingClient) do(ctx context.Context, method, rawURL string, body, out any) error {
 	req, err := buildRequest(ctx, method, rawURL, body)
 	if err != nil {

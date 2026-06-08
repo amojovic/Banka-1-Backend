@@ -79,11 +79,11 @@ func (c *BankingCoreClient) FindAccountByOwnerAndCurrency(ctx context.Context, o
 // Returns the reservation UUID. Idempotent per (txIDRouting, txIDLocal) on the server.
 func (c *BankingCoreClient) ReserveMonas(ctx context.Context, accountNum, currency string, amount decimal.Decimal, txIDRouting int, txIDLocal string) (string, error) {
 	body := map[string]any{
-		"accountNum":           accountNum,
-		"currency":             currency,
-		"amount":               amount.String(),
-		"transactionIdRouting": txIDRouting,
-		"transactionIdLocal":   txIDLocal,
+		"accountNum":  accountNum,
+		"currency":    currency,
+		"amount":      amount.String(),
+		"txIdRouting": txIDRouting,
+		"txIdLocal":   txIDLocal,
 	}
 	var resp struct {
 		ReservationID string `json:"reservationId"`
@@ -92,21 +92,6 @@ func (c *BankingCoreClient) ReserveMonas(ctx context.Context, accountNum, curren
 		return "", err
 	}
 	return resp.ReservationID, nil
-}
-
-// CreditMonas credits a recipient/seller account during 2PC commit (protocol §2.8.4).
-// It is idempotent per (txRouting, txLocal) and FX-aware on the banking-core side:
-// when the account currency differs from the posting currency, banking-core converts
-// using its bank-pool-leg mechanism. Returns nil on 2xx.
-func (c *BankingCoreClient) CreditMonas(ctx context.Context, accountNum, currency string, amount decimal.Decimal, txRouting int, txLocal string) error {
-	body := map[string]any{
-		"accountNum":  accountNum,
-		"currency":    currency,
-		"amount":      amount.String(),
-		"txIdRouting": txRouting,
-		"txIdLocal":   txLocal,
-	}
-	return c.do(ctx, http.MethodPost, c.baseURL+"/internal/interbank/credit-monas", body, nil)
 }
 
 // CommitMonas permanently debits the reserved amount. Returns nil on 204.

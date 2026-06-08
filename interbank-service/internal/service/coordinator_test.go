@@ -130,9 +130,6 @@ func (fakeTDReserver) ReserveOption(_ context.Context, _ protocol.ForeignBankId,
 }
 func (fakeTDReserver) ExerciseOption(_ context.Context, _ protocol.ForeignBankId) error { return nil }
 func (fakeTDReserver) ReleaseOption(_ context.Context, _ protocol.ForeignBankId) error  { return nil }
-func (fakeTDReserver) CreditPortfolio(_ context.Context, _ int64, _ string, _ int) error {
-	return nil
-}
 
 // fakeBCReserverFull implements BankingCoreReserver with correct signatures.
 type fakeBCReserverFull struct{}
@@ -150,9 +147,6 @@ func (f fakeBCReserverFull) ReserveMonas(ctx context.Context, accountNum, curren
 }
 
 func (f fakeBCReserverFull) CommitMonas(ctx context.Context, reservationID string) error { return nil }
-func (f fakeBCReserverFull) CreditMonas(ctx context.Context, accountNum, currency string, amount decimal.Decimal, txIDRouting int, txIDLocal string) error {
-	return nil
-}
 func (f fakeBCReserverFull) ReleaseMonas(ctx context.Context, reservationID string) error { return nil }
 
 // ---------------------------------------------------------------------------
@@ -189,7 +183,7 @@ func buildCoordinator(outbound OutboundClient, negStore NegotiationStoreIface, c
 	// Wire NegotiationSellerLookup so the Validator can resolve option negotiations.
 	negLookup := NewNegotiationSellerLookup(negStore)
 	exec := NewExecutor(myRouting, es, fakeBCReserverFull{}, fakeTDReserver{}, negLookup, nil)
-	return NewCoordinator(myRouting, exec, outbound, negStore, contractSt, fakeBCReserverFull{}, nil, nil, nil, nil)
+	return NewCoordinator(myRouting, exec, outbound, negStore, contractSt, fakeBCReserverFull{}, nil)
 }
 
 // ---------------------------------------------------------------------------
@@ -286,163 +280,5 @@ func TestCoordinator_CommitTxSendFailure_NonFatal(t *testing.T) {
 	}
 	if len(cs.inserted) == 0 {
 		t.Error("contract must be inserted even if SendCommitTx fails")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// ExecutePayment — outbound REGULAR inter-bank payment coordinator (Banka1→Banka2)
-// ---------------------------------------------------------------------------
-
-// buildPaymentCoordinator wires a coordinator whose executor + bc share the same
-// map-backed fakeBankingCoreReserver so the funds guard (ResolveAccount), the
-// sender reservation (ReserveMonas), commit (CommitMonas) and release (ReleaseMonas)
-// all land on one fake we can assert against.
-func buildPaymentCoordinator(outbound OutboundClient, bc *fakeBankingCoreReserver) *Coordinator {
-	es := newCoordExecStore()
-	negLookup := NewNegotiationSellerLookup(newFakeNegotiationStore())
-	exec := NewExecutor(myRouting, es, bc, &fakeTradingReserver{}, negLookup, nil)
-	return NewCoordinator(myRouting, exec, outbound, newFakeNegotiationStore(), &fakeContractStore{}, bc, bc, &fakeTradingReserver{}, newFakeContractWriter(), nil)
-}
-
-func paymentReq() PaymentRequest {
-	return PaymentRequest{
-		FromAccount: "111000000000000015",
-		ToRouting:   theirRouting,
-		ToAccount:   "222000000000000099",
-		Amount:      decimal.NewFromInt(500),
-		Currency:    "USD",
-		Purpose:     "rent",
-	}
-}
-
-func TestExecutePayment_HappyPath_BalancedTxCommits(t *testing.T) {
-	bc := newFakeBC(map[string]*AccountInfo{
-		"111000000000000015": {Currency: "USD", AvailableBalance: decimal.NewFromInt(100000)},
-	})
-	cap := &capturingOutbound{vote: protocol.TransactionVote{Vote: protocol.VoteYes}}
-	coord := buildPaymentCoordinator(cap, bc)
-
-	if err := coord.ExecutePayment(context.Background(), paymentReq()); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Built tx must be a balanced 2-posting payment.
-	v := NewValidator(myRouting, nil, nil, nil)
-	if reasons := v.BalanceCheck(cap.tx.Postings); len(reasons) != 0 {
-		t.Fatalf("payment tx must be balanced, got %v", reasons)
-	}
-	if len(cap.tx.Postings) != 2 {
-		t.Fatalf("expected 2 postings, got %d", len(cap.tx.Postings))
-	}
-	// Sender debited via reservation-commit; nothing released.
-	if len(bc.reserved) != 1 || len(bc.committed) != 1 || len(bc.released) != 0 {
-		t.Errorf("expected reserve+commit (no release): reserved=%v committed=%v released=%v", bc.reserved, bc.committed, bc.released)
-	}
-	if !cap.committed {
-		t.Error("expected SendCommitTx to partner")
-	}
-	// Recipient is partner-side; we must NOT credit it locally.
-	if len(bc.credited) != 0 {
-		t.Errorf("recipient is partner-side — no local credit expected, got %v", bc.credited)
-	}
-}
-
-// TestExecutePayment_RecipientIsRealAccount is the RealAccount red-proof: the
-// recipient posting MUST be a *protocol.RealAccount (type=ACCOUNT) carrying the
-// raw ToAccount number, NOT a *protocol.PersonAccount (which would make the partner
-// try to resolve the account number as a client-id → NO_SUCH_ACCOUNT — a live-test
-// failure). Both legs are RealAccount, so sender vs recipient is told apart by the
-// account number rather than the type. Flipping recipient to PersonAccount in
-// coordinator.go makes THIS test fail.
-func TestExecutePayment_RecipientIsRealAccount(t *testing.T) {
-	bc := newFakeBC(map[string]*AccountInfo{
-		"111000000000000015": {Currency: "USD", AvailableBalance: decimal.NewFromInt(100000)},
-	})
-	cap := &capturingOutbound{vote: protocol.TransactionVote{Vote: protocol.VoteYes}}
-	coord := buildPaymentCoordinator(cap, bc)
-	if err := coord.ExecutePayment(context.Background(), paymentReq()); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var sender, recipient *protocol.Posting
-	for i := range cap.tx.Postings {
-		p := &cap.tx.Postings[i]
-		ra, ok := p.Account.(*protocol.RealAccount)
-		if !ok {
-			t.Fatalf("every payment posting must be a *protocol.RealAccount, got %T", p.Account)
-		}
-		switch ra.Num {
-		case "111000000000000015":
-			sender = p
-		case "222000000000000099":
-			recipient = p
-		default:
-			t.Fatalf("unexpected account number %q in posting", ra.Num)
-		}
-	}
-	if recipient == nil {
-		t.Fatal("recipient posting (RealAccount{Num: ToAccount}) not found — recipient must be a RealAccount, not a PersonAccount")
-	}
-	// Directions: sender CREDIT (−amount), recipient DEBIT (+amount).
-	if sender == nil || sender.Amount.String() != "-500" {
-		t.Errorf("sender CREDIT must be -500 on RealAccount sender, got %v", sender)
-	}
-	if recipient.Amount.String() != "500" {
-		t.Errorf("recipient DEBIT must be +500 on RealAccount recipient, got %v", recipient)
-	}
-}
-
-func TestExecutePayment_PartnerRejects_SafeRollback(t *testing.T) {
-	bc := newFakeBC(map[string]*AccountInfo{
-		"111000000000000015": {Currency: "USD", AvailableBalance: decimal.NewFromInt(100000)},
-	})
-	outbound := &fakeOutboundClient{vote: protocol.TransactionVote{Vote: protocol.VoteNo, Reasons: []protocol.NoVoteReason{{Reason: protocol.ReasonNoSuchAccount}}}}
-	coord := buildPaymentCoordinator(outbound, bc)
-
-	err := coord.ExecutePayment(context.Background(), paymentReq())
-	if err == nil {
-		t.Fatal("expected error when partner rejects payment")
-	}
-	// Sender reservation must be released; never committed.
-	if len(bc.reserved) != 1 || len(bc.released) != 1 || len(bc.committed) != 0 {
-		t.Errorf("expected reserve+release (no commit): reserved=%v released=%v committed=%v", bc.reserved, bc.released, bc.committed)
-	}
-	if !outbound.rolledBack {
-		t.Error("expected partner ROLLBACK_TX on reject")
-	}
-}
-
-func TestExecutePayment_InsufficientFunds_NoReservation(t *testing.T) {
-	bc := newFakeBC(map[string]*AccountInfo{
-		"111000000000000015": {Currency: "USD", AvailableBalance: decimal.NewFromInt(100)}, // < 500
-	})
-	cap := &capturingOutbound{vote: protocol.TransactionVote{Vote: protocol.VoteYes}}
-	coord := buildPaymentCoordinator(cap, bc)
-
-	err := coord.ExecutePayment(context.Background(), paymentReq())
-	if !errors.Is(err, ErrInsufficientFunds) {
-		t.Fatalf("expected ErrInsufficientFunds, got %v", err)
-	}
-	// Guard runs BEFORE any reservation and before contacting the partner.
-	if len(bc.reserved) != 0 {
-		t.Errorf("no reservation must be made on insufficient funds, got %v", bc.reserved)
-	}
-	if cap.tx.TransactionId.Id != "" {
-		t.Errorf("partner must not be contacted on insufficient funds, got tx %v", cap.tx.TransactionId)
-	}
-}
-
-func TestExecutePayment_CurrencyMismatch_Rejected(t *testing.T) {
-	bc := newFakeBC(map[string]*AccountInfo{
-		"111000000000000015": {Currency: "EUR", AvailableBalance: decimal.NewFromInt(100000)},
-	})
-	outbound := &fakeOutboundClient{vote: protocol.TransactionVote{Vote: protocol.VoteYes}}
-	coord := buildPaymentCoordinator(outbound, bc)
-
-	err := coord.ExecutePayment(context.Background(), paymentReq()) // USD vs EUR account
-	if !errors.Is(err, ErrNegotiationInvalid) {
-		t.Fatalf("expected ErrNegotiationInvalid for currency mismatch, got %v", err)
-	}
-	if len(bc.reserved) != 0 {
-		t.Errorf("no reservation on currency mismatch, got %v", bc.reserved)
 	}
 }

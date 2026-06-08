@@ -229,6 +229,5 @@ func registerRoutes(handle func(method, path string, handler http.Handler), app 
 	handle(http.MethodPost, "/internal/interbank/options/{negotiationId}/reserve", orderSecured(jwtService, serviceOnly, handlers.InterbankReserveOption))
 	handle(http.MethodPost, "/internal/interbank/options/{negotiationId}/exercise", orderSecured(jwtService, serviceOnly, handlers.InterbankExerciseOption))
 	handle(http.MethodDelete, "/internal/interbank/options/{negotiationId}/release", orderSecured(jwtService, serviceOnly, handlers.InterbankReleaseOption))
-	handle(http.MethodPost, "/internal/interbank/portfolio/credit", orderSecured(jwtService, serviceOnly, handlers.InterbankCreditPortfolio))
 	handle(http.MethodGet, "/internal/interbank/public-stocks", orderSecured(jwtService, serviceOnly, handlers.InterbankPublicStocks))
 }

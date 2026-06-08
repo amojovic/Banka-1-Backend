@@ -90,21 +90,6 @@ func (h *Handlers) InterbankReleaseOption(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// InterbankCreditPortfolio ↔ POST /internal/interbank/portfolio/credit (204).
-// Buyer-side stock delivery (p4) of the inter-bank EXERCISE transaction.
-func (h *Handlers) InterbankCreditPortfolio(w http.ResponseWriter, r *http.Request) {
-	var req interbank.CreditPortfolioReq
-	if err := decodeJSONLenient(r, &req); err != nil {
-		writeDomainError(w, r, api.NewOrderError(http.StatusBadRequest, "Malformed JSON request body"))
-		return
-	}
-	if err := h.app.Interbank.CreditPortfolio(r.Context(), req.BuyerUserID, req.Ticker, req.Quantity); err != nil {
-		writeDomainError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
 // InterbankPublicStocks ↔ GET /internal/interbank/public-stocks (200, list).
 func (h *Handlers) InterbankPublicStocks(w http.ResponseWriter, r *http.Request) {
 	out, err := h.app.Interbank.PublicStocks(r.Context())

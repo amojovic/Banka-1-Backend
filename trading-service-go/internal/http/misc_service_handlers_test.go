@@ -162,10 +162,6 @@ func (ibPortStub) UpdateQuantityAndReserved(context.Context, portfolio.Querier, 
 func (ibPortStub) FindAllPublicStocks(context.Context, portfolio.Querier) ([]portfolio.Portfolio, error) {
 	return nil, nil
 }
-func (ibPortStub) UpdateQuantity(context.Context, portfolio.Querier, int64, int) error { return nil }
-func (ibPortStub) Insert(context.Context, portfolio.Querier, int64, int64, string, int, decimal.Decimal) error {
-	return nil
-}
 
 type ibMktStub struct{}
 

@@ -12,7 +12,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/shopspring/decimal"
 )
 
 // ---- stubs ----
@@ -53,21 +52,6 @@ type stubIBPortfolio struct {
 	position  *portfolio.Portfolio
 	posOneErr error
 	updateErr error
-
-	// publicPositions, when non-nil, is returned by FindAllPublicStocks instead of
-	// positions — letting a test give the buyer scan (FindByUserID) and the public
-	// pool scan (FindAllPublicStocks) distinct contents (CreditPortfolio fallback).
-	publicPositions []portfolio.Portfolio
-	hasPublic       bool
-
-	// CreditPortfolio (S7/S8) bookkeeping.
-	insertErr           error
-	insertedUserID      int64
-	insertedListingID   int64
-	insertedListingType string
-	insertedQty         int
-	updatedID           int64
-	updatedQuantity     int
 }
 
 func (s *stubIBPortfolio) Pool() *pgxpool.Pool { return nil }
@@ -87,22 +71,7 @@ func (s *stubIBPortfolio) UpdateQuantityAndReserved(_ context.Context, _ portfol
 	return s.updateErr
 }
 func (s *stubIBPortfolio) FindAllPublicStocks(_ context.Context, _ portfolio.Querier) ([]portfolio.Portfolio, error) {
-	if s.hasPublic {
-		return s.publicPositions, s.posErr
-	}
 	return s.positions, s.posErr
-}
-func (s *stubIBPortfolio) UpdateQuantity(_ context.Context, _ portfolio.Querier, id int64, quantity int) error {
-	s.updatedID = id
-	s.updatedQuantity = quantity
-	return s.updateErr
-}
-func (s *stubIBPortfolio) Insert(_ context.Context, _ portfolio.Querier, userID, listingID int64, listingType string, quantity int, _ decimal.Decimal) error {
-	s.insertedUserID = userID
-	s.insertedListingID = listingID
-	s.insertedListingType = listingType
-	s.insertedQty = quantity
-	return s.insertErr
 }
 
 type stubIBMarket struct {

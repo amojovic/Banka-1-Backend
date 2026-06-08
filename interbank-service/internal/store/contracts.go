@@ -17,16 +17,6 @@ const (
 	ContractStatusExercised      = "EXERCISED"       // option exercised successfully
 	ContractStatusExpired        = "EXPIRED"         // settlement_date passed without exercise
 	ContractStatusReleased       = "RELEASED"        // cancelled before expiry
-	ContractStatusDeclined       = "DECLINED"        // buyer abandoned the option early ("Odbi")
-)
-
-// Contract local-party-type constants (migration 20260524000006). Distinguishes
-// which side of the option WE hold locally:
-//   - SELLER — we host the option pseudo-account (seller-side accept coordinator).
-//   - BUYER  — our user holds the option right (buyer-side inbound accept).
-const (
-	ContractPartySeller = "SELLER"
-	ContractPartyBuyer  = "BUYER"
 )
 
 // Contract mirrors the interbank_contracts row.
@@ -53,7 +43,6 @@ type Contract struct {
 	Status                 string
 	OptionPseudoOwnerRouting int
 	OptionPseudoOwnerID    string
-	LocalPartyType         string // SELLER | BUYER (migration 20260524000006)
 	Version                int64
 	CreatedAt              time.Time
 	ExercisedAt            *time.Time
@@ -67,7 +56,7 @@ func NewContractStore(pool *pgxpool.Pool) *ContractStore { return &ContractStore
 const contractSelectCols = `
 	id, negotiation_id, buyer_routing_number, buyer_id, seller_routing_number, seller_id,
 	stock_ticker, amount, strike_currency, strike_amount, settlement_date, status,
-	option_pseudo_owner_routing, option_pseudo_owner_id, local_party_type,
+	option_pseudo_owner_routing, option_pseudo_owner_id,
 	version, created_at, exercised_at, expired_at`
 
 func scanContract(row pgx.Row) (*Contract, error) {
@@ -75,7 +64,7 @@ func scanContract(row pgx.Row) (*Contract, error) {
 	err := row.Scan(
 		&c.ID, &c.NegotiationID, &c.BuyerRouting, &c.BuyerID, &c.SellerRouting, &c.SellerID,
 		&c.StockTicker, &c.Amount, &c.StrikeCurrency, &c.StrikeAmount, &c.SettlementDate, &c.Status,
-		&c.OptionPseudoOwnerRouting, &c.OptionPseudoOwnerID, &c.LocalPartyType,
+		&c.OptionPseudoOwnerRouting, &c.OptionPseudoOwnerID,
 		&c.Version, &c.CreatedAt, &c.ExercisedAt, &c.ExpiredAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -87,57 +76,19 @@ func scanContract(row pgx.Row) (*Contract, error) {
 	return &c, nil
 }
 
-// Insert writes a new contract row, populating CreatedAt. When LocalPartyType is
-// empty it defaults to SELLER (the historical seller-side accept-coordinator path).
+// Insert writes a new contract row, populating CreatedAt.
 func (s *ContractStore) Insert(ctx context.Context, c *Contract) error {
-	partyType := c.LocalPartyType
-	if partyType == "" {
-		partyType = ContractPartySeller
-	}
-	c.LocalPartyType = partyType
 	return s.pool.QueryRow(ctx, `
 		INSERT INTO interbank_contracts
 			(id, negotiation_id, buyer_routing_number, buyer_id, seller_routing_number, seller_id,
 			 stock_ticker, amount, strike_currency, strike_amount, settlement_date, status,
-			 option_pseudo_owner_routing, option_pseudo_owner_id, local_party_type, version)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,0)
+			 option_pseudo_owner_routing, option_pseudo_owner_id, version)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,0)
 		RETURNING created_at`,
 		c.ID, c.NegotiationID, c.BuyerRouting, c.BuyerID, c.SellerRouting, c.SellerID,
 		c.StockTicker, c.Amount, c.StrikeCurrency, c.StrikeAmount, c.SettlementDate, c.Status,
-		c.OptionPseudoOwnerRouting, c.OptionPseudoOwnerID, partyType,
+		c.OptionPseudoOwnerRouting, c.OptionPseudoOwnerID,
 	).Scan(&c.CreatedAt)
-}
-
-// ListBuyerContracts returns the buyer-side held option contracts (local_party_type
-// = BUYER) for a given buyer foreign id, newest first. When buyerID is empty
-// (admin/supervisor scope) all buyer-side contracts are returned. Used by
-// GET /api/interbank/otc/contracts so the FE can list & exercise held options.
-func (s *ContractStore) ListBuyerContracts(ctx context.Context, buyerID string) ([]*Contract, error) {
-	var rows pgx.Rows
-	var err error
-	if buyerID == "" {
-		rows, err = s.pool.Query(ctx,
-			`SELECT `+contractSelectCols+` FROM interbank_contracts
-			 WHERE local_party_type = 'BUYER' ORDER BY created_at DESC`)
-	} else {
-		rows, err = s.pool.Query(ctx,
-			`SELECT `+contractSelectCols+` FROM interbank_contracts
-			 WHERE local_party_type = 'BUYER' AND buyer_id = $1 ORDER BY created_at DESC`,
-			buyerID)
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []*Contract
-	for rows.Next() {
-		c, scanErr := scanContract(rows)
-		if scanErr != nil {
-			return nil, scanErr
-		}
-		out = append(out, c)
-	}
-	return out, rows.Err()
 }
 
 // FindByNegotiationID returns (nil, nil) if not found.
@@ -169,31 +120,6 @@ func (s *ContractStore) SumActiveBySellerAndTicker(ctx context.Context, sellerRo
 		  AND status                = 'ACTIVE'`,
 		sellerRouting, sellerID, ticker).Scan(&sum)
 	return sum, err
-}
-
-// ListExpirable returns every ACTIVE contract whose settlement_date is already in
-// the past — the candidates the expiry sweeper (scheduler/expiry.go) must settle.
-// Ordered oldest-first so a backlog is drained in settlement order. The index
-// idx_interbank_contracts_status_settle (status, settlement_date) backs the
-// status='ACTIVE' predicate.
-func (s *ContractStore) ListExpirable(ctx context.Context) ([]*Contract, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT `+contractSelectCols+` FROM interbank_contracts
-		 WHERE status = 'ACTIVE' AND settlement_date < now()
-		 ORDER BY settlement_date ASC`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []*Contract
-	for rows.Next() {
-		c, scanErr := scanContract(rows)
-		if scanErr != nil {
-			return nil, scanErr
-		}
-		out = append(out, c)
-	}
-	return out, rows.Err()
 }
 
 // UpdateStatus flips a contract's status (e.g. ACTIVE→EXERCISED or →EXPIRED).

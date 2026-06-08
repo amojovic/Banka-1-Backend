@@ -42,16 +42,6 @@ func (f *realNegStore) Insert(_ context.Context, n *store.Negotiation) error {
 	return nil
 }
 
-func (f *realNegStore) FindByID(_ context.Context, id string) (*store.Negotiation, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if n, ok := f.rows[id]; ok {
-		cp := *n
-		return &cp, nil
-	}
-	return nil, nil
-}
-
 func (f *realNegStore) FindByAuthoritativeRef(_ context.Context, _ int, id string) (*store.Negotiation, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

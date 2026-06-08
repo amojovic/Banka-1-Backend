@@ -336,7 +336,7 @@ CREATE TABLE IF NOT EXISTS interbank_reservations (
     reservation_id UUID NOT NULL UNIQUE,
     transaction_id_routing INT NOT NULL,
     transaction_id_local VARCHAR(64) NOT NULL,
-    account_number VARCHAR(34) NOT NULL, -- 34 (IBAN max): Banka 1 koristi 19-cifrene racune, VARCHAR(18) je bacao 22001 i obarao 2PC reserve (sibling interbank_credits je vec VARCHAR(34))
+    account_number VARCHAR(18) NOT NULL,
     currency VARCHAR(8) NOT NULL,
     amount NUMERIC(20,4) NOT NULL CHECK (amount > 0),
     status VARCHAR(16) NOT NULL,
@@ -348,22 +348,6 @@ CREATE INDEX IF NOT EXISTS idx_interbank_reservations_tx
     ON interbank_reservations(transaction_id_routing, transaction_id_local);
 CREATE INDEX IF NOT EXISTS idx_interbank_reservations_account_status
     ON interbank_reservations(account_number, status);
-
-CREATE TABLE IF NOT EXISTS interbank_credits (
-    id BIGSERIAL PRIMARY KEY,
-    transaction_id_routing INT NOT NULL,
-    transaction_id_local VARCHAR(64) NOT NULL,
-    account_number VARCHAR(34) NOT NULL, -- 34 (IBAN max): Banka 1 koristi 19-cifrene racune, ne 18
-    posting_currency VARCHAR(8) NOT NULL,
-    posting_amount NUMERIC(20,4) NOT NULL CHECK (posting_amount > 0),
-    credited_currency VARCHAR(8) NOT NULL,
-    credited_amount NUMERIC(20,4) NOT NULL CHECK (credited_amount > 0),
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-    CONSTRAINT uk_interbank_credits_tx UNIQUE (transaction_id_routing, transaction_id_local)
-);
-
-CREATE INDEX IF NOT EXISTS idx_interbank_credits_account
-    ON interbank_credits(account_number);
 
 CREATE TABLE IF NOT EXISTS gdpr_event_log (
     event_id VARCHAR(64) NOT NULL,
