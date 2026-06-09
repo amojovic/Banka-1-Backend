@@ -343,10 +343,8 @@ CREATE TABLE IF NOT EXISTS interbank_reservations (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     finalized_at TIMESTAMP WITH TIME ZONE
 );
--- Self-heal: CREATE TABLE IF NOT EXISTS ne menja vec postojecu tabelu, a racuni su
--- 19 cifara — kolona je bila VARCHAR(18) pa je odlazna interbank rezervacija padala
--- na 22001 ("value too long"). Idempotentno sirenje na 32 (konzistentno sa
--- fund_reservations.account_number); bezbedno na svakom startup-u.
+-- Self-heal postojece baze: CREATE TABLE IF NOT EXISTS ne menja kolonu, a racuni su 19 cifara (bili 18).
+-- VAZNO: komentari u schemaSQL NE smeju sadrzati tacka-zarez jer execStatements deli skriptu po njoj.
 ALTER TABLE interbank_reservations ALTER COLUMN account_number TYPE VARCHAR(32);
 
 CREATE INDEX IF NOT EXISTS idx_interbank_reservations_tx
