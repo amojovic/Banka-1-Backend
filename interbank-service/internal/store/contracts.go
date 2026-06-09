@@ -225,20 +225,27 @@ func (s *ContractStore) SumActiveBySellerAndTicker(ctx context.Context, sellerRo
 }
 
 // ClaimExerciseByNegotiation atomically transitions to EXERCISED the contract whose
-// negotiation matches negID, ONLY when it is currently ACTIVE — the per-contract
+// negotiation matches negID, when it is currently ACTIVE or EXERCISING — the per-contract
 // idempotency claim for cross-bank OTC exercise settlement (FIX B). The single
 // conditional UPDATE is the serialization point: concurrent / different-txId exercises
-// of the same contract race on the same row, and exactly one observes status='ACTIVE'
-// and flips it (rows-affected = 1); the loser sees 0. negID may be EITHER our LOCAL
-// negotiation id (seller-host case: contracts.negotiation_id == the option pseudo id we
-// issued) OR the SELLER bank's authoritative id (buyer case: the option pseudo id is the
-// seller-bank id, mapped to our local mirror via interbank_negotiations.remote_negotiation_id).
+// of the same contract race on the same row, and exactly one observes status IN
+// ('ACTIVE','EXERCISING') and flips it (rows-affected = 1); the loser sees 0. negID may be
+// EITHER our LOCAL negotiation id (seller-host case: contracts.negotiation_id == the option
+// pseudo id we issued) OR the SELLER bank's authoritative id (buyer case: the option pseudo
+// id is the seller-bank id, mapped to our local mirror via interbank_negotiations.remote_negotiation_id).
 // Both are resolved in one statement.
 //
+// EXERCISING is accepted because on the BUYER-coordinator side the entry claim
+// (ClaimExerciseByID) has ALREADY flipped ACTIVE→EXERCISING before CommitLocal runs. With an
+// ACTIVE-only CAS this call would miss (0 rows), settlement would be skipped, and the buyer's
+// stock-credit leg dropped — while the strike debit (off-wire, not under the skip gate) still
+// goes through: buyer paid but never received the shares. The seller-host side has no entry
+// claim, so its contract is ACTIVE and still matches.
+//
 // Returns (exists, claimed): exists=false when there is no matching contract row at all
-// (gate then proceeds ungated); claimed=true when THIS call won the ACTIVE→EXERCISED
-// transition; claimed=false when the contract exists but was not ACTIVE (already EXERCISED
-// or terminal) — settlement must then be skipped.
+// (gate then proceeds ungated); claimed=true when THIS call won the →EXERCISED transition;
+// claimed=false when the contract exists but was already EXERCISED or terminal — settlement
+// must then be skipped (idempotent: a second exercise sees EXERCISED and claims nothing).
 func (s *ContractStore) ClaimExerciseByNegotiation(ctx context.Context, negID string) (exists bool, claimed bool, err error) {
 	// Resolve the matching contract id via either keying scheme, then conditionally flip.
 	// A CTE keeps it to one round-trip and makes the ACTIVE-guard atomic with the lookup.
@@ -258,7 +265,7 @@ func (s *ContractStore) ClaimExerciseByNegotiation(ctx context.Context, negID st
 			UPDATE interbank_contracts c
 			SET status = 'EXERCISED', exercised_at = now(), version = version + 1
 			FROM target
-			WHERE c.id = target.id AND target.status = 'ACTIVE'
+			WHERE c.id = target.id AND target.status IN ('ACTIVE', 'EXERCISING')
 			RETURNING c.id
 		)
 		SELECT

@@ -340,6 +340,48 @@ func TestContractStore_ClaimExerciseByID(t *testing.T) {
 	}
 }
 
+func TestContractStore_ClaimExerciseByNegotiation(t *testing.T) {
+	// Won the claim: existed=1, claimed=1.
+	won := &fakeDB{row: &fakeRow{vals: []any{1, 1}}}
+	s := &ContractStore{pool: won}
+	exists, claimed, err := s.ClaimExerciseByNegotiation(context.Background(), "neg-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exists || !claimed {
+		t.Errorf("expected exists+claimed, got exists=%v claimed=%v", exists, claimed)
+	}
+	if !contains(won.lastSQL, "FOR UPDATE") {
+		t.Errorf("claim must lock the row; SQL = %s", won.lastSQL)
+	}
+	// FIX: on the buyer-coordinator side the entry claim already flipped ACTIVE→EXERCISING,
+	// so the CAS must accept BOTH ACTIVE and EXERCISING — otherwise the buyer's stock-credit
+	// leg is skipped while the strike is still debited (paid, no shares).
+	if !contains(won.lastSQL, "'ACTIVE'") || !contains(won.lastSQL, "'EXERCISING'") {
+		t.Errorf("CAS must claim ACTIVE or EXERCISING → EXERCISED; SQL = %s", won.lastSQL)
+	}
+
+	// Exists but already EXERCISED/terminal: existed=1, claimed=0 → settlement skipped (idempotent).
+	lost := &fakeDB{row: &fakeRow{vals: []any{1, 0}}}
+	exists, claimed, _ = (&ContractStore{pool: lost}).ClaimExerciseByNegotiation(context.Background(), "neg-1")
+	if !exists || claimed {
+		t.Errorf("already-settled: expected exists+!claimed, got exists=%v claimed=%v", exists, claimed)
+	}
+
+	// No matching contract: existed=0, claimed=0 → gate proceeds ungated.
+	missing := &fakeDB{row: &fakeRow{vals: []any{0, 0}}}
+	exists, claimed, _ = (&ContractStore{pool: missing}).ClaimExerciseByNegotiation(context.Background(), "nope")
+	if exists || claimed {
+		t.Errorf("missing: expected !exists+!claimed, got exists=%v claimed=%v", exists, claimed)
+	}
+
+	// Scan error propagates.
+	boom := &fakeDB{row: &fakeRow{scanErr: errors.New("boom")}}
+	if _, _, err := (&ContractStore{pool: boom}).ClaimExerciseByNegotiation(context.Background(), "neg-1"); err == nil {
+		t.Error("expected scan error to propagate")
+	}
+}
+
 func TestContractStore_RevertExercising(t *testing.T) {
 	db := &fakeDB{execTag: commandTag(1)}
 	s := &ContractStore{pool: db}
